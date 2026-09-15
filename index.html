@@ -1,1460 +1,192 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Kurt Creates | Excel & Inventory Management Tutorials</title>
-
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://api.fontshare.com/v2/css?f[]=bespoke-stencil@400&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
-  <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Bebas+Neue&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet" />
-
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: 'Montserrat', sans-serif;
-      overflow-x: hidden;
-      transition: background-color 0.3s ease, color 0.3s ease;
-    }
-
-    h1, h2, h3, h4, .font-serif, .font-heading {
-      font-family: 'Bespoke Stencil', 'Playfair Display', serif;
-      font-weight: 400;
-      letter-spacing: 0.02em;
-    }
-
-    :root {
-      --gold: #C6A43F;
-      --gold-light: #D4B96A;
-      --gold-glow: rgba(198,164,63,0.35);
-      --navy: #1A2A3A;
-      --navy-light: #2C3E50;
-      --cream: #FEFCF8;
-      --bg-light: #fefcf8;
-      --text-light: #1a2a3a;
-      --text-muted: #4a5568;
-      --card-bg: #ffffff;
-      --footer-bg: #0a0f18;
-      --footer-text: #ffffff;
-      --navbar-bg: rgba(26, 42, 58, 0.95);
-    }
-
-    body.dark {
-      --gold: #D4B96A;
-      --gold-light: #C6A43F;
-      --gold-glow: rgba(212,185,106,0.3);
-      --navy: #121212;
-      --navy-light: #1e2a3a;
-      --cream: #1a1a2e;
-      --bg-light: #121212;
-      --text-light: #e0e0e0;
-      --text-muted: #a0aec0;
-      --card-bg: #1e2a3a;
-      --footer-bg: #060a10;
-      --footer-text: #e0e0e0;
-      --navbar-bg: rgba(18, 18, 18, 0.95);
-    }
-
-    body { background-color: var(--bg-light); color: var(--text-light); }
-    .text-gold { color: var(--gold); }
-    .bg-gold { background-color: var(--gold); }
-    .border-gold { border-color: var(--gold); }
-
-    /* ── Reveal animations ── */
-    .reveal {
-      opacity: 0;
-      transform: translateY(40px);
-      transition: opacity 0.75s cubic-bezier(0.22,1,0.36,1), transform 0.75s cubic-bezier(0.22,1,0.36,1);
-    }
-    .reveal.visible { opacity: 1; transform: translateY(0) translateX(0) scale(1) rotate(0deg); }
-    .section-line {
-      width: 0; height: 3px;
-      background: linear-gradient(90deg, var(--gold), var(--gold-light), transparent);
-      transition: width 1s cubic-bezier(0.22,1,0.36,1);
-      border-radius: 3px;
-    }
-    .section-line.visible { width: 6rem; }
-
-    /* ── Navbar ── */
-    .navbar {
-      transition: all 0.4s ease;
-      backdrop-filter: blur(12px);
-      background-color: var(--navbar-bg);
-    }
-    .navbar-scrolled { background-color: rgba(0,0,0,0.92); box-shadow: 0 2px 30px rgba(0,0,0,0.4); }
-    .nav-link {
-      position: relative; font-weight: 500;
-      transition: color 0.3s ease; color: white;
-      cursor: pointer;
-      text-decoration: none;
-    }
-    .nav-link::after {
-      content: ''; position: absolute;
-      bottom: -5px; left: 0;
-      width: 0; height: 2px;
-      background: var(--gold); transition: width 0.3s ease;
-    }
-    .nav-link:hover::after, .nav-link.active::after { width: 100%; }
-    .brand-name {
-      position: relative; display: inline-block;
-      font-size: 1.5rem; font-weight: 800;
-      font-family: 'Bespoke Stencil', serif;
-      color: white; letter-spacing: 0.05em;
-    }
-    .brand-name .brand-text {
-      background: linear-gradient(90deg, #ffffff 0%, var(--gold-light) 30%, #fff8e0 50%, var(--gold) 70%, #ffffff 100%);
-      background-size: 250% auto;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: brandShimmer 4s linear infinite;
-    }
-    @keyframes brandShimmer {
-      0%   { background-position: 0% center; }
-      100% { background-position: 250% center; }
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, var(--gold), var(--gold-light));
-      color: #fff;
-      padding: 0.85rem 2rem;
-      border-radius: 40px;
-      font-weight: 600;
-      transition: all 0.3s ease;
-      box-shadow: 0 4px 15px var(--gold-glow);
-      position: relative; overflow: hidden; display: inline-block;
-      text-decoration: none;
-    }
-    .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 10px 30px var(--gold-glow); }
-    .theme-toggle {
-      background: rgba(255,255,255,0.15); border: none; border-radius: 50%;
-      width: 40px; height: 40px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.3s ease; color: white;
-    }
-    .theme-toggle:hover { background: var(--gold); transform: rotate(20deg); }
-    .social-icon {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 42px; height: 42px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 50%; transition: all 0.3s ease; color: white;
-    }
-    .social-icon:hover { background: var(--gold); transform: translateY(-3px); }
-    .stat-counter {
-      font-family: 'Bespoke Stencil', serif;
-      font-size: 3rem; color: var(--gold); display: block;
-    }
-
-    /* ═══════════════════════════════════════════════════
-       FIRE + ASH CANVAS BACKGROUND
-    ═══════════════════════════════════════════════════ */
-    #fireCanvas {
-      position: absolute;
-      inset: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
-      z-index: 1;
-    }
-
-    /* ═══════════════════════════════════════════════════
-       HERO
-    ═══════════════════════════════════════════════════ */
-    .hero {
-      position: relative;
-      width: 100%;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      overflow: hidden;
-      background: linear-gradient(160deg, #060e18 0%, #0f1e2e 45%, #0a1520 100%);
-    }
-
-    /* Vignette */
-    .hero-vignette {
-      position: absolute; inset: 0; z-index: 2; pointer-events: none;
-      background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 35%, rgba(0,0,0,0.55) 100%);
-    }
-
-    .hero__inner {
-      position: relative; z-index: 10;
-      width: 100%; max-width: 1400px;
-      margin: 0 auto;
-      padding: 120px 64px 100px;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: flex-end;
-      gap: 32px;
-    }
-
-    .hero__text {
-      display: flex; flex-direction: column;
-      justify-content: center; gap: 12px;
-      animation: heroFadeIn 0.9s cubic-bezier(0.22,1,0.36,1) both;
-    }
-    @keyframes heroFadeIn {
-      from { opacity: 0; transform: translateY(32px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .hero__label {
-      font-family: 'Rajdhani', sans-serif;
-      font-size: clamp(0.8rem, 2vw, 1.1rem);
-      font-weight: 700; letter-spacing: 0.45em;
-      text-transform: uppercase; color: var(--gold);
-      display: flex; align-items: center; gap: 12px;
-      opacity: 0;
-      animation: heroFadeIn 0.8s 0.15s cubic-bezier(0.22,1,0.36,1) forwards;
-    }
-    .hero__label::before {
-      content: ''; display: block;
-      width: 40px; height: 2px; background: var(--gold);
-    }
-
-    .hero__title {
-      font-family: 'Black Ops One', cursive;
-      font-size: clamp(5rem, 16vw, 13rem);
-      line-height: 0.85; text-transform: uppercase;
-      letter-spacing: -0.02em; color: #ffffff;
-      opacity: 0;
-      animation: heroFadeIn 0.8s 0.3s cubic-bezier(0.22,1,0.36,1) forwards;
-    }
-    .hero__title span { color: var(--gold); }
-
-    .hero__sub {
-      font-family: 'Bebas Neue', cursive;
-      font-size: clamp(1.8rem, 5vw, 4.5rem);
-      letter-spacing: 0.3em;
-      color: rgba(255,255,255,0.5);
-      opacity: 0;
-      animation: heroFadeIn 0.8s 0.45s cubic-bezier(0.22,1,0.36,1) forwards;
-    }
-
-    .hero__asking {
-      font-family: 'Rajdhani', sans-serif;
-      font-size: clamp(0.8rem, 2vw, 1rem);
-      color: var(--gold-light);
-      background: rgba(0,0,0,0.45);
-      backdrop-filter: blur(6px);
-      display: inline-block;
-      padding: 8px 20px;
-      border-radius: 40px;
-      letter-spacing: 0.02em;
-      width: fit-content;
-      margin-top: 8px;
-      border-left: 3px solid var(--gold);
-    }
-
-    .hero__cta {
-      margin-top: 24px; opacity: 0;
-      animation: heroFadeIn 0.8s 0.75s cubic-bezier(0.22,1,0.36,1) forwards;
-    }
-
-    /* ── Hero subtitle carousel ── */
-    .hero__sub-carousel{
-    position:relative;
-    width:100%;
-    max-width:100%;
-    height:100px;
-    overflow:hidden;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-}
-
-.hero__sub-slide{
-    position:absolute;
-    left:0;
-    top:50%;
-    width:100%;
-    transform:translateY(-50%) translateY(30px);
-    display:flex;
-    justify-content:center;
-    align-items:center;
-
-    font-family:'Bebas Neue',sans-serif;
-    font-size:clamp(1.8rem,7vw,4.8rem);
-    letter-spacing:.18em;
-
-    text-align:center;
-    white-space:normal;
-
-    opacity:0;
-
-    transition:
-        opacity .7s ease,
-        transform .7s ease;
-
-    color:rgba(255,255,255,.65);
-}
-
-.hero__sub-slide.active{
-    opacity:1;
-    transform:translateY(-50%);
-    z-index:2;
-}
-
-.hero__sub-slide.exit{
-    opacity:0;
-    transform:translateY(calc(-50% - 25px));
-}
-@media (max-width:768px){
-
-.hero__sub-carousel{
-    height:55px;
-}
-
-.hero__sub-slide{
-
-    font-size:clamp(1.5rem,9vw,2.8rem);
-
-    letter-spacing:.12em;
-
-    padding:0 15px;
-
-}
-
-}
-
-    /* ── Hero photo ── */
-    .hero__photo-wrap {
-      position: relative;
-      display: flex; align-items: flex-end; justify-content: center;
-      width: clamp(300px, 38vw, 620px);
-      opacity: 0;
-      animation: heroFadeIn 1s 0.4s cubic-bezier(0.22,1,0.36,1) forwards;
-    }
-
-    .hero__photo {
-      display: block; width: 100%;
-      max-width: 100%;
-      object-fit: contain;
-      transform-origin: bottom center;
-      animation: floatPhoto 5s ease-in-out infinite;
-      filter: drop-shadow(0 24px 48px rgba(0,0,0,0.7)) drop-shadow(0 0 40px rgba(198,164,63,0.12));
-      transition: filter 0.4s ease;
-      position: relative; z-index: 1;
-    }
-    .hero__photo:hover {
-      filter: drop-shadow(0 24px 64px rgba(198,164,63,0.4)) drop-shadow(0 0 40px rgba(198,164,63,0.25));
-      animation-play-state: paused;
-    }
-    @keyframes floatPhoto {
-      0%, 100% { transform: translateY(0px); }
-      50%       { transform: translateY(-14px); }
-    }
-
-    /* Responsive hero */
-    @media (max-width: 1000px) {
-      .hero__inner {
-        grid-template-columns: 1fr;
-        align-items: center; padding: 100px 28px 110px; gap: 0;
-      }
-      .hero__text { text-align: center; align-items: center; }
-      .hero__label { justify-content: center; }
-      .hero__asking { margin-left: auto; margin-right: auto; text-align: center; }
-      .hero__photo-wrap {
-        width: clamp(220px, 65vw, 420px);
-        margin: 0 auto -50px; order: -1;
-      }
-    }
-    @media (max-width: 520px) {
-      .hero__inner { padding: 80px 16px 100px; }
-      .hero__photo-wrap { width: 78vw; }
-      .hero__asking { font-size: 0.7rem; padding: 6px 14px; }
-    }
-
-    /* Scroll indicator */
-    .hero__scroll {
-      position: absolute; bottom: 28px; left: 50%;
-      transform: translateX(-50%); z-index: 10;
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
-      opacity: 0; animation: heroFadeIn 0.8s 1s forwards;
-    }
-    .hero__scroll span { font-size: 0.6rem; letter-spacing: 0.3em; color: rgba(255,255,255,0.3); text-transform: uppercase; }
-    .scroll-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: scrollBob 1.5s ease-in-out infinite; }
-    @keyframes scrollBob {
-      0%,100% { opacity: 0.3; transform: translateY(0); }
-      50%      { opacity: 1;   transform: translateY(6px); }
-    }
-
-    /* ── BRAND TICKER ── */
-    @keyframes slide { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-    .infinite-carousel-track { animation: slide 25s linear infinite; display: flex; gap: 3rem; width: max-content; }
-    .infinite-carousel-track:hover { animation-play-state: paused; }
-    .brand-item { display: inline-flex; align-items: center; gap: 10px; opacity: 0.8; transition: all 0.3s ease; font-family: 'Bespoke Stencil', serif; font-size: 1rem; color: var(--gold-light); }
-    @media(max-width: 640px) { .infinite-carousel-track { gap: 1.5rem; animation-duration: 18s; } .brand-item { font-size: 0.8rem; } }
-
-    /* About / skills / parallax styles … (kept from original) */
-    .parallax { background-attachment: fixed; background-size: cover; background-position: center; }
-    .skill-card { background: var(--card-bg); border: 1px solid rgba(198,164,63,0.18); border-radius: 18px; padding: 20px 18px; transition: all 0.35s cubic-bezier(0.22,1,0.36,1); }
-    .yt-swiper .swiper-slide { border-radius: 1.5rem; overflow: hidden; background: #000; }
-    .yt-embed-wrap { position: relative; width: 100%; aspect-ratio: 16/9; }
-    .yt-embed-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
-
-    /* ── Tricks carousel card styles ── */
-    .trick-card {
-      background: var(--navy);
-      border: 1px solid rgba(198,164,63,0.18);
-      border-radius: 1.5rem;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-    .trick-card__video {
-      position: relative; width: 100%; aspect-ratio: 16/9;
-      background: #000;
-      overflow: hidden;
-    }
-    .trick-card__video iframe {
-      width: 100%; height: 100%; border: none; display: block;
-    }
-    .trick-card__body {
-      padding: 20px 24px 24px;
-      display: flex;
-      align-items: flex-start;
-      gap: 16px;
-    }
-    .trick-card__avatar {
-      flex-shrink: 0;
-      width: 52px; height: 52px;
-      border-radius: 50%;
-      border: 2px solid var(--gold);
-      overflow: hidden;
-      background: rgba(198,164,63,0.12);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .trick-card__avatar img {
-      width: 100%; height: 100%; object-fit: cover;
-    }
-    .trick-card__avatar-fallback {
-      width: 100%; height: 100%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.3rem; color: var(--gold);
-    }
-    .trick-card__info { flex: 1; min-width: 0; }
-    .trick-card__title {
-      font-family: 'Rajdhani', sans-serif;
-      font-weight: 700; font-size: 1.05rem;
-      color: var(--text-light);
-      margin-bottom: 4px;
-      line-height: 1.3;
-    }
-    .trick-card__meta {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    }
-    .trick-card__tag {
-      background: rgba(198,164,63,0.12);
-      border: 1px solid rgba(198,164,63,0.25);
-      color: var(--gold);
-      border-radius: 999px;
-      padding: 2px 10px;
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-    }
-    @media (max-width: 520px) {
-      .trick-card__body { padding: 14px 16px 18px; gap: 12px; }
-      .trick-card__avatar { width: 42px; height: 42px; }
-    }
-    .footer-main { position: relative; background: var(--footer-bg); overflow: hidden; }
-    #footerCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; opacity: 0.4; }
-    .footer-inner { position: relative; z-index: 1; }
-    .footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 48px; }
-    @media(max-width: 768px) { .footer-grid { grid-template-columns: 1fr; gap: 32px; } }
-    .footer-brand-name { font-family: 'Bespoke Stencil', serif; font-size: 2.4rem; background: linear-gradient(90deg, #ffffff 0%, var(--gold-light) 40%, var(--gold) 70%, #fff8e0 100%); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: brandShimmer 5s linear infinite; }
-    .footer-link { color: rgba(255,255,255,0.55); transition: color 0.3s ease; display: block; font-size: 0.87rem; padding: 4px 0; text-decoration: none; }
-    .footer-link:hover { color: var(--gold); transform: translateX(4px); }
-    .footer-social-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid rgba(198,164,63,0.3); border-radius: 50%; color: rgba(255,255,255,0.6); transition: all 0.3s ease; font-size: 1rem; text-decoration: none; }
-    .footer-social-icon:hover { background: var(--gold); border-color: var(--gold); color: white; transform: translateY(-4px); }
-    .footer-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(198,164,63,0.1); border: 1px solid rgba(198,164,63,0.2); border-radius: 999px; padding: 6px 14px; font-size: 0.72rem; color: var(--gold); }
-    .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: pulseDot 2s ease-in-out infinite; }
-    @keyframes pulseDot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.5); } }
-
-    .youtube-btn{
-    display:inline-flex;
-    align-items:center;
-    gap:.8rem;
-    background:#ff0000;
-    color:#fff;
-    transition:.4s;
-}
-
-.youtube-btn:hover{
-    background:#d60000;
-    transform:translateY(-5px);
-    box-shadow:0 20px 40px rgba(255,0,0,.35);
-}
-.brandSwiper{
-
-width:100%;
-
-overflow:hidden;
-
-padding:10px 0;
-
-}
-
-.brandSwiper .swiper-wrapper{
-
-transition-timing-function:linear !important;
-
-align-items:center;
-
-}
-
-.brandSwiper .swiper-slide{
-
-width:auto !important;
-
-display:flex;
-
-align-items:center;
-
-gap:12px;
-
-padding:16px 30px;
-
-margin-right:20px;
-
-border-radius:999px;
-
-background:rgba(255,255,255,.05);
-
-backdrop-filter:blur(18px);
-
-border:1px solid rgba(255,255,255,.08);
-
-color:var(--gold);
-
-font-weight:600;
-
-white-space:nowrap;
-
-}
-
-.brandSwiper .swiper-slide i{
-
-font-size:18px;
-
-color:var(--gold);
-
-}
-#askingBox{
-
-opacity:0;
-
-transform:translateY(15px);
-
-transition:.5s;
-
-}
-
-#askingBox.show{
-
-opacity:1;
-
-transform:translateY(0);
-
-}
-.hero__cta .btn-primary{
-
-backdrop-filter:blur(20px);
-
-background:rgba(198,164,63,.15);
-
-border:1px solid rgba(198,164,63,.4);
-
-box-shadow:0 20px 60px rgba(0,0,0,.3);
-
-}
-
-.hero__cta .btn-primary:hover{
-
-transform:translateY(-6px) scale(1.03);
-
-}
-.yt-modal{
-
-position:fixed;
-
-inset:0;
-
-background:rgba(0,0,0,.85);
-
-display:flex;
-
-justify-content:center;
-
-align-items:center;
-
-opacity:0;
-
-visibility:hidden;
-
-transition:.35s;
-
-z-index:99999;
-
-}
-
-.yt-modal.show{
-
-opacity:1;
-
-visibility:visible;
-
-}
-
-.yt-content{
-
-position:relative;
-
-width:min(900px,90vw);
-
-aspect-ratio:16/9;
-
-border-radius:20px;
-
-overflow:hidden;
-
-background:#000;
-
-box-shadow:0 30px 80px rgba(0,0,0,.5);
-
-transform:scale(.9);
-
-transition:.35s;
-
-}
-
-.yt-modal.show .yt-content{
-
-transform:scale(1);
-
-}
-
-.yt-content iframe{
-
-width:100%;
-
-height:100%;
-
-border:none;
-
-}
-
-.yt-close{
-
-position:absolute;
-
-right:15px;
-
-top:15px;
-
-width:42px;
-
-height:42px;
-
-border:none;
-
-border-radius:50%;
-
-background:#fff;
-
-font-size:24px;
-
-cursor:pointer;
-
-z-index:10;
-
-transition:.3s;
-
-}
-
-.yt-close:hover{
-
-background:#ff0000;
-
-color:#fff;
-
-}
-/* ===========================
-   MODERN VIDEO PARALLAX
-=========================== */
-.video-parallax{
-
-position:relative;
-
-height:85vh;
-
-overflow:hidden;
-
-background:#000;
-
-}
-
-.video-carousel{
-
-position:absolute;
-
-inset:0;
-
-}
-
-.video-slide{
-
-position:absolute;
-
-inset:0;
-
-opacity:0;
-
-transition:opacity 1.8s ease-in-out;
-
-}
-
-.video-slide.active{
-
-opacity:1;
-
-z-index:1;
-
-}
-
-.video-slide video{
-
-width:100%;
-
-height:100%;
-
-object-fit:cover;
-
-filter:brightness(.45);
-
-transform:scale(1.05);
-
-}
-
-.video-overlay{
-
-position:absolute;
-
-inset:0;
-
-background:linear-gradient(
-180deg,
-rgba(0,0,0,.15),
-rgba(0,0,0,.55),
-rgba(0,0,0,.9)
-);
-
-z-index:2;
-
-}
-
-/* Bottom Caption */
-
-.video-caption{
-
-position:absolute;
-
-left:50%;
-
-bottom:50px;
-
-transform:translateX(-50%);
-
-width:min(1100px,90%);
-
-padding:30px 40px;
-
-border-radius:24px;
-
-background:rgba(10,15,25,.45);
-
-backdrop-filter:blur(18px);
-
-border:1px solid rgba(255,255,255,.08);
-
-z-index:5;
-
-}
-
-.video-badge{
-
-display:inline-flex;
-
-align-items:center;
-
-gap:10px;
-
-padding:10px 22px;
-
-border-radius:999px;
-
-background:rgba(198,164,63,.12);
-
-color:var(--gold);
-
-margin-bottom:20px;
-
-}
-
-.video-caption h2{
-
-font-size:clamp(2rem,4vw,3.8rem);
-
-color:#fff;
-
-margin-bottom:15px;
-
-}
-
-.video-caption p{
-
-color:rgba(255,255,255,.75);
-
-max-width:700px;
-
-line-height:1.8;
-
-margin-bottom:25px;
-
-
-}
-@media(max-width:768px){
-
-.video-caption{
-
-left:20px;
-
-right:20px;
-
-bottom:20px;
-
-width:auto;
-
-transform:none;
-
-padding:22px;
-
-}
-
-.video-caption h2{
-
-font-size:1.8rem;
-
-}
-
-.video-caption p{
-
-font-size:.9rem;
-
-}
-
-.youtube-btn{
-
-width:100%;
-
-justify-content:center;
-
-}
-
-}
-/* Hero Social */
-
-.hero-social{
-
-display:flex;
-
-align-items:center;
-
-gap:14px;
-
-margin-top:28px;
-
-flex-wrap:wrap;
-
-}
-
-.hero-social a{
-
-width:46px;
-
-height:46px;
-
-display:flex;
-
-align-items:center;
-
-justify-content:center;
-
-border-radius:50%;
-
-background:rgba(255,255,255,.05);
-
-border:1px solid rgba(255,255,255,.08);
-
-backdrop-filter:blur(15px);
-
-color:rgba(255,255,255,.75);
-
-font-size:18px;
-
-transition:all .35s ease;
-
-}
-
-.hero-social a:hover{
-
-transform:translateY(-6px);
-
-background:rgba(198,164,63,.12);
-
-border-color:var(--gold);
-
-color:var(--gold);
-
-box-shadow:0 12px 30px rgba(198,164,63,.25);
-
-}
-@media(max-width:768px){
-
-.hero-social{
-
-justify-content:center;
-
-margin-top:24px;
-
-gap:12px;
-
-}
-
-.hero-social a{
-
-width:42px;
-
-height:42px;
-
-font-size:16px;
-
-}
-
-}
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StockFlow · Inventory</title>
+
+  <!-- Prevent theme flash: apply saved theme before first paint -->
+  <script>
+    (function () {
+      const saved = localStorage.getItem("theme") ||
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", saved);
+    })();
+  </script>
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Chart.js (deferred so it executes before app.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+  <script type="module" src="app.js" defer></script>
 </head>
 <body>
 
-  <!-- NAVBAR (Fixed Contact Link + Mobile Responsive) -->
-  <nav class="navbar fixed w-full z-50 transition-all duration-300">
-    <div class="container mx-auto px-6 py-4 flex items-center justify-between">
-      <div class="flex items-center space-x-3 flex-shrink-0">
-        <img src="gta.png" alt="Kurt Creates Logo" class="h-12 w-auto" onerror="this.src='https://placehold.co/60x60/C6A43F/1a2a3a?text=KC'">
-        <div class="brand-name"><span class="brand-text">Kurt Creates.</span></div>
+  <!-- ================= AUTH SCREEN ================= -->
+  <section id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <h1 class="logo">📦 StockFlow</h1>
+      <p class="subtitle">Manage your inventory in real time</p>
+
+      <div class="auth-tabs">
+        <button id="tab-login"  class="tab active">Login</button>
+        <button id="tab-signup" class="tab">Sign Up</button>
       </div>
-      <!-- Desktop nav links -->
-      <div class="hidden md:flex items-center space-x-8 ml-auto">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="exceltutorials.html" class="nav-link">Excel Tutorials</a>
-        <!-- FIX: Contact link now clickable + smooth scroll fallback -->
-        <a href="contact.html" class="nav-link">Contact</a>
-        <button id="theme-toggle" class="theme-toggle"><i class="fas fa-moon"></i></button>
-      </div>
-      <!-- Mobile controls -->
-      <div class="flex items-center space-x-3 md:hidden">
-        <button id="theme-toggle-mobile" class="theme-toggle"><i class="fas fa-moon"></i></button>
-        <button id="menu-btn" class="text-white text-2xl"><i class="fas fa-bars"></i></button>
-      </div>
-    </div>
-    <!-- Mobile Menu (responsive, fully clickable) -->
-    <div id="mobile-menu" class="hidden md:hidden w-full py-4 shadow-lg bg-black/90 backdrop-blur-lg">
-      <div class="flex flex-col items-center space-y-4">
-        <a href="index.html" class="text-white hover:text-gold transition nav-link-mobile">Home</a>
-        <a href="exceltutorials.html" class="text-white hover:text-gold transition nav-link-mobile">Excel Tutorials</a>
-        <a href="contact.html" class="text-white hover:text-gold transition nav-link-mobile">Contact</a>
-      </div>
-    </div>
-  </nav>
 
-  <!-- HERO SECTION -->
-  <section class="hero" id="hero">
-    <canvas id="fireCanvas"></canvas>
-    <div class="hero-vignette"></div>
-    <div class="hero__inner">
-      <div class="hero__text">
-        <p class="hero__label">Welcome to my</p>
-        <h1 class="hero__title">WEBSITE</h1>
-        <div class="hero__sub-carousel">
-          <div class="hero__sub-slide active" data-carousel="0">EXCEL TUTORIALS</div>
-          <div class="hero__sub-slide" data-carousel="1">AUTOMATION</div>
-          <div class="hero__sub-slide" data-carousel="2">INVENTORY MANAGEMENT</div>
-        </div>
-        <div class="hero__asking" id="askingBox"></div>
-        <div class="hero__cta mt-4">
-          <a href="exceltutorials.html" class="btn-primary">Explore Tutorials →</a>
-        </div>
-        <div class="hero-social">
+      <form id="auth-form">
+        <input type="email"    id="email"    placeholder="Email address" required />
+        <input type="password" id="password" placeholder="Password"      required />
+        <button type="submit" id="auth-submit" class="btn primary">Login</button>
+      </form>
 
-    <a href="https://www.youtube.com/@KurtCreates1994"
-       target="_blank"
-       aria-label="YouTube">
-        <i class="fab fa-youtube"></i>
-    </a>
-
-    <a href="https://www.facebook.com/"
-       target="_blank"
-       aria-label="Facebook">
-        <i class="fab fa-facebook-f"></i>
-    </a>
-
-    <a href="https://www.instagram.com/"
-       target="_blank"
-       aria-label="Instagram">
-        <i class="fab fa-instagram"></i>
-    </a>
-
-    <a href="https://www.linkedin.com/in/courteny-madronero-16556b363/"
-       target="_blank"
-       aria-label="LinkedIn">
-        <i class="fab fa-linkedin-in"></i>
-    </a>
-
-    <a href="https://github.com/KurtCreates"
-       target="_blank"
-       aria-label="GitHub">
-        <i class="fab fa-github"></i>
-    </a>
-
-</div>
-      </div>
-      <div class="hero__photo-wrap">
-        <img src="new1.png" class="hero__photo" alt="Kurt" onerror="this.style.display='none';">
-      </div>
-    </div>
-    <div class="hero__scroll">
-      <span>Scroll</span>
-      <div class="scroll-dot"></div>
+      <p id="auth-error" class="error-msg"></p>
     </div>
   </section>
 
-  <!-- BRAND TICKER -->
-  <section class="py-6 overflow-hidden" style="background:var(--navy);">
+  <!-- ================= APP SHELL ================= -->
+  <section id="app-shell" class="app-shell hidden">
 
-<div class="swiper brandSwiper">
-
-<div class="swiper-wrapper">
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-bolt"></i>
-<span>Excel Tricks</span>
-</div>
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-boxes"></i>
-<span>Inventory System</span>
-</div>
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-chart-line"></i>
-<span>Automation</span>
-</div>
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-code"></i>
-<span>Tutorials</span>
-</div>
-
-
-<!-- duplicate -->
-<div class="swiper-slide brand-card">
-<i class="fas fa-bolt"></i>
-<span>Excel Tricks</span>
-</div>
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-boxes"></i>
-<span>Inventory System</span>
-</div>
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-chart-line"></i>
-<span>Automation</span>
-</div>
-
-<div class="swiper-slide brand-card">
-<i class="fas fa-code"></i>
-<span>Tutorials</span>
-</div>
-
-</div>
-
-</div>
-
-</section>
-  <!-- PARALLAX WITH STATS -->
-  <div class="parallax w-full py-32 relative overflow-hidden" style="background-image: url('akoto.png'); background-attachment: fixed; background-size: cover; background-position: center;">
-    <div class="absolute inset-0 bg-black/70"></div>
-    <div class="container mx-auto px-6 relative z-10 text-center">
-      <div class="reveal reveal-scale mb-6"><span style="background:rgba(198,164,63,0.25);border:1px solid var(--gold);color:var(--gold-light);padding:0.35rem 1.4rem;border-radius:999px;font-size:0.8rem;letter-spacing:0.15em;font-weight:700;">⚡ Automated & Systematic ⚡</span></div>
-      <h2 class="reveal text-white font-heading mb-4" style="font-size:clamp(2rem,5vw,3.5rem);">Automate Your Business with<br>Inventory Management Application</h2>
-      <p class="text-xl text-white/70 mb-10 max-w-2xl mx-auto reveal">Perfect for Retail, Food and others Businesses for smooth inventory management.</p>
-      <div class="flex justify-center gap-16 mb-10 flex-wrap">
-        <div class="reveal text-center"><span class="stat-counter" id="stat1">0</span><span style="color:rgba(255,255,255,0.7);display:block;font-size:0.85rem;">SATISFIED CLIENTS</span></div>
-      </div>
-      <div class="reveal"><a href="https://www.youtube.com/embed/K8h1uAgE4_0?autoplay=1&rel=0"
-   target="_blank"
-   class="btn-primary youtube-btn">
-    <i class="fab fa-youtube"></i>
-    Watch on YouTube
-</a></div>
-    </div>
-  </div>
-<!-- Youtube Modal -->
-
-<div id="youtubeModal" class="yt-modal">
-
-    <div class="yt-content">
-
-        <button id="closeYoutube" class="yt-close">
-            &times;
+    <header class="topbar">
+      <h1 class="logo">📦 StockFlow</h1>
+      <div class="user-area">
+        <button id="theme-toggle" class="btn ghost icon-btn" aria-label="Toggle theme">
+          <span id="theme-icon">🌙</span>
         </button>
-
-        <iframe
-            id="youtubeFrame"
-            src=""
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen>
-        </iframe>
-
-    </div>
-
-</div>
-
-  <!-- INVENTORY SECTION -->
-  <section class="py-28 relative overflow-hidden" style="background-color: var(--card-bg);">
-    <div class="container mx-auto px-6">
-      <div class="text-center reveal mb-4"><span style="display:inline-flex;align-items:center;gap:8px;background:rgba(198,164,63,0.12);border:1px solid rgba(198,164,63,0.3);color:var(--gold);padding:0.35rem 1.4rem;border-radius:999px;font-size:0.72rem;font-weight:700;letter-spacing:0.2em;"><i class="fas fa-boxes"></i> &nbsp; INVENTORY MANAGEMENT</span>
-        <h2 class="text-3xl md:text-5xl font-heading mt-4 text-[var(--text-light)]">Watch How It Works</h2>
-        <div class="section-line mx-auto mt-4"></div>
+        <span id="user-email" class="user-email"></span>
+        <button id="logout-btn" class="btn ghost">Logout</button>
       </div>
-      <div class="text-center reveal mb-14" style="max-width:680px;margin:0 auto;"><p style="color:var(--text-muted);">These Inventory Management Application helps Retail and Wholesale business owners to automate their inventory, Expiry items, and Real-time Sales tracking. <strong>No to Manual Processes</strong> — Automate your Business.</p></div>
-      <div class="reveal" style="max-width:960px;margin:0 auto;"><div style="border-radius:1.5rem;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,0.4);background:#000;aspect-ratio:16/9;"><iframe src="https://www.youtube.com/embed/K8h1uAgE4_0?autoplay=1&rel=0" title="Inventory Management" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%;height:100%;border:none;"></iframe></div></div>
-      <div class="text-center mt-12 reveal"><p style="color:var(--text-muted);max-width:560px;margin:0 auto 20px;">Watch this video to see how our Inventory Management Application can help you save time.</p><a href="https://www.youtube.com/@KurtCreates1994" target="_blank" class="btn-primary"><i class="fab fa-youtube"></i> &nbsp; Subscribe on YouTube</a></div>
-    </div>
+    </header>
+
+    <!-- ========== PAGE 1 : DASHBOARD ========== -->
+    <main id="page-dashboard" class="page active">
+      <h2 class="page-title">Dashboard</h2>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total Items</span>
+          <span id="stat-total" class="stat-value">0</span>
+        </div>
+        <div class="stat-card warning">
+          <span class="stat-label">Low Stock</span>
+          <span id="stat-low" class="stat-value">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Inventory Value</span>
+          <span id="stat-value" class="stat-value">$0</span>
+        </div>
+        <div class="stat-card success">
+          <span class="stat-label">Today's Sales</span>
+          <span id="stat-sales" class="stat-value">$0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Categories</span>
+          <span id="stat-cats" class="stat-value">0</span>
+        </div>
+      </div>
+
+      <!-- Real-time analytics -->
+      <h3 class="section-heading">Analytics</h3>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h4 class="card-title">Stock Status</h4>
+          <div class="chart-wrapper"><canvas id="stock-status-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h4 class="card-title">Value by Category</h4>
+          <div class="chart-wrapper"><canvas id="category-value-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h4 class="card-title">Sales by Category</h4>
+          <div class="chart-wrapper"><canvas id="sales-category-chart"></canvas></div>
+        </div>
+      </div>
+
+      <h3 class="section-heading">Low-Stock Alerts</h3>
+      <div id="low-stock-list" class="inventory-list"></div>
+    </main>
+
+    <!-- ========== PAGE 2 : SALES ========== -->
+    <main id="page-sales" class="page hidden">
+      <h2 class="page-title">Sales</h2>
+
+      <div class="card">
+        <h3 class="card-title">Record a Sale</h3>
+        <form id="sale-form" class="inline-form">
+          <select id="sale-item" required>
+            <option value="">Select item…</option>
+          </select>
+          <input type="number" id="sale-qty" min="1" placeholder="Qty" required />
+          <button type="submit" class="btn primary">Record Sale</button>
+        </form>
+      </div>
+
+      <h3 class="section-heading">Recent Sales</h3>
+      <div id="sales-list" class="inventory-list"></div>
+    </main>
+
+    <!-- ========== PAGE 3 : ADD ITEM ========== -->
+    <main id="page-add" class="page hidden">
+      <h2 class="page-title">Add Item</h2>
+
+      <div class="card">
+        <form id="item-form">
+          <input type="hidden" id="item-id" />
+          <label>Name <input type="text" id="item-name" required /></label>
+          <label>SKU  <input type="text" id="item-sku"  required /></label>
+          <label>Category
+            <input type="text" id="item-category" list="category-list" required />
+            <datalist id="category-list"></datalist>
+          </label>
+          <label>Quantity <input type="number" id="item-qty"   min="0" required /></label>
+          <label>Price ($) <input type="number" id="item-price" step="0.01" min="0" required /></label>
+          <label>Low-Stock Threshold
+            <input type="number" id="item-threshold" min="0" value="5" />
+          </label>
+          <button type="submit" class="btn primary">Save Item</button>
+        </form>
+      </div>
+
+      <h3 class="section-heading">All Inventory Items</h3>
+      <div class="toolbar">
+        <input type="search" id="search-input" placeholder="Search by name or SKU…" />
+        <select id="filter-category">
+          <option value="">All Categories</option>
+        </select>
+      </div>
+      <div id="inventory-list" class="inventory-list"></div>
+    </main>
+
+    <!-- ========== PAGE 4 : CATEGORIES ========== -->
+    <main id="page-categories" class="page hidden">
+      <h2 class="page-title">Categories</h2>
+
+      <div class="card">
+        <h3 class="card-title">Add Category</h3>
+        <form id="category-form" class="inline-form">
+          <input type="text" id="new-category" placeholder="Category name" required />
+          <button type="submit" class="btn primary">Add</button>
+        </form>
+      </div>
+
+      <div id="category-grid" class="inventory-list"></div>
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-page="page-dashboard">
+        <span class="nav-icon">📊</span><span>Dashboard</span>
+      </button>
+      <button class="nav-btn" data-page="page-sales">
+        <span class="nav-icon">🛒</span><span>Sales</span>
+      </button>
+      <button class="nav-btn" data-page="page-add">
+        <span class="nav-icon">➕</span><span>Add Item</span>
+      </button>
+      <button class="nav-btn" data-page="page-categories">
+        <span class="nav-icon">🗂️</span><span>Categories</span>
+      </button>
+    </nav>
   </section>
 
-  <!-- VIDEO PARALLAX -->
-<section class="video-parallax">
-
-    <!-- Background Fade Carousel -->
-    <div class="video-carousel">
-
-        <div class="video-slide active">
-            <video autoplay muted loop playsinline>
-                <source src="0621.mp4" type="video/mp4">
-            </video>
-        </div>
-
-        <div class="video-slide">
-            <video autoplay muted loop playsinline>
-                <source src="0621.mp4" type="video/mp4">
-            </video>
-        </div>
-
-        <div class="video-slide">
-            <video autoplay muted loop playsinline>
-                <source src="0621.mp4" type="video/mp4">
-            </video>
-        </div>
-
-    </div>
-
-    <div class="video-overlay"></div>
-
-
-</section>
-
-  <!-- EXCEL TRICKS TUTORIALS CAROUSEL -->
-  <section class="py-28 relative overflow-hidden" style="background-color: var(--card-bg);">
-    <div class="container mx-auto px-6">
-      <div class="text-center reveal mb-4">
-        <span style="display:inline-flex;align-items:center;gap:8px;background:rgba(198,164,63,0.12);border:1px solid rgba(198,164,63,0.3);color:var(--gold);padding:0.35rem 1.4rem;border-radius:999px;font-size:0.72rem;font-weight:700;">
-          <i class="fas fa-chalkboard-teacher"></i> &nbsp; Excel Tricks Tutorial
-        </span>
-        <h2 class="text-3xl md:text-5xl font-heading mt-4 text-[var(--text-light)]">Learned from Scratch.</h2>
-        <div class="section-line mx-auto mt-4"></div>
-      </div>
-      <div class="text-center reveal mb-14">
-        <p style="color:var(--text-muted);">I share Excel Tricks Tutorials to simplify complex tasks, boost productivity, and empower users.</p>
-      </div>
-
-      <!-- Swiper carousel -->
-      <div class="yt-tricks-outer reveal" style="max-width:960px;margin:0 auto;position:relative;">
-        <div class="swiper yt-swiper-tricks" style="border-radius:1.5rem;overflow:hidden;padding-bottom:52px;">
-          <div class="swiper-wrapper" id="tricks-swiper-wrapper">
-            <!-- Slides injected by JS -->
-          </div>
-          <div class="yt-tricks-prev swiper-button-prev"></div>
-          <div class="yt-tricks-next swiper-button-next"></div>
-          <div class="swiper-pagination yt-tricks-pagination"></div>
-        </div>
-      </div>
-
-      <div class="text-center mt-10 reveal">
-        <a href="https://www.youtube.com/@KurtCreates1994" target="_blank" class="btn-primary">
-          <i class="fab fa-youtube"></i> &nbsp; Subscribe on YouTube
-        </a>
-      </div>
-    </div>
-  </section>
-
-  <!-- FOOTER -->
-  <footer id="contact" class="footer-main pt-20 pb-8">
-    <canvas id="footerCanvas"></canvas>
-    <div class="footer-inner container mx-auto px-6">
-      <div class="footer-grid mb-12">
-        <div><div class="footer-brand-name">Kurt Creates.</div><p style="color:rgba(255,255,255,0.45);font-size:0.85rem;max-width:320px;">Teaching Excel & inventory automation to business owners worldwide.</p><div class="flex gap-3 mt-4"><a href="#" class="footer-social-icon"><i class="fab fa-facebook-f"></i></a><a href="https://www.youtube.com/@KurtCreates" target="_blank" class="footer-social-icon"><i class="fab fa-youtube"></i></a><a href="#" class="footer-social-icon"><i class="fab fa-instagram"></i></a><a href="#" class="footer-social-icon"><i class="fab fa-tiktok"></i></a></div><div class="mt-4"><span class="footer-badge"><span class="pulse-dot"></span> Available for Projects</span></div></div>
-        <div><p style="color:var(--gold);font-size:0.72rem;font-weight:700;letter-spacing:0.2em;">Quick Links</p><a href="index.html" class="footer-link">Home</a><a href="exceltutorials.html" class="footer-link">Excel Tutorials</a><a href="InventoryQuote.html" class="footer-link">Shop & Solutions</a><a href="inventory.html" class="footer-link">Inventory Tutorials</a><a href="contact.html" class="footer-link">Contact</a></div>
-        <div><p style="color:var(--gold);font-size:0.72rem;font-weight:700;letter-spacing:0.2em;">What I Teach</p><a href="#" class="footer-link">VLOOKUP & XLOOKUP</a><a href="#" class="footer-link">Power Query</a><a href="#" class="footer-link">Inventory Systems</a><a href="#" class="footer-link">VBA & Macros</a><a href="#" class="footer-link">Dynamic Dashboards</a></div>
-      </div>
-      <div class="footer-divider"></div>
-      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;"><p style="color:rgba(255,255,255,0.3);font-size:0.75rem;">© 2025 Kurt Creates. All Rights Reserved.</p><p style="color:rgba(255,255,255,0.25);font-size:0.72rem;">Crafted with <span style="color:var(--gold);">♦</span> for Excel lovers</p></div>
-    </div>
-  </footer>
-
-  <script>
-    // Navbar scroll effect
-    window.addEventListener('scroll', () => document.querySelector('.navbar')?.classList.toggle('navbar-scrolled', window.scrollY > 50));
-    const menuBtn = document.getElementById('menu-btn'), mobileMenu = document.getElementById('mobile-menu');
-    if(menuBtn && mobileMenu) menuBtn.addEventListener('click', () => mobileMenu.classList.toggle('hidden'));
-
-    // Dark mode toggle
-    const toggles = document.querySelectorAll('#theme-toggle, #theme-toggle-mobile');
-    const storedTheme = localStorage.getItem('theme');
-    if(storedTheme === 'dark') document.body.classList.add('dark');
-    const setIcons = dark => toggles.forEach(btn => btn.innerHTML = dark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>');
-    setIcons(document.body.classList.contains('dark'));
-    toggles.forEach(btn => btn.addEventListener('click', () => { const dark = document.body.classList.toggle('dark'); localStorage.setItem('theme', dark ? 'dark' : 'light'); setIcons(dark); }));
-
-    // Scroll reveal
-    const observer = new IntersectionObserver(entries => entries.forEach(e => e.isIntersecting && e.target.classList.add('visible')), { threshold: 0.1 });
-    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-    document.querySelectorAll('.section-line').forEach(l => new IntersectionObserver(e => e[0].isIntersecting && e[0].target.classList.add('visible'), { threshold: 0.5 }).observe(l));
-
-    // Stat counters
-    const statObs = new IntersectionObserver(entries => { if(entries[0].isIntersecting) { let s1=0,s2=0; setInterval(() => { if(s1<5) document.getElementById('stat1').innerText = ++s1+'+'; else clearInterval(); }, 120); setInterval(() => { if(s2<7) document.getElementById('stat2').innerText = ++s2+'+'; else clearInterval(); }, 120); statObs.disconnect(); } }, { threshold: 0.5 });
-    const parallaxSec = document.querySelector('.parallax'); if(parallaxSec) statObs.observe(parallaxSec);
-
-    // Hero subtitle carousel
-    const subSlides = document.querySelectorAll('.hero__sub-slide');
-    let curSub = 0;
-    setInterval(() => {
-      subSlides[curSub].classList.add('exit');
-      subSlides[curSub].classList.remove('active');
-      setTimeout(() => { subSlides[curSub].classList.remove('exit'); }, 700);
-      curSub = (curSub + 1) % subSlides.length;
-      subSlides[curSub].classList.add('active');
-    }, 2800);
-
-    const words=[
-
-"Need an Inventory System?",
-
-"Check My Ready for use Inventory Application.",
-
-"Need Excel Tricks Help?",
-
-"Watch My Tutorials."
-
-];
-
-let i=0;
-
-const typing=document.getElementById("askingBox");
-
-function changeText(){
-
-typing.classList.remove("show");
-
-setTimeout(()=>{
-
-typing.textContent=words[i];
-
-typing.classList.add("show");
-
-i=(i+1)%words.length;
-
-},400);
-
-}
-
-changeText();
-
-setInterval(changeText,3000);
-
-    // ─────────────────────────────────────────────────
-    // EXCEL TRICKS — Add / remove entries here easily
-    // Fields: youtubeId, title, tag, avatar (path or URL; leave blank for icon fallback)
-    // ─────────────────────────────────────────────────
-    const excelTricks = [
-      { youtubeId: 'ZYT1mVjmKys', title: 'MACRO AUTOMATED DATA ENTRY',       tag: 'Macros',       avatar: 'new1.png' },
-      { youtubeId: 'Oi5_Ltt66yw', title: 'SUMIFS & XLOOKUP FUNCTION',    tag: 'Modern Formulas',     avatar: 'new1.png' },
-      { youtubeId: 'r799_FGhe3w', title: 'SUMIFS MULTIPLE CRITERIA',         tag: 'Conditional Logic',  avatar: 'new1.png' },
-      { youtubeId: 'hVmBdmowE_s', title: 'DYNAMIC INVOICE USING FILTER FUNCTION',             tag: 'Filtering',    avatar: 'new1.png' },
-      { youtubeId: 'WSsGXJoMOq8', title: 'AUTOFILTER USING SEARCHBOX',  tag: 'VBA & Macros', avatar: 'Filtering' },
-      { youtubeId: 'OJ6yc0a_xKU', title: 'SIMPLE SHIPPING TRACKER WITH CHECKBOXES',             tag: 'Macros',   avatar: 'new1.png' },
-      { youtubeId: '3tS-lB-fSuA', title: 'SUMMARIZING MULTIPLE SHEETS INTO ONE PIVOT TABLE',             tag: 'PowerPivot',   avatar: 'new1.png' },
-      { youtubeId: 'x1_IC28Bdqo', title: 'DYNAMIC INVENTORY MANAGEMENT',             tag: 'VBA',   avatar: 'new1.png' },
-    ];
-
-    // Build slides
-    const trickWrapper = document.getElementById('tricks-swiper-wrapper');
-    if (trickWrapper) {
-      excelTricks.forEach(v => {
-        const slide = document.createElement('div');
-        slide.className = 'swiper-slide';
-        slide.innerHTML = `
-          <div class="trick-card">
-            <div class="trick-card__video">
-              <iframe src="https://www.youtube.com/embed/${v.youtubeId}?rel=0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowfullscreen loading="lazy"></iframe>
-            </div>
-            <div class="trick-card__body">
-              <div class="trick-card__avatar">
-                ${v.avatar
-                  ? `<img src="${v.avatar}" alt="Kurt" onerror="this.parentNode.innerHTML='<div class=\\'trick-card__avatar-fallback\\'><i class=\\'fas fa-user\\'></i></div>'">`
-                  : `<div class="trick-card__avatar-fallback"><i class="fas fa-user"></i></div>`
-                }
-              </div>
-              <div class="trick-card__info">
-                <div class="trick-card__title">${v.title}</div>
-                <div class="trick-card__meta">
-                  <span>Kurt Creates</span>
-                  <span class="trick-card__tag">${v.tag}</span>
-                </div>
-              </div>
-            </div>
-          </div>`;
-        trickWrapper.appendChild(slide);
-      });
-    }
-
-    // Initialize Swiper for tricks carousel
-    new Swiper('.yt-swiper-tricks', {
-      loop: true,
-      effect: 'slide',
-      autoplay: { delay: 7000, disableOnInteraction: false },
-      navigation: { nextEl: '.yt-tricks-next', prevEl: '.yt-tricks-prev' },
-      pagination: {
-        el: '.yt-tricks-pagination', clickable: true,
-        renderBullet: (i, cls) => `<span class="${cls}" style="background:var(--gold);width:8px;height:8px;margin:0 6px;"></span>`
-      },
-      on: {
-        slideChange() {
-          document.querySelectorAll('.yt-swiper-tricks iframe').forEach(f => {
-            const s = f.src; f.src = ''; f.src = s;
-          });
-        }
-      }
-    });
-
-    // Initialize Swiper for inventory tutorials
-    new Swiper('.yt-swiper-inventory', { loop: true, effect: 'fade', fadeEffect: { crossFade: true }, autoplay: { delay: 7000, disableOnInteraction: false }, navigation: { nextEl: '.yt-inv-next', prevEl: '.yt-inv-prev' }, pagination: { el: '.yt-inv-pagination', clickable: true, renderBullet: (i,cls) => `<span class="${cls}" style="background:var(--gold);width:8px;height:8px;margin:0 6px;"></span>` }, on: { slideChange() { document.querySelectorAll('.yt-swiper-inventory iframe').forEach(f => { const src = f.src; f.src = ''; f.src = src; }); } } });
-
-    // Fire & Ash Canvas effects (same as original but included to preserve atmosphere)
-    (function fireCanvasFx(){ const canvas=document.getElementById('fireCanvas'); if(!canvas) return; const ctx=canvas.getContext('2d'); const resize=()=>{ canvas.width=canvas.offsetWidth; canvas.height=canvas.offsetHeight; }; resize(); window.addEventListener('resize',resize); class Ember{ constructor(){ this.reset(true); } reset(init){ this.x=canvas.width*Math.random(); this.y=init?Math.random()*canvas.height:canvas.height+Math.random()*40; this.size=Math.random()*3+1.5; this.vy=Math.random()*2+0.8; this.vx=(Math.random()-0.5)*1.2; this.life=1; this.decay=Math.random()*0.006+0.003; this.color=`hsl(${Math.random()*30+15},95%,62%)`; } update(){ this.x+=this.vx; this.y-=this.vy; this.life-=this.decay; if(this.life<=0||this.y<-20) this.reset(false); } draw(){ ctx.globalAlpha=this.life*0.8; ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fillStyle=this.color; ctx.fill(); ctx.globalAlpha=this.life*0.4; ctx.beginPath(); ctx.arc(this.x,this.y,this.size*2.5,0,Math.PI*2); ctx.fillStyle=`hsl(35,85%,55%)`; ctx.fill(); } } let particles=[]; for(let i=0;i<80;i++) particles.push(new Ember()); function loop(){ ctx.clearRect(0,0,canvas.width,canvas.height); particles.forEach(p=>{ p.update(); p.draw(); }); requestAnimationFrame(loop); } loop(); })();
-    (function footerEmber(){ const canvas=document.getElementById('footerCanvas'); if(!canvas) return; const ctx=canvas.getContext('2d'); let w,h; const resize=()=>{ w=canvas.width=canvas.offsetWidth; h=canvas.height=canvas.offsetHeight; }; resize(); window.addEventListener('resize',resize); class FEmber{ constructor(){ this.reset(true); } reset(init){ this.x=Math.random()*w; this.y=init?Math.random()*h:h+10; this.size=Math.random()*2+1; this.vy=Math.random()*1+0.3; this.vx=(Math.random()-0.5)*0.6; this.life=1; this.decay=Math.random()*0.005+0.003; this.color=`hsl(${Math.random()*30+18},90%,58%)`; } update(){ this.x+=this.vx; this.y-=this.vy; this.life-=this.decay; if(this.life<=0||this.y<-10) this.reset(false); } draw(){ ctx.globalAlpha=this.life*0.6; ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fillStyle=this.color; ctx.fill(); } } let embers=[]; for(let i=0;i<50;i++) embers.push(new FEmber()); function loop(){ ctx.clearRect(0,0,w,h); embers.forEach(e=>{ e.update(); e.draw(); }); requestAnimationFrame(loop); } loop(); })();
-
-const brandSwiper = new Swiper(".brandSwiper",{
-
-loop:true,
-
-loopAdditionalSlides:10,
-
-speed:4500,
-
-slidesPerView:"auto",
-
-spaceBetween:25,
-
-centeredSlides:false,
-
-allowTouchMove:false,
-
-grabCursor:false,
-
-freeMode:true,
-
-freeModeMomentum:false,
-
-autoplay:{
-delay:1,
-disableOnInteraction:false,
-pauseOnMouseEnter:true
-}
-
-});
-const modal = document.getElementById("youtubeModal");
-
-const frame = document.getElementById("youtubeFrame");
-
-document.getElementById("youtubeBtn").onclick = function(e){
-
-    e.preventDefault();
-
-    frame.src="https://www.youtube.com/embed/K8h1uAgE4_0?autoplay=1&rel=0";
-
-    modal.classList.add("show");
-
-};
-
-document.getElementById("closeYoutube").onclick=function(){
-
-    modal.classList.remove("show");
-
-    frame.src="";
-
-};
-
-modal.onclick=function(e){
-
-    if(e.target===modal){
-
-        modal.classList.remove("show");
-
-        frame.src="";
-
-    }
-
-};
-const slides = document.querySelectorAll(".video-slide");
-
-let current = 0;
-
-setInterval(()=>{
-
-    slides[current].classList.remove("active");
-
-    current++;
-
-    if(current>=slides.length){
-
-        current=0;
-
-    }
-
-    slides[current].classList.add("active");
-
-},6000);
-    </script>
+  <div id="toast" class="toast hidden"></div>
 </body>
 </html>
