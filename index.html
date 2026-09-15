@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>StockFlow · Inventory</title>
+  <title>Kurt Inventory App</title>
 
-  <!-- Prevent theme flash: apply saved theme before first paint -->
+  <!-- Apply saved theme before first paint (prevents flash) -->
   <script>
     (function () {
       const saved = localStorage.getItem("theme") ||
@@ -15,8 +15,6 @@
   </script>
 
   <link rel="stylesheet" href="style.css" />
-
-  <!-- Chart.js (deferred so it executes before app.js) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script type="module" src="app.js" defer></script>
 </head>
@@ -25,8 +23,13 @@
   <!-- ================= AUTH SCREEN ================= -->
   <section id="auth-screen" class="auth-screen">
     <div class="auth-card">
-      <h1 class="logo">📦 StockFlow</h1>
-      <p class="subtitle">Manage your inventory in real time</p>
+      <h1 class="logo">📦 Kurt Inventory App</h1>
+
+      <!-- Fade carousel subtitle -->
+      <div class="subtitle-carousel">
+        <span class="carousel-text">Manage your inventory in real time</span>
+        <span class="carousel-text">Be Systematic</span>
+      </div>
 
       <div class="auth-tabs">
         <button id="tab-login"  class="tab active">Login</button>
@@ -43,11 +46,25 @@
     </div>
   </section>
 
+  <!-- ================= PENDING APPROVAL SCREEN ================= -->
+  <section id="pending-screen" class="auth-screen hidden">
+    <div class="auth-card pending-card">
+      <div class="pending-icon">⏳</div>
+      <h1 class="logo">Awaiting Approval</h1>
+      <p class="subtitle static">
+        Your workspace has been created but is pending approval from the super admin.
+        You'll be notified once your account is activated.
+      </p>
+      <p class="pending-email" id="pending-email"></p>
+      <button id="pending-logout" class="btn ghost">Logout</button>
+    </div>
+  </section>
+
   <!-- ================= APP SHELL ================= -->
   <section id="app-shell" class="app-shell hidden">
 
     <header class="topbar">
-      <h1 class="logo">📦 StockFlow</h1>
+      <h1 class="logo">📦 Kurt Inventory</h1>
       <div class="user-area">
         <button id="theme-toggle" class="btn ghost icon-btn" aria-label="Toggle theme">
           <span id="theme-icon">🌙</span>
@@ -57,34 +74,18 @@
       </div>
     </header>
 
-    <!-- ========== PAGE 1 : DASHBOARD ========== -->
+    <!-- ========== DASHBOARD ========== -->
     <main id="page-dashboard" class="page active">
       <h2 class="page-title">Dashboard</h2>
 
       <div class="stats-grid">
-        <div class="stat-card">
-          <span class="stat-label">Total Items</span>
-          <span id="stat-total" class="stat-value">0</span>
-        </div>
-        <div class="stat-card warning">
-          <span class="stat-label">Low Stock</span>
-          <span id="stat-low" class="stat-value">0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Inventory Value</span>
-          <span id="stat-value" class="stat-value">$0</span>
-        </div>
-        <div class="stat-card success">
-          <span class="stat-label">Today's Sales</span>
-          <span id="stat-sales" class="stat-value">$0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Categories</span>
-          <span id="stat-cats" class="stat-value">0</span>
-        </div>
+        <div class="stat-card"><span class="stat-label">Total Items</span><span id="stat-total" class="stat-value">0</span></div>
+        <div class="stat-card warning"><span class="stat-label">Low Stock</span><span id="stat-low" class="stat-value">0</span></div>
+        <div class="stat-card"><span class="stat-label">Inventory Value</span><span id="stat-value" class="stat-value">$0</span></div>
+        <div class="stat-card success"><span class="stat-label">Today's Sales</span><span id="stat-sales" class="stat-value">$0</span></div>
+        <div class="stat-card"><span class="stat-label">Categories</span><span id="stat-cats" class="stat-value">0</span></div>
       </div>
 
-      <!-- Real-time analytics -->
       <h3 class="section-heading">Analytics</h3>
       <div class="charts-grid">
         <div class="chart-card">
@@ -101,11 +102,19 @@
         </div>
       </div>
 
+      <!-- ========== LIVE INVENTORY (real-time) ========== -->
+      <h3 class="section-heading">Live Inventory</h3>
+      <div class="toolbar">
+        <input type="search" id="dash-search" placeholder="Search inventory…" />
+      </div>
+      <div id="dashboard-inventory" class="inventory-list"></div>
+
+      <!-- ========== LOW-STOCK ALERTS ========== -->
       <h3 class="section-heading">Low-Stock Alerts</h3>
       <div id="low-stock-list" class="inventory-list"></div>
     </main>
 
-    <!-- ========== PAGE 2 : SALES ========== -->
+    <!-- ========== SALES ========== -->
     <main id="page-sales" class="page hidden">
       <h2 class="page-title">Sales</h2>
 
@@ -124,7 +133,7 @@
       <div id="sales-list" class="inventory-list"></div>
     </main>
 
-    <!-- ========== PAGE 3 : ADD ITEM ========== -->
+    <!-- ========== ADD ITEM ========== -->
     <main id="page-add" class="page hidden">
       <h2 class="page-title">Add Item</h2>
 
@@ -137,11 +146,9 @@
             <input type="text" id="item-category" list="category-list" required />
             <datalist id="category-list"></datalist>
           </label>
-          <label>Quantity <input type="number" id="item-qty"   min="0" required /></label>
+          <label>Quantity <input type="number" id="item-qty" min="0" required /></label>
           <label>Price ($) <input type="number" id="item-price" step="0.01" min="0" required /></label>
-          <label>Low-Stock Threshold
-            <input type="number" id="item-threshold" min="0" value="5" />
-          </label>
+          <label>Low-Stock Threshold <input type="number" id="item-threshold" min="0" value="5" /></label>
           <button type="submit" class="btn primary">Save Item</button>
         </form>
       </div>
@@ -156,7 +163,7 @@
       <div id="inventory-list" class="inventory-list"></div>
     </main>
 
-    <!-- ========== PAGE 4 : CATEGORIES ========== -->
+    <!-- ========== CATEGORIES ========== -->
     <main id="page-categories" class="page hidden">
       <h2 class="page-title">Categories</h2>
 
@@ -171,6 +178,18 @@
       <div id="category-grid" class="inventory-list"></div>
     </main>
 
+    <!-- ========== ADMIN (super admin only) ========== -->
+    <main id="page-admin" class="page hidden">
+      <h2 class="page-title">Admin · User Management</h2>
+
+      <h3 class="section-heading">Pending Approvals</h3>
+      <div id="pending-users-list" class="inventory-list"></div>
+
+      <h3 class="section-heading">All Users</h3>
+      <div id="all-users-list" class="inventory-list"></div>
+    </main>
+
+    <!-- ========== BOTTOM NAV ========== -->
     <nav class="bottom-nav">
       <button class="nav-btn active" data-page="page-dashboard">
         <span class="nav-icon">📊</span><span>Dashboard</span>
@@ -184,9 +203,13 @@
       <button class="nav-btn" data-page="page-categories">
         <span class="nav-icon">🗂️</span><span>Categories</span>
       </button>
+      <button id="nav-admin" class="nav-btn hidden" data-page="page-admin">
+        <span class="nav-icon">🛡️</span><span>Admin</span>
+      </button>
     </nav>
   </section>
 
   <div id="toast" class="toast hidden"></div>
+
 </body>
 </html>

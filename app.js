@@ -1,6 +1,7 @@
 /* ==========================================================
-   StockFlow — Real-Time Inventory + Sales + Categories
-   Adds: Dark/Light theme · Live charts · Progress bars
+   StockFlow SaaS — Multi-tenant + Super Admin Approval
+   FIXED: no composite indexes · no circular rule deps
+          reliable workspaceId · real-time dashboard inventory
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -10,11 +11,12 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
   getFirestore, collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, serverTimestamp, query, orderBy, limit
+  deleteDoc, doc, getDoc, setDoc, serverTimestamp,
+  query, where
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 /* ----------------------------------------------------------
-   ⚠️  PASTE YOUR FIREBASE CONFIG HERE
+   ⚠️  CONFIG
    ---------------------------------------------------------- */
 const firebaseConfig = {
   apiKey: "AIzaSyALhYN9Wufpqw8OxBlsvmEwpCrZjtGAtQo",
@@ -26,35 +28,42 @@ const firebaseConfig = {
   measurementId: "G-N3ET64JKNG"
 };
 
+/* ⚠️  MUST match the string in your Firestore rules exactly (lowercase). */
+const SUPER_ADMIN_EMAIL = "madronerokurt04@gmail.com";
+
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
 
 /* ----------------------------------------------------------
-   DOM
+   DOM shorthand
    ---------------------------------------------------------- */
 const $ = (id) => document.getElementById(id);
 
+/* Screens */
+const authScreen    = $("auth-screen");
+const pendingScreen = $("pending-screen");
+const appShell      = $("app-shell");
+
 /* Auth */
-const authScreen=$("auth-screen"), appShell=$("app-shell"),
-      authForm=$("auth-form"), authSubmit=$("auth-submit"),
+const authForm=$("auth-form"), authSubmit=$("auth-submit"),
       authError=$("auth-error"), emailInput=$("email"),
       passwordInput=$("password"), tabLogin=$("tab-login"),
       tabSignup=$("tab-signup"), logoutBtn=$("logout-btn"),
-      userEmailEl=$("user-email");
+      userEmailEl=$("user-email"), pendingLogout=$("pending-logout"),
+      pendingEmail=$("pending-email");
 
 /* Theme */
-const themeToggle = $("theme-toggle");
-const themeIcon   = $("theme-icon");
+const themeToggle=$("theme-toggle"), themeIcon=$("theme-icon");
 
 /* Dashboard */
 const statTotal=$("stat-total"), statLow=$("stat-low"),
       statValue=$("stat-value"), statSales=$("stat-sales"),
-      statCats=$("stat-cats"),   lowStockList=$("low-stock-list");
+      statCats=$("stat-cats"), lowStockList=$("low-stock-list");
 
 /* Sales */
 const saleForm=$("sale-form"), saleItem=$("sale-item"),
-      saleQty=$("sale-qty"),   salesList=$("sales-list");
+      saleQty=$("sale-qty"), salesList=$("sales-list");
 
 /* Inventory */
 const itemForm=$("item-form"), itemId=$("item-id"),
@@ -68,6 +77,11 @@ const itemForm=$("item-form"), itemId=$("item-id"),
 const categoryForm=$("category-form"), newCategory=$("new-category"),
       categoryGrid=$("category-grid");
 
+/* Admin */
+const navAdmin=$("nav-admin"),
+      pendingUsersList=$("pending-users-list"),
+      allUsersList=$("all-users-list");
+
 /* Nav + toast */
 const navButtons=document.querySelectorAll(".nav-btn");
 const pages=document.querySelectorAll(".page");
@@ -76,11 +90,11 @@ const toast=$("toast");
 /* ----------------------------------------------------------
    STATE
    ---------------------------------------------------------- */
-let inventory=[], sales=[], categories=[];
-let currentUser=null, isSignupMode=false;
+let inventory=[], sales=[], categories=[], allUsers=[];
+let currentUser=null, currentUserData=null, isSignupMode=false;
 const unsubscribers={};
+let unsubscribeUserDoc = null;
 
-/* Chart instances */
 let stockChart=null, categoryValueChart=null, salesCategoryChart=null;
 
 /* ==========================================================
@@ -90,25 +104,19 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem("theme", theme);
   themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
-
-  // Re-render charts so legends / tooltips pick up the new palette
   if (stockChart || categoryValueChart || salesCategoryChart) {
-    destroyCharts();
-    renderCharts();
+    destroyCharts(); renderCharts();
   }
 }
-
 themeToggle.addEventListener("click", () => {
-  const current = document.documentElement.getAttribute("data-theme") || "light";
-  applyTheme(current === "dark" ? "light" : "dark");
+  const cur = document.documentElement.getAttribute("data-theme") || "light";
+  applyTheme(cur === "dark" ? "light" : "dark");
 });
-
-/* Initialise icon on load (html attribute already set by inline script) */
 themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
 
 /* ==========================================================
-   AUTH
+   AUTH TABS
    ========================================================== */
 tabLogin.addEventListener("click", () => {
   isSignupMode=false; tabLogin.classList.add("active");
@@ -121,14 +129,39 @@ tabSignup.addEventListener("click", () => {
   authSubmit.textContent="Create Account"; authError.textContent="";
 });
 
+/* ==========================================================
+   SIGNUP / LOGIN
+   ========================================================== */
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  authError.textContent="";
-  const email=emailInput.value.trim(), password=passwordInput.value;
+  authError.textContent = "";
+  const email = emailInput.value.trim().toLowerCase();
+  const password = passwordInput.value;
+
   try {
-    if (isSignupMode) await createUserWithEmailAndPassword(auth, email, password);
-    else               await signInWithEmailAndPassword(auth, email, password);
-  } catch (err) { authError.textContent = friendlyAuthError(err.code); }
+    if (isSignupMode) {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const isSuper = email === SUPER_ADMIN_EMAIL.toLowerCase();
+
+      try {
+        await setDoc(doc(db, "users", cred.user.uid), {
+          email,
+          workspaceId: cred.user.uid,
+          role: isSuper ? "superadmin" : "user",
+          approved: isSuper,
+          createdAt: serverTimestamp()
+        });
+      } catch (profileErr) {
+        console.error("[Signup] profile write failed:", profileErr);
+        authError.textContent = "Account created, but profile setup failed. Check Firestore rules.";
+      }
+    } else {
+      await signInWithEmailAndPassword(auth, email, password);
+    }
+  } catch (err) {
+    console.error("[Auth] submit error:", err);
+    authError.textContent = friendlyAuthError(err.code);
+  }
 });
 
 function friendlyAuthError(code) {
@@ -138,76 +171,219 @@ function friendlyAuthError(code) {
     "auth/wrong-password":"Incorrect password.",
     "auth/email-already-in-use":"This email is already registered.",
     "auth/weak-password":"Password should be at least 6 characters.",
-    "auth/invalid-credential":"Invalid email or password."
+    "auth/invalid-credential":"Invalid email or password.",
+    "auth/too-many-requests":"Too many attempts. Try again later."
   };
-  return map[code] || "Something went wrong. Please try again.";
+  return map[code] || `Login failed (${code || "unknown error"}).`;
 }
 
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    currentUser = user;
-    userEmailEl.textContent = user.email;
-    authScreen.classList.add("hidden");
-    appShell.classList.remove("hidden");
-    startAllListeners();
-  } else {
-    currentUser = null;
-    stopAllListeners();
-    appShell.classList.add("hidden");
+/* ==========================================================
+   AUTH STATE — the SaaS gate
+   ========================================================== */
+onAuthStateChanged(auth, async (user) => {
+  /* ---------- cleanup from previous session ---------- */
+  if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
+  stopAllListeners();
+
+  /* ---------- signed out ---------- */
+  if (!user) {
+    currentUser = null; currentUserData = null;
     authScreen.classList.remove("hidden");
+    pendingScreen.classList.add("hidden");
+    appShell.classList.add("hidden");
     authForm.reset(); authError.textContent="";
+    return;
   }
+
+  /* ---------- signed in ---------- */
+  currentUser = user;
+  userEmailEl.textContent = user.email;
+  pendingEmail.textContent = user.email;
+
+  const isSuper =
+    (user.email || "").trim().toLowerCase() ===
+    SUPER_ADMIN_EMAIL.trim().toLowerCase();
+
+  console.log(`[Auth] signed in: ${user.email} | isSuper=${isSuper} | uid=${user.uid}`);
+
+  const userRef = doc(db, "users", user.uid);
+
+  /* ---------- STEP 1: create or auto-heal profile ---------- */
+  try {
+    const snap = await getDoc(userRef);
+
+    if (!snap.exists()) {
+      console.log("[Auth] no profile — creating…");
+      await setDoc(userRef, {
+        email: user.email,
+        workspaceId: user.uid,
+        role: isSuper ? "superadmin" : "user",
+        approved: isSuper,
+        createdAt: serverTimestamp()
+      });
+      console.log("[Auth] profile created");
+    } else if (isSuper) {
+      const data = snap.data();
+      if (data.role !== "superadmin" || data.approved !== true) {
+        console.log("[Auth] auto-healing super admin profile…");
+        await updateDoc(userRef, { role: "superadmin", approved: true });
+      }
+    }
+  } catch (err) {
+    console.error("[Auth] profile setup FAILED:", err.code, err.message);
+    authError.textContent = `Profile setup failed: ${err.code || err.message}`;
+    // Stay on auth screen — don't proceed
+    authScreen.classList.remove("hidden");
+    appShell.classList.add("hidden");
+    pendingScreen.classList.add("hidden");
+    return;
+  }
+
+  /* ---------- STEP 2: live-watch the profile ---------- */
+  unsubscribeUserDoc = onSnapshot(
+    userRef,
+    (docSnap) => {
+      if (!docSnap.exists()) return;
+
+      currentUserData = docSnap.data();
+      console.log("[Auth] profile:", currentUserData);
+
+      /* approval gate */
+      if (!currentUserData.approved) {
+        authScreen.classList.add("hidden");
+        appShell.classList.add("hidden");
+        pendingScreen.classList.remove("hidden");
+        return;
+      }
+
+      /* unlocked */
+      pendingScreen.classList.add("hidden");
+      authScreen.classList.add("hidden");
+      appShell.classList.remove("hidden");
+
+      navAdmin.classList.toggle("hidden", currentUserData.role !== "superadmin");
+
+      /* only start listeners once */
+      if (!unsubscribers.inventory) startAllListeners();
+      if (currentUserData.role === "superadmin" && !unsubscribers.users) {
+        startUserAdminListener();
+      }
+    },
+    (err) => {
+      console.error("[Auth] profile watch FAILED:", err.code, err.message);
+      showToast(`Profile stream: ${err.code || err.message} ❌`);
+    }
+  );
 });
 
 logoutBtn.addEventListener("click", () => signOut(auth));
+pendingLogout.addEventListener("click", () => signOut(auth));
 
 /* ==========================================================
-   REAL-TIME LISTENERS
+   WORKSPACE ID
+   Since we always set workspaceId = uid at signup,
+   the auth token alone is enough — no Firestore read needed.
+   ========================================================== */
+function myWorkspace() {
+  return currentUser?.uid;
+}
+
+/* ==========================================================
+   REAL-TIME LISTENERS  (no orderBy → no composite indexes)
    ========================================================== */
 function startAllListeners() {
+  const wsId = myWorkspace();
+  if (!wsId) {
+    console.warn("[Listeners] workspaceId missing — skipping");
+    return;
+  }
+  console.log("[Listeners] starting for workspace:", wsId);
+
+  /* ---------------- INVENTORY ---------------- */
   unsubscribers.inventory = onSnapshot(
-    query(collection(db,"inventory"), orderBy("name")),
+    query(collection(db, "inventory"), where("workspaceId", "==", wsId)),
     (snap) => {
-      inventory = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      inventory = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      console.log(`[Inventory] ${inventory.length} items`);
       renderInventory();
       renderLowStockAlerts();
+      renderDashboardInventory();
       updateStats();
       populateCategoryFilter();
       populateCategoryDatalist();
       populateSaleItemSelect();
       renderCharts();
+    },
+    (err) => {
+      console.error("[Inventory listener]", err.code, err.message);
+      showToast("Inventory sync failed ❌ — check console");
     }
   );
 
+  /* ---------------- SALES ---------------- */
   unsubscribers.sales = onSnapshot(
-    query(collection(db,"sales"), orderBy("createdAt","desc"), limit(50)),
+    query(collection(db, "sales"), where("workspaceId", "==", wsId)),
     (snap) => {
-      sales = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      sales = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          const ta = a.createdAt?.toMillis?.() ?? 0;
+          const tb = b.createdAt?.toMillis?.() ?? 0;
+          return tb - ta;
+        })
+        .slice(0, 50);
+      console.log(`[Sales] ${sales.length} records`);
       renderSales();
       updateStats();
       renderCharts();
-    }
+    },
+    (err) => console.error("[Sales listener]", err.code, err.message)
   );
 
+  /* ---------------- CATEGORIES ---------------- */
   unsubscribers.categories = onSnapshot(
-    query(collection(db,"categories"), orderBy("name")),
+    query(collection(db, "categories"), where("workspaceId", "==", wsId)),
     (snap) => {
-      categories = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      categories = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      console.log(`[Categories] ${categories.length} records`);
       renderCategories();
       updateStats();
       populateCategoryDatalist();
-    }
+    },
+    (err) => console.error("[Categories listener]", err.code, err.message)
+  );
+}
+
+function startUserAdminListener() {
+  unsubscribers.users = onSnapshot(
+    query(collection(db, "users")),
+    (snap) => {
+      allUsers = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          const ta = a.createdAt?.toMillis?.() ?? 0;
+          const tb = b.createdAt?.toMillis?.() ?? 0;
+          return tb - ta;
+        });
+      console.log(`[Users] ${allUsers.length} records`);
+      renderAdminUsers();
+    },
+    (err) => console.error("[Users listener]", err.code, err.message)
   );
 }
 
 function stopAllListeners() {
-  Object.values(unsubscribers).forEach(u => u && u());
-  Object.keys(unsubscribers).forEach(k => delete unsubscribers[k]);
+  Object.values(unsubscribers).forEach((u) => u && u());
+  Object.keys(unsubscribers).forEach((k) => delete unsubscribers[k]);
   destroyCharts();
 }
 
 /* ==========================================================
-   SPA NAVIGATION
+   NAV
    ========================================================== */
 navButtons.forEach(btn => {
   btn.addEventListener("click", () => {
@@ -216,40 +392,95 @@ navButtons.forEach(btn => {
     pages.forEach(p => p.classList.add("hidden"));
     const target = $(btn.dataset.page);
     if (target) target.classList.remove("hidden");
-    // Charts must be redrawn if dashboard becomes visible
-    if (btn.dataset.page === "page-dashboard") renderCharts();
+    if (btn.dataset.page === "page-dashboard") {
+      renderCharts();
+      renderDashboardInventory();
+    }
   });
 });
 
 /* ==========================================================
-   PROGRESS BAR HELPERS
+   ADMIN — approve / revoke / delete
+   ========================================================== */
+function renderAdminUsers() {
+  const pending = allUsers.filter(u => !u.approved);
+  pendingUsersList.innerHTML = pending.length
+    ? pending.map(userRowHTML).join("")
+    : `<div class="empty-state"><p>✅ No pending approvals.</p></div>`;
+  allUsersList.innerHTML = allUsers.length
+    ? allUsers.map(userRowHTML).join("")
+    : `<div class="empty-state"><p>No users yet.</p></div>`;
+}
+
+function userRowHTML(u) {
+  const isSuper = u.role === "superadmin";
+  return `
+    <div class="user-row ${u.approved ? "approved" : "pending"}">
+      <div class="user-info">
+        <div class="user-mail">
+          ${esc(u.email)}
+          ${isSuper ? `<span class="role-badge super">SUPER ADMIN</span>` : ""}
+        </div>
+        <div class="user-meta">
+          Workspace: <code>${esc((u.workspaceId||"").slice(0,8))}…</code>
+          · ${u.approved ? "Approved" : "Pending"}
+        </div>
+      </div>
+      <div class="user-actions">
+        ${u.approved
+          ? `<button class="btn ghost" onclick="toggleApproval('${u.id}', false)">Revoke</button>`
+          : `<button class="btn primary" onclick="toggleApproval('${u.id}', true)">Approve</button>`}
+        ${isSuper ? "" : `<button class="btn danger" onclick="deleteUser('${u.id}')">Delete</button>`}
+      </div>
+    </div>`;
+}
+
+window.toggleApproval = async (userId, approved) => {
+  if (!currentUserData || currentUserData.role !== "superadmin") return;
+  try {
+    await updateDoc(doc(db, "users", userId), { approved });
+    showToast(approved ? "User approved ✅" : "Approval revoked");
+  } catch (err) {
+    console.error("[Admin] toggle failed:", err);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+};
+
+window.deleteUser = async (userId) => {
+  if (!currentUserData || currentUserData.role !== "superadmin") return;
+  if (!confirm("Delete this user profile? (Their workspace data will remain)")) return;
+  try {
+    await deleteDoc(doc(db, "users", userId));
+    showToast("User deleted 🗑️");
+  } catch (err) {
+    console.error("[Admin] delete failed:", err);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+};
+
+/* ==========================================================
+   PROGRESS BAR
    ========================================================== */
 function stockProgress(item) {
-  const threshold = item.threshold ?? 5;
-  const capacity  = Math.max(threshold * 3, 1);
-  const percent   = Math.min((item.quantity / capacity) * 100, 100);
-
+  const t = item.threshold ?? 5;
+  const capacity = Math.max(t * 3, 1);
+  const percent = Math.min((item.quantity / capacity) * 100, 100);
   let level = "high";
-  if (item.quantity === 0 || item.quantity <= threshold) level = "low";
-  else if (item.quantity <= threshold * 2)               level = "medium";
-
+  if (item.quantity === 0 || item.quantity <= t) level = "low";
+  else if (item.quantity <= t * 2) level = "medium";
   return { percent, level };
 }
 
 /* ==========================================================
-   RENDER — Inventory cards (with progress bar)
+   RENDER — Inventory grid (Add Item page)
    ========================================================== */
 function renderInventory() {
-  const searchTerm = searchInput.value.toLowerCase();
-  const catFilter  = filterCat.value;
-
-  const filtered = inventory.filter(item => {
-    const matchSearch =
-      !searchTerm ||
-      item.name.toLowerCase().includes(searchTerm) ||
-      item.sku.toLowerCase().includes(searchTerm);
-    const matchCat = !catFilter || item.category === catFilter;
-    return matchSearch && matchCat;
+  const s = (searchInput?.value || "").toLowerCase();
+  const f = filterCat?.value || "";
+  const filtered = inventory.filter(i => {
+    const mS = !s || i.name.toLowerCase().includes(s) || i.sku.toLowerCase().includes(s);
+    const mC = !f || i.category === f;
+    return mS && mC;
   });
 
   if (!filtered.length) {
@@ -267,7 +498,7 @@ function renderInventory() {
             <div class="item-name">${esc(item.name)}</div>
             <div class="item-sku">SKU: ${esc(item.sku)}</div>
           </div>
-          <span class="badge ${isLow ? "low" : "ok"}">${isLow ? "Low Stock" : "In Stock"}</span>
+          <span class="badge ${isLow ? "low":"ok"}">${isLow ? "Low Stock":"In Stock"}</span>
         </div>
         <div class="item-meta">
           <span>📂 ${esc(item.category)}</span>
@@ -286,6 +517,53 @@ function renderInventory() {
   }).join("");
 }
 
+/* ==========================================================
+   RENDER — Dashboard live inventory
+   ========================================================== */
+function renderDashboardInventory() {
+  const container = $("dashboard-inventory");
+  if (!container) return;
+
+  const term = ($("dash-search")?.value || "").toLowerCase();
+  const filtered = inventory.filter(i => {
+    if (!term) return true;
+    return i.name.toLowerCase().includes(term) ||
+           i.sku.toLowerCase().includes(term);
+  });
+
+  if (!filtered.length) {
+    container.innerHTML = `<div class="empty-state"><p>📭 No items yet — add one to get started.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(item => {
+    const isLow = item.quantity <= (item.threshold ?? 5);
+    const { percent, level } = stockProgress(item);
+    return `
+      <div class="item-card ${isLow ? "low-stock" : ""}">
+        <div class="item-header">
+          <div>
+            <div class="item-name">${esc(item.name)}</div>
+            <div class="item-sku">SKU: ${esc(item.sku)}</div>
+          </div>
+          <span class="badge ${isLow ? "low":"ok"}">${isLow ? "Low Stock":"In Stock"}</span>
+        </div>
+        <div class="item-meta">
+          <span>📂 ${esc(item.category)}</span>
+          <span>📦 Qty: ${item.quantity}</span>
+          <span>💰 $${Number(item.price).toFixed(2)}</span>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
+          <span class="progress-label">${percent.toFixed(0)}%</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+/* ==========================================================
+   RENDER — Low stock alerts
+   ========================================================== */
 function renderLowStockAlerts() {
   const low = inventory.filter(i => i.quantity <= (i.threshold ?? 5));
   if (!low.length) {
@@ -297,16 +575,10 @@ function renderLowStockAlerts() {
     return `
       <div class="item-card low-stock">
         <div class="item-header">
-          <div>
-            <div class="item-name">${esc(item.name)}</div>
-            <div class="item-sku">SKU: ${esc(item.sku)}</div>
-          </div>
+          <div><div class="item-name">${esc(item.name)}</div><div class="item-sku">SKU: ${esc(item.sku)}</div></div>
           <span class="badge low">Low Stock</span>
         </div>
-        <div class="item-meta">
-          <span>📦 Qty: ${item.quantity}</span>
-          <span>⚠️ Threshold: ${item.threshold ?? 5}</span>
-        </div>
+        <div class="item-meta"><span>📦 Qty: ${item.quantity}</span><span>⚠️ Threshold: ${item.threshold ?? 5}</span></div>
         <div class="progress-wrap">
           <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
           <span class="progress-label">${percent.toFixed(0)}%</span>
@@ -325,14 +597,10 @@ function renderSales() {
   }
   salesList.innerHTML = sales.map(s => {
     const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
-    return `
-      <div class="sale-row">
-        <div>
-          <div>${esc(s.itemName)} × ${s.quantity}</div>
-          <div class="sale-date">${date}</div>
-        </div>
-        <div class="sale-total">$${Number(s.total).toFixed(2)}</div>
-      </div>`;
+    return `<div class="sale-row">
+      <div><div>${esc(s.itemName)} × ${s.quantity}</div><div class="sale-date">${date}</div></div>
+      <div class="sale-total">$${Number(s.total).toFixed(2)}</div>
+    </div>`;
   }).join("");
 }
 
@@ -346,14 +614,10 @@ function renderCategories() {
   }
   categoryGrid.innerHTML = categories.map(cat => {
     const count = inventory.filter(i => i.category === cat.name).length;
-    return `
-      <div class="category-card">
-        <div>
-          <div class="cat-name">${esc(cat.name)}</div>
-          <div class="cat-count">${count} item${count !== 1 ? "s" : ""}</div>
-        </div>
-        <button class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
-      </div>`;
+    return `<div class="category-card">
+      <div><div class="cat-name">${esc(cat.name)}</div><div class="cat-count">${count} item${count!==1?"s":""}</div></div>
+      <button class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
+    </div>`;
   }).join("");
 }
 
@@ -362,187 +626,110 @@ function renderCategories() {
    ========================================================== */
 function updateStats() {
   const total = inventory.length;
-  const low   = inventory.filter(i => i.quantity <= (i.threshold ?? 5)).length;
-  const value = inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
+  const low = inventory.filter(i => i.quantity <= (i.threshold ?? 5)).length;
+  const value = inventory.reduce((s,i) => s + (i.quantity * i.price || 0), 0);
 
   const today = new Date(); today.setHours(0,0,0,0);
   const todaySales = sales
     .filter(s => s.createdAt?.toDate?.() >= today)
-    .reduce((s, sale) => s + (sale.total || 0), 0);
+    .reduce((s,x) => s + (x.total || 0), 0);
 
   statTotal.textContent = total;
-  statLow.textContent   = low;
+  statLow.textContent = low;
   statValue.textContent = "$" + value.toFixed(2);
   statSales.textContent = "$" + todaySales.toFixed(2);
-  statCats.textContent  = categories.length;
+  statCats.textContent = categories.length;
 }
 
 /* ==========================================================
-   CHART.JS — real-time analytics
+   CHARTS
    ========================================================== */
-const CATEGORY_PALETTE = [
-  "#6366f1","#8b5cf6","#ec4899","#f59e0b",
-  "#10b981","#06b6d4","#f43f5e","#84cc16"
-];
+const CATEGORY_PALETTE = ["#6366f1","#8b5cf6","#ec4899","#f59e0b","#10b981","#06b6d4","#f43f5e","#84cc16"];
+const getCSSVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
-function getCSSVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-function commonChartOptions(legendColor) {
+function commonChartOptions(textColor) {
   return {
-    responsive: true,
-    maintainAspectRatio: false,
+    responsive: true, maintainAspectRatio: false,
     animation: { duration: 400 },
-    plugins: {
-      legend: {
-        position: "bottom",
-        labels: {
-          color: legendColor,
-          padding: 12,
-          font: { size: 12 },
-          boxWidth: 14,
-          usePointStyle: true
-        }
-      }
-    }
+    plugins: { legend: { position: "bottom", labels: { color: textColor, padding: 12, font:{size:12}, boxWidth:14, usePointStyle:true } } }
   };
 }
 
 function renderCharts() {
-  if (typeof Chart === "undefined") return;       // Chart.js not loaded yet
+  if (typeof Chart === "undefined") return;
   if (!inventory.length && !sales.length) return;
-
   const textColor = getCSSVar("--text") || "#1e293b";
 
-  /* ---------- 1. Stock Status (doughnut) ---------- */
   const inStock  = inventory.filter(i => i.quantity >  (i.threshold ?? 5)).length;
   const lowStock = inventory.filter(i => i.quantity > 0 && i.quantity <= (i.threshold ?? 5)).length;
   const outStock = inventory.filter(i => i.quantity === 0).length;
-
   const stockData = {
-    labels: ["In Stock", "Low Stock", "Out of Stock"],
-    datasets: [{
-      data: [inStock, lowStock, outStock],
-      backgroundColor: ["#22c55e", "#f59e0b", "#ef4444"],
-      borderWidth: 0,
-      hoverOffset: 6
-    }]
+    labels: ["In Stock","Low Stock","Out of Stock"],
+    datasets: [{ data:[inStock,lowStock,outStock], backgroundColor:["#22c55e","#f59e0b","#ef4444"], borderWidth:0, hoverOffset:6 }]
   };
-
   if (stockChart) {
     stockChart.data = stockData;
     stockChart.options.plugins.legend.labels.color = textColor;
     stockChart.update("none");
   } else {
     stockChart = new Chart($("stock-status-chart"), {
-      type: "doughnut",
-      data: stockData,
-      options: {
-        ...commonChartOptions(textColor),
-        cutout: "62%",
-        plugins: {
-          ...commonChartOptions(textColor).plugins,
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const total = ctx.dataset.data.reduce((a,b)=>a+b,0) || 1;
-                const pct = ((ctx.parsed / total) * 100).toFixed(1);
-                return `${ctx.label}: ${ctx.parsed} (${pct}%)`;
-              }
-            }
-          }
-        }
-      }
+      type:"doughnut", data:stockData,
+      options:{ ...commonChartOptions(textColor), cutout:"62%",
+        plugins:{ ...commonChartOptions(textColor).plugins,
+          tooltip:{ callbacks:{ label:(c)=>{
+            const t=c.dataset.data.reduce((a,b)=>a+b,0)||1;
+            return `${c.label}: ${c.parsed} (${((c.parsed/t)*100).toFixed(1)}%)`;
+          }}}
+        }}
     });
   }
 
-  /* ---------- 2. Value by Category (pie) ---------- */
-  const valueByCat = {};
-  inventory.forEach(i => {
-    valueByCat[i.category] = (valueByCat[i.category] || 0) + (i.quantity * i.price || 0);
-  });
-  const catLabels = Object.keys(valueByCat);
-  const catValues = Object.values(valueByCat);
-
+  const vbc = {};
+  inventory.forEach(i => { vbc[i.category] = (vbc[i.category]||0) + (i.quantity*i.price||0); });
+  const catLabels = Object.keys(vbc), catValues = Object.values(vbc);
   const catData = {
     labels: catLabels.length ? catLabels : ["No data"],
-    datasets: [{
-      data: catValues.length ? catValues : [1],
-      backgroundColor: catLabels.length
-        ? catLabels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length])
-        : ["#e2e8f0"],
-      borderWidth: 0,
-      hoverOffset: 6
-    }]
+    datasets: [{ data: catValues.length ? catValues : [1],
+      backgroundColor: catLabels.length ? catLabels.map((_,i)=>CATEGORY_PALETTE[i%CATEGORY_PALETTE.length]) : ["#e2e8f0"],
+      borderWidth:0, hoverOffset:6 }]
   };
-
   if (categoryValueChart) {
     categoryValueChart.data = catData;
     categoryValueChart.options.plugins.legend.labels.color = textColor;
     categoryValueChart.update("none");
   } else {
     categoryValueChart = new Chart($("category-value-chart"), {
-      type: "pie",
-      data: catData,
-      options: {
-        ...commonChartOptions(textColor),
-        plugins: {
-          ...commonChartOptions(textColor).plugins,
-          tooltip: {
-            callbacks: {
-              label: (ctx) => `${ctx.label}: $${Number(ctx.parsed).toFixed(2)}`
-            }
-          }
-        }
-      }
+      type:"pie", data:catData,
+      options:{ ...commonChartOptions(textColor),
+        plugins:{ ...commonChartOptions(textColor).plugins,
+          tooltip:{ callbacks:{ label:(c)=>`${c.label}: $${Number(c.parsed).toFixed(2)}` }}
+        }}
     });
   }
 
-  /* ---------- 3. Sales by Category (pie) ---------- */
-  const salesByCat = {};
-  sales.forEach(s => {
-    const key = s.category || "Unknown";
-    salesByCat[key] = (salesByCat[key] || 0) + (s.total || 0);
-  });
-  const salesLabels = Object.keys(salesByCat);
-  const salesValues = Object.values(salesByCat);
-
+  const sbc = {};
+  sales.forEach(s => { const k = s.category || "Unknown"; sbc[k] = (sbc[k]||0) + (s.total||0); });
+  const sLabels = Object.keys(sbc), sValues = Object.values(sbc);
   const salesData = {
-    labels: salesLabels.length ? salesLabels : ["No sales yet"],
-    datasets: [{
-      data: salesValues.length ? salesValues : [1],
-      backgroundColor: salesLabels.length
-        ? salesLabels.map((_, i) => CATEGORY_PALETTE[(i + 3) % CATEGORY_PALETTE.length])
-        : ["#e2e8f0"],
-      borderWidth: 0,
-      hoverOffset: 6
-    }]
+    labels: sLabels.length ? sLabels : ["No sales yet"],
+    datasets: [{ data: sValues.length ? sValues : [1],
+      backgroundColor: sLabels.length ? sLabels.map((_,i)=>CATEGORY_PALETTE[(i+3)%CATEGORY_PALETTE.length]) : ["#e2e8f0"],
+      borderWidth:0, hoverOffset:6 }]
   };
-
   if (salesCategoryChart) {
     salesCategoryChart.data = salesData;
     salesCategoryChart.options.plugins.legend.labels.color = textColor;
     salesCategoryChart.update("none");
   } else {
     salesCategoryChart = new Chart($("sales-category-chart"), {
-      type: "pie",
-      data: salesData,
-      options: {
-        ...commonChartOptions(textColor),
-        plugins: {
-          ...commonChartOptions(textColor).plugins,
-          tooltip: {
-            callbacks: {
-              label: (ctx) => `${ctx.label}: $${Number(ctx.parsed).toFixed(2)}`
-            }
-          }
-        }
-      }
+      type:"pie", data:salesData,
+      options:{ ...commonChartOptions(textColor),
+        plugins:{ ...commonChartOptions(textColor).plugins,
+          tooltip:{ callbacks:{ label:(c)=>`${c.label}: $${Number(c.parsed).toFixed(2)}` }}
+        }}
     });
   }
 }
-
 function destroyCharts() {
   [stockChart, categoryValueChart, salesCategoryChart].forEach(c => c && c.destroy());
   stockChart = categoryValueChart = salesCategoryChart = null;
@@ -552,45 +739,50 @@ function destroyCharts() {
    SELECTS / DATALISTS
    ========================================================== */
 function populateCategoryFilter() {
-  const names = [...new Set(inventory.map(i => i.category))].sort();
-  const current = filterCat.value;
+  const names = [...new Set(inventory.map(i=>i.category))].sort();
+  const cur = filterCat.value;
   filterCat.innerHTML = `<option value="">All Categories</option>` +
     names.map(c => `<option value="${c}">${c}</option>`).join("");
-  filterCat.value = current;
+  filterCat.value = cur;
 }
-
 function populateCategoryDatalist() {
-  const names = [...new Set([
-    ...categories.map(c => c.name),
-    ...inventory.map(i => i.category)
-  ])].sort();
+  const names = [...new Set([...categories.map(c=>c.name), ...inventory.map(i=>i.category)])].sort();
   categoryList.innerHTML = names.map(c => `<option value="${c}">`).join("");
 }
-
 function populateSaleItemSelect() {
-  const current = saleItem.value;
+  const cur = saleItem.value;
   saleItem.innerHTML = `<option value="">Select item…</option>` +
     inventory.map(i => `<option value="${i.id}">${esc(i.name)} (${i.quantity} left)</option>`).join("");
-  saleItem.value = current;
+  saleItem.value = cur;
 }
 
 searchInput.addEventListener("input", renderInventory);
 filterCat.addEventListener("change", renderInventory);
 
+/* Wire up dashboard search (may or may not exist in HTML) */
+const dashSearchEl = $("dash-search");
+if (dashSearchEl) dashSearchEl.addEventListener("input", renderDashboardInventory);
+
 /* ==========================================================
-   ADD / EDIT ITEM
+   CRUD — Inventory items
    ========================================================== */
 itemForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+
   const data = {
-    name:      itemName.value.trim(),
-    sku:       itemSku.value.trim(),
-    category:  itemCategory.value.trim(),
-    quantity:  Number(itemQty.value),
-    price:     Number(itemPrice.value),
+    name: itemName.value.trim(),
+    sku: itemSku.value.trim(),
+    category: itemCategory.value.trim(),
+    quantity: Number(itemQty.value),
+    price: Number(itemPrice.value),
     threshold: Number(itemThreshold.value),
+    workspaceId: wsId,
     updatedAt: serverTimestamp()
   };
+
   try {
     if (itemId.value) {
       await updateDoc(doc(db, "inventory", itemId.value), data);
@@ -600,82 +792,102 @@ itemForm.addEventListener("submit", async (e) => {
       showToast("Item added ✅");
     }
     itemForm.reset(); itemId.value=""; itemThreshold.value=5;
-  } catch (err) { console.error(err); showToast("Failed to save item ❌"); }
+  } catch (err) {
+    console.error("[add/update item]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
 });
 
 window.editItem = (id) => {
   const item = inventory.find(i => i.id === id);
   if (!item) return;
-  itemId.value        = item.id;
-  itemName.value      = item.name;
-  itemSku.value       = item.sku;
-  itemCategory.value  = item.category;
-  itemQty.value       = item.quantity;
-  itemPrice.value     = item.price;
-  itemThreshold.value = item.threshold ?? 5;
+  itemId.value=item.id; itemName.value=item.name; itemSku.value=item.sku;
+  itemCategory.value=item.category; itemQty.value=item.quantity;
+  itemPrice.value=item.price; itemThreshold.value=item.threshold ?? 5;
   document.querySelector('[data-page="page-add"]').click();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({top:0, behavior:"smooth"});
 };
 
 window.deleteItem = async (id) => {
   if (!confirm("Delete this item permanently?")) return;
-  try { await deleteDoc(doc(db,"inventory", id)); showToast("Item deleted 🗑️"); }
-  catch (err) { console.error(err); showToast("Failed to delete ❌"); }
+  try {
+    await deleteDoc(doc(db, "inventory", id));
+    showToast("Item deleted 🗑️");
+  } catch (err) {
+    console.error("[delete item]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
 };
 
 /* ==========================================================
-   RECORD A SALE
+   RECORD SALE
    ========================================================== */
 saleForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const chosenId = saleItem.value;
-  const qty      = Number(saleQty.value);
-  const item     = inventory.find(i => i.id === chosenId);
 
-  if (!item)         { showToast("Please select an item ❌"); return; }
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+
+  const item = inventory.find(i => i.id === saleItem.value);
+  const qty = Number(saleQty.value);
+  if (!item) { showToast("Select an item ❌"); return; }
   if (qty > item.quantity) { showToast("Not enough stock ❌"); return; }
 
   try {
     await addDoc(collection(db, "sales"), {
-      itemId:    item.id,
-      itemName:  item.name,
-      category:  item.category,         // <-- stored for the pie chart
-      quantity:  qty,
-      unitPrice: item.price,
-      total:     qty * item.price,
-      createdAt: serverTimestamp(),
-      userId:    currentUser.uid
+      itemId: item.id, itemName: item.name, category: item.category,
+      quantity: qty, unitPrice: item.price, total: qty * item.price,
+      workspaceId: wsId,
+      createdAt: serverTimestamp(), userId: currentUser.uid
     });
     await updateDoc(doc(db, "inventory", item.id), {
-      quantity:  item.quantity - qty,
+      quantity: item.quantity - qty,
       updatedAt: serverTimestamp()
     });
     saleForm.reset();
     showToast("Sale recorded ✅");
-  } catch (err) { console.error(err); showToast("Failed to record sale ❌"); }
+  } catch (err) {
+    console.error("[record sale]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
 });
 
 /* ==========================================================
-   CATEGORIES
+   CATEGORIES CRUD
    ========================================================== */
 categoryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+
   const name = newCategory.value.trim();
   if (!name) return;
   if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
     showToast("Category already exists ❌"); return;
   }
+
   try {
-    await addDoc(collection(db, "categories"), { name, createdAt: serverTimestamp() });
+    await addDoc(collection(db, "categories"), {
+      name, workspaceId: wsId, createdAt: serverTimestamp()
+    });
     newCategory.value = "";
     showToast("Category added ✅");
-  } catch (err) { console.error(err); showToast("Failed to add category ❌"); }
+  } catch (err) {
+    console.error("[add category]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
 });
 
 window.deleteCategory = async (id) => {
   if (!confirm("Delete this category?")) return;
-  try { await deleteDoc(doc(db,"categories", id)); showToast("Category deleted 🗑️"); }
-  catch (err) { console.error(err); showToast("Failed to delete ❌"); }
+  try {
+    await deleteDoc(doc(db, "categories", id));
+    showToast("Category deleted 🗑️");
+  } catch (err) {
+    console.error("[delete category]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
 };
 
 /* ==========================================================
@@ -685,7 +897,7 @@ function showToast(msg) {
   toast.textContent = msg;
   toast.classList.remove("hidden");
   clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => toast.classList.add("hidden"), 2500);
+  showToast._timer = setTimeout(() => toast.classList.add("hidden"), 3000);
 }
 
 function esc(str) {
