@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kurt Inventory App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#12544F" />
+  <title>Kurt Inventory · Smart Stock &amp; Sales</title>
 
-  <!-- Apply saved theme before first paint (prevents flash) -->
   <script>
     (function () {
       const saved = localStorage.getItem("theme") ||
@@ -14,21 +14,43 @@
     })();
   </script>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="style.css" />
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
   <script type="module" src="app.js" defer></script>
 </head>
 <body>
 
   <!-- ================= AUTH SCREEN ================= -->
   <section id="auth-screen" class="auth-screen">
-    <div class="auth-card">
-      <h1 class="logo">📦 Kurt Inventory App</h1>
+    <div class="auth-bg" aria-hidden="true">
+      <div class="auth-bg-slides" id="auth-bg-slides"></div>
+      <div class="auth-bg-overlay"></div>
+      <span class="blob blob-1"></span>
+      <span class="blob blob-2"></span>
+      <span class="blob blob-3"></span>
+      <span class="grid-overlay"></span>
+    </div>
 
-      <!-- Fade carousel subtitle -->
+    <div class="auth-card">
+      <div class="brand-mark">
+        <span class="brand-ring"></span>
+        <img id="logo-img" class="brand-logo" src="gtaversion.png" alt="Company logo"
+             onerror="this.classList.add('hidden');document.getElementById('brand-fallback').classList.remove('hidden');" />
+        <div id="brand-fallback" class="brand-fallback hidden">📦</div>
+      </div>
+
+      <h1 class="logo">Kurt Inventory</h1>
+
       <div class="subtitle-carousel">
         <span class="carousel-text">Manage your inventory in real time</span>
         <span class="carousel-text">Be Systematic</span>
+        <span class="carousel-text">Scan · Sell · Restock</span>
       </div>
 
       <div class="auth-tabs">
@@ -36,10 +58,18 @@
         <button id="tab-signup" class="tab">Sign Up</button>
       </div>
 
-      <form id="auth-form">
-        <input type="email"    id="email"    placeholder="Email address" required />
-        <input type="password" id="password" placeholder="Password"      required />
-        <button type="submit" id="auth-submit" class="btn primary">Login</button>
+      <form id="auth-form" autocomplete="on">
+        <div class="field">
+          <span class="field-icon"></span>
+          <input type="email" id="email" placeholder="Email address" required />
+        </div>
+        <div class="field">
+          <span class="field-icon"></span>
+          <input type="password" id="password" placeholder="Password" required />
+        </div>
+        <button type="submit" id="auth-submit" class="btn primary block">
+          <span>Login</span>
+        </button>
       </form>
 
       <p id="auth-error" class="error-msg"></p>
@@ -48,6 +78,14 @@
 
   <!-- ================= PENDING APPROVAL SCREEN ================= -->
   <section id="pending-screen" class="auth-screen hidden">
+    <div class="auth-bg" aria-hidden="true">
+      <div class="auth-bg-slides" id="pending-bg-slides"></div>
+      <div class="auth-bg-overlay"></div>
+      <span class="blob blob-1"></span>
+      <span class="blob blob-2"></span>
+      <span class="blob blob-3"></span>
+      <span class="grid-overlay"></span>
+    </div>
     <div class="auth-card pending-card">
       <div class="pending-icon">⏳</div>
       <h1 class="logo">Awaiting Approval</h1>
@@ -56,7 +94,7 @@
         You'll be notified once your account is activated.
       </p>
       <p class="pending-email" id="pending-email"></p>
-      <button id="pending-logout" class="btn ghost">Logout</button>
+      <button id="pending-logout" class="btn ghost block">Logout</button>
     </div>
   </section>
 
@@ -64,8 +102,17 @@
   <section id="app-shell" class="app-shell hidden">
 
     <header class="topbar">
-      <h1 class="logo">📦 Kurt Inventory</h1>
+      <div class="brand-mini">
+        <img id="brand-logo" class="brand-mini-logo" src="gtaversion.png" alt=""
+             onerror="this.classList.add('hidden');document.getElementById('brand-mini-fallback').classList.remove('hidden');" />
+        <div id="brand-mini-fallback" class="brand-mini-fallback hidden">📦</div>
+        <h1 class="logo">Kurt Inventory</h1>
+      </div>
+
       <div class="user-area">
+        <button id="sound-toggle" class="btn ghost icon-btn" aria-label="Toggle sound">
+          <span id="sound-icon">🔊</span>
+        </button>
         <button id="theme-toggle" class="btn ghost icon-btn" aria-label="Toggle theme">
           <span id="theme-icon">🌙</span>
         </button>
@@ -76,15 +123,30 @@
 
     <!-- ========== DASHBOARD ========== -->
     <main id="page-dashboard" class="page active">
-      <h2 class="page-title">Dashboard</h2>
+      <h2 class="page-title">Sari-Sari Store Dashboard</h2>
 
       <div class="stats-grid">
         <div class="stat-card"><span class="stat-label">Total Items</span><span id="stat-total" class="stat-value">0</span></div>
         <div class="stat-card warning"><span class="stat-label">Low Stock</span><span id="stat-low" class="stat-value">0</span></div>
-        <div class="stat-card"><span class="stat-label">Inventory Value</span><span id="stat-value" class="stat-value">$0</span></div>
-        <div class="stat-card success"><span class="stat-label">Today's Sales</span><span id="stat-sales" class="stat-value">$0</span></div>
+        <div class="stat-card"><span class="stat-label">Inventory Value</span><span id="stat-value" class="stat-value">₱0</span></div>
+        <div class="stat-card success"><span class="stat-label">Today's Sales</span><span id="stat-sales" class="stat-value">₱0</span></div>
         <div class="stat-card"><span class="stat-label">Categories</span><span id="stat-cats" class="stat-value">0</span></div>
       </div>
+
+      <div class="spotlight-head">
+        <h3 class="section-heading">Live Spotlight</h3>
+        <div class="carousel-nav">
+          <button id="carousel-prev" class="carousel-arrow" aria-label="Previous slide">‹</button>
+          <button id="carousel-next" class="carousel-arrow" aria-label="Next slide">›</button>
+        </div>
+      </div>
+      <div class="carousel" id="carousel">
+        <div class="carousel-track" id="carousel-track"></div>
+      </div>
+      <div class="carousel-dots" id="carousel-dots"></div>
+
+      <h3 class="section-heading">🔥 Fast-Moving Products</h3>
+      <div id="fast-moving-list" class="rank-list"></div>
 
       <h3 class="section-heading">Analytics</h3>
       <div class="charts-grid">
@@ -102,14 +164,12 @@
         </div>
       </div>
 
-      <!-- ========== LIVE INVENTORY (real-time) ========== -->
       <h3 class="section-heading">Live Inventory</h3>
       <div class="toolbar">
         <input type="search" id="dash-search" placeholder="Search inventory…" />
       </div>
       <div id="dashboard-inventory" class="inventory-list"></div>
 
-      <!-- ========== LOW-STOCK ALERTS ========== -->
       <h3 class="section-heading">Low-Stock Alerts</h3>
       <div id="low-stock-list" class="inventory-list"></div>
     </main>
@@ -125,9 +185,16 @@
             <option value="">Select item…</option>
           </select>
           <input type="number" id="sale-qty" min="1" placeholder="Qty" required />
+          <button type="button" class="btn scan-btn" id="scan-sale-btn" title="Scan barcode">📷 Scan</button>
           <button type="submit" class="btn primary">Record Sale</button>
         </form>
       </div>
+
+      <h3 class="section-heading">Products</h3>
+      <div class="toolbar">
+        <input type="search" id="sales-search" placeholder="Search products by name or SKU…" />
+      </div>
+      <div id="sales-products-grid" class="sales-grid"></div>
 
       <h3 class="section-heading">Recent Sales</h3>
       <div id="sales-list" class="inventory-list"></div>
@@ -140,16 +207,40 @@
       <div class="card">
         <form id="item-form">
           <input type="hidden" id="item-id" />
+          <input type="hidden" id="item-image-data" />
+
+          <label>Product Photo
+            <div class="photo-upload">
+              <div class="photo-preview" id="photo-preview">
+                <span class="photo-placeholder">📷<br>Add Photo</span>
+              </div>
+              <div class="photo-actions">
+                <input type="file" id="item-image" accept="image/*" hidden />
+                <button type="button" class="btn ghost" id="photo-pick-btn">Choose Photo</button>
+                <button type="button" class="btn danger hidden" id="photo-remove-btn">Remove</button>
+                <small class="hint">Auto-compressed. Stored securely in the cloud.</small>
+              </div>
+            </div>
+          </label>
+
           <label>Name <input type="text" id="item-name" required /></label>
-          <label>SKU  <input type="text" id="item-sku"  required /></label>
+
+          <label>SKU
+            <div class="input-with-btn">
+              <input type="text" id="item-sku" required />
+              <button type="button" class="btn scan-btn" id="scan-sku-btn" title="Scan barcode">📷</button>
+            </div>
+            <small class="hint">Auto-generated (1001, 1002, 1003…) — scan or type to override.</small>
+          </label>
+
           <label>Category
             <input type="text" id="item-category" list="category-list" required />
             <datalist id="category-list"></datalist>
           </label>
           <label>Quantity <input type="number" id="item-qty" min="0" required /></label>
-          <label>Price ($) <input type="number" id="item-price" step="0.01" min="0" required /></label>
+          <label>Price (₱) <input type="number" id="item-price" step="0.01" min="0" required /></label>
           <label>Low-Stock Threshold <input type="number" id="item-threshold" min="0" value="5" /></label>
-          <button type="submit" class="btn primary">Save Item</button>
+          <button type="submit" class="btn primary block">Save Item</button>
         </form>
       </div>
 
@@ -178,7 +269,7 @@
       <div id="category-grid" class="inventory-list"></div>
     </main>
 
-    <!-- ========== ADMIN (super admin only) ========== -->
+    <!-- ========== ADMIN ========== -->
     <main id="page-admin" class="page hidden">
       <h2 class="page-title">Admin · User Management</h2>
 
@@ -208,6 +299,24 @@
       </button>
     </nav>
   </section>
+
+  <!-- ================= BARCODE SCANNER MODAL ================= -->
+  <div id="scanner-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="scanner-title">Scan Barcode</h3>
+        <button id="scanner-close" class="btn ghost icon-btn" aria-label="Close scanner">✕</button>
+      </div>
+
+      <div id="scanner-reader" class="scanner-reader"></div>
+      <p id="scanner-status" class="scanner-status">Point the camera at a barcode…</p>
+
+      <div class="scanner-manual">
+        <input id="scanner-manual-input" type="text" inputmode="text" placeholder="Or type barcode / SKU…" />
+        <button id="scanner-manual-btn" class="btn primary">Use</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
 
