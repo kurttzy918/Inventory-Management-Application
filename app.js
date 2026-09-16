@@ -1,8 +1,8 @@
 /* ==========================================================
    app.js — Kurt Inventory
-   Multi-tenant + Super Admin Approval
-   + Auth bg carousel + Sales per-card mini carousel + photos
-   + Peso currency (₱)
+   Multi-tenant + Super Admin + POS + Receipt + Exports
+   + Profit (Tubo) + In/Out History + Slow Moving + Expiry
+   + Robust render isolation + deferred chart rendering
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -30,33 +30,32 @@ const firebaseConfig = {
 };
 
 const SUPER_ADMIN_EMAIL = "madronerokurt04@gmail.com";
+const STORE_NAME = "Kurt Inventory";
+const STORE_TAGLINE = "Smart Stock & Sales";
 
-/* ==========================================================
-   🎨 AUTH BACKGROUND CAROUSEL
-   🔁 CHANGE THESE IMAGE URLS ANYTIME
-   (local files like "bg1.jpg" or full URLs both work.
-    Make sure the file is in the same folder as index.html!)
-   ========================================================== */
 const AUTH_BG_IMAGES = [
-  "gta5version.png",
+  "https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=1920&q=80",
   "https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?auto=format&fit=crop&w=1920&q=80",
   "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1920&q=80",
   "https://images.unsplash.com/photo-1601598851547-4302969d0614?auto=format&fit=crop&w=1920&q=80"
 ];
-const AUTH_BG_INTERVAL_MS = 6000; // how long each image stays before fading
+const AUTH_BG_INTERVAL_MS    = 6000;
+const NEW_ARRIVAL_WINDOW_MS  = 7  * 24 * 60 * 60 * 1000;
+const SLOW_MOVING_WINDOW_MS  = 30 * 24 * 60 * 60 * 1000;
+const EXPIRY_WARNING_DAYS    = 30;
 
-const app = initializeApp(firebaseConfig);
+const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db   = getFirestore(app);
 
 /* ----------------------------------------------------------
    DOM shorthand
    ---------------------------------------------------------- */
 const $ = (id) => document.getElementById(id);
 
-const authScreen = $("auth-screen");
+const authScreen    = $("auth-screen");
 const pendingScreen = $("pending-screen");
-const appShell = $("app-shell");
+const appShell      = $("app-shell");
 
 const authForm = $("auth-form"), authSubmit = $("auth-submit"),
   authError = $("auth-error"), emailInput = $("email"),
@@ -70,33 +69,57 @@ const soundToggle = $("sound-toggle"), soundIcon = $("sound-icon");
 
 const statTotal = $("stat-total"), statLow = $("stat-low"),
   statValue = $("stat-value"), statSales = $("stat-sales"),
-  statCats = $("stat-cats"), lowStockList = $("low-stock-list");
+  statProfit = $("stat-profit"), statCats = $("stat-cats"),
+  lowStockList = $("low-stock-list"),
+  expiringList = $("expiring-list"),
+  movementsList = $("movements-list"),
+  slowMovingList = $("slow-moving-list");
+
+const expiryBanner = $("expiry-banner");
+const expiryBannerText = $("expiry-banner-text");
+const expiryBannerBtn = $("expiry-banner-btn");
 
 const carouselTrack = $("carousel-track");
-const carouselDots = $("carousel-dots");
-const carouselPrev = $("carousel-prev");
-const carouselNext = $("carousel-next");
+const carouselDots  = $("carousel-dots");
+const carouselPrev  = $("carousel-prev");
+const carouselNext  = $("carousel-next");
 
 const fastMovingList = $("fast-moving-list");
 
-const saleForm = $("sale-form"), saleItem = $("sale-item"),
-  saleQty = $("sale-qty"), salesList = $("sales-list");
-const scanSaleBtn = $("scan-sale-btn");
+/* Sales / POS */
+const salesList        = $("sales-list");
+const scanSaleBtn      = $("scan-sale-btn");
 const salesProductsGrid = $("sales-products-grid");
-const salesSearchEl = $("sales-search");
+const salesSearchEl    = $("sales-search");
+const posCartItems     = $("pos-cart-items");
+const posTotalEl       = $("pos-total");
+const posCashInput     = $("pos-cash");
+const posChangeEl      = $("pos-change");
+const posCheckoutBtn   = $("pos-checkout");
+const posClearBtn      = $("pos-clear-btn");
 
+const exportSalesExcel  = $("export-sales-excel");
+const exportSalesPdf    = $("export-sales-pdf");
+const exportInvExcel    = $("export-inv-excel");
+const exportInvPdf      = $("export-inv-pdf");
+const exportMovementsBtn = $("export-movements");
+
+/* Inventory */
 const itemForm = $("item-form"), itemId = $("item-id"),
   itemName = $("item-name"), itemSku = $("item-sku"),
+  itemBarcode = $("item-barcode"),
   itemCategory = $("item-category"), itemQty = $("item-qty"),
-  itemPrice = $("item-price"), itemThreshold = $("item-threshold"),
+  itemCost = $("item-cost"),
+  itemPrice = $("item-price"), itemExpiry = $("item-expiry"),
+  itemThreshold = $("item-threshold"),
   categoryList = $("category-list"), searchInput = $("search-input"),
   filterCat = $("filter-category"), inventoryList = $("inventory-list");
-const scanSkuBtn = $("scan-sku-btn");
+const scanBarcodeBtn = $("scan-barcode-btn");
 
-const itemImageData = $("item-image-data");
-const itemImage = $("item-image");
-const photoPreview = $("photo-preview");
-const photoPickBtn = $("photo-pick-btn");
+const itemImageData  = $("item-image-data");
+const itemImage      = $("item-image");
+const photoPreview   = $("photo-preview");
+const photoPickBtn   = $("photo-pick-btn");
 const photoRemoveBtn = $("photo-remove-btn");
 
 const categoryForm = $("category-form"), newCategory = $("new-category"),
@@ -107,33 +130,50 @@ const navAdmin = $("nav-admin"),
   allUsersList = $("all-users-list");
 
 const navButtons = document.querySelectorAll(".nav-btn");
-const pages = document.querySelectorAll(".page");
-const toast = $("toast");
+const pages      = document.querySelectorAll(".page");
+const toast      = $("toast");
 
-const scannerModal = $("scanner-modal");
-const scannerTitle = $("scanner-title");
-const scannerReader = $("scanner-reader");
-const scannerStatus = $("scanner-status");
-const scannerClose = $("scanner-close");
+/* Scanner */
+const scannerModal       = $("scanner-modal");
+const scannerTitle       = $("scanner-title");
+const scannerReader      = $("scanner-reader");
+const scannerStatus      = $("scanner-status");
+const scannerClose       = $("scanner-close");
 const scannerManualInput = $("scanner-manual-input");
-const scannerManualBtn = $("scanner-manual-btn");
+const scannerManualBtn   = $("scanner-manual-btn");
+
+/* Restock */
+const restockModal    = $("restock-modal");
+const restockItemName = $("restock-item-name");
+const restockCurrent  = $("restock-current");
+const restockQty      = $("restock-qty");
+const restockClose    = $("restock-close");
+const restockConfirm  = $("restock-confirm");
+
+/* Receipt */
+const receiptModal     = $("receipt-modal");
+const receiptContent   = $("receipt-content");
+const printReceiptBtn  = $("print-receipt-btn");
+const closeReceiptBtn  = $("close-receipt-btn");
 
 /* ----------------------------------------------------------
    STATE
    ---------------------------------------------------------- */
-let inventory = [], sales = [], categories = [], allUsers = [];
+let inventory = [], sales = [], categories = [], allUsers = [], movements = [];
 let currentUser = null, currentUserData = null, isSignupMode = false;
 const unsubscribers = {};
 let unsubscribeUserDoc = null;
 
 let stockChart = null, categoryValueChart = null, salesCategoryChart = null;
+let chartJsReady = false;
+let chartRenderQueued = false;
 
 let carouselSlides = [];
 let carouselIndex = 0;
 let carouselInterval = null;
 
-let miniCarouselIndex = 0;
-let miniCarouselTimer = null;
+let posMiniTimer = null;
+let posMiniIndex = 0;
 
 let authBgTimer = null;
 let authBgIndex = 0;
@@ -145,6 +185,53 @@ let scannerActive = false;
 let soundEnabled = localStorage.getItem("soundEnabled") !== "false";
 let manualSku = false;
 
+let posCart = [];
+let restockItemId = null;
+
+/* ==========================================================
+   SAFE RENDER — prevents one broken render from killing the rest
+   ========================================================== */
+function safeRender(fn) {
+  try {
+    if (typeof fn === "function") fn();
+  } catch (e) {
+    console.error("[render] " + (fn.name || "anon") + " failed:", e);
+  }
+}
+
+/* ==========================================================
+   CHART.JS READY POLLER
+   ========================================================== */
+(function waitForChartJs() {
+  if (typeof Chart !== "undefined") {
+    chartJsReady = true;
+    return;
+  }
+  let tries = 0;
+  const iv = setInterval(() => {
+    tries++;
+    if (typeof Chart !== "undefined") {
+      clearInterval(iv);
+      chartJsReady = true;
+      console.log("[Charts] Chart.js ready after", tries * 150, "ms");
+      safeRender(renderCharts);
+    } else if (tries > 80) {
+      clearInterval(iv);
+      console.warn("[Charts] Chart.js failed to load");
+    }
+  }, 150);
+})();
+
+/* Queue chart renders so multiple listener calls don't stack */
+function queueChartRender() {
+  if (chartRenderQueued) return;
+  chartRenderQueued = true;
+  setTimeout(() => {
+    chartRenderQueued = false;
+    safeRender(renderCharts);
+  }, 150);
+}
+
 /* ==========================================================
    AUTH BACKGROUND CAROUSEL
    ========================================================== */
@@ -155,14 +242,12 @@ function buildAuthBackground(containerId) {
     `<div class="auth-bg-slide ${i === 0 ? "active" : ""}" style="background-image:url('${url}')"></div>`
   ).join("");
 }
-
 function startAuthBgCarousel(containerId) {
   stopAuthBgCarousel();
   const container = $(containerId);
   if (!container) return;
   const slides = container.querySelectorAll(".auth-bg-slide");
   if (slides.length <= 1) return;
-
   authBgIndex = 0;
   authBgTimer = setInterval(() => {
     slides[authBgIndex].classList.remove("active");
@@ -170,12 +255,9 @@ function startAuthBgCarousel(containerId) {
     slides[authBgIndex].classList.add("active");
   }, AUTH_BG_INTERVAL_MS);
 }
-
 function stopAuthBgCarousel() {
   if (authBgTimer) { clearInterval(authBgTimer); authBgTimer = null; }
 }
-
-/* Build both auth backgrounds once at startup */
 buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
@@ -186,9 +268,8 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem("theme", theme);
   themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
-  if (stockChart || categoryValueChart || salesCategoryChart) {
-    destroyCharts(); renderCharts();
-  }
+  destroyCharts();
+  queueChartRender();
 }
 themeToggle.addEventListener("click", () => {
   const cur = document.documentElement.getAttribute("data-theme") || "light";
@@ -200,9 +281,7 @@ themeIcon.textContent =
 /* ==========================================================
    SOUND
    ========================================================== */
-function updateSoundIcon() {
-  soundIcon.textContent = soundEnabled ? "🔊" : "🔇";
-}
+function updateSoundIcon() { soundIcon.textContent = soundEnabled ? "🔊" : "🔇"; }
 soundToggle.addEventListener("click", () => {
   soundEnabled = !soundEnabled;
   localStorage.setItem("soundEnabled", soundEnabled);
@@ -226,24 +305,30 @@ function playBeep(frequency, duration, type = "sine") {
     setTimeout(() => ctx.close(), duration * 1000 + 100);
   } catch (e) { /* ignore */ }
 }
-function playSuccessSound() {
-  playBeep(880, 0.12);
-  setTimeout(() => playBeep(1100, 0.12), 120);
+function playSuccessSound() { playBeep(880, 0.12); setTimeout(() => playBeep(1100, 0.12), 120); }
+function playErrorSound()   { playBeep(220, 0.35, "sawtooth"); }
+function playCashSound() {
+  playBeep(1320, 0.08);
+  setTimeout(() => playBeep(1760, 0.08), 90);
+  setTimeout(() => playBeep(2093, 0.16), 180);
 }
-function playErrorSound() { playBeep(220, 0.35, "sawtooth"); }
 
 /* ==========================================================
    AUTH TABS
    ========================================================== */
 tabLogin.addEventListener("click", () => {
-  isSignupMode = false; tabLogin.classList.add("active");
+  isSignupMode = false;
+  tabLogin.classList.add("active");
   tabSignup.classList.remove("active");
-  authSubmit.textContent = "Login"; authError.textContent = "";
+  authSubmit.textContent = "Login";
+  authError.textContent = "";
 });
 tabSignup.addEventListener("click", () => {
-  isSignupMode = true; tabSignup.classList.add("active");
+  isSignupMode = true;
+  tabSignup.classList.add("active");
   tabLogin.classList.remove("active");
-  authSubmit.textContent = "Create Account"; authError.textContent = "";
+  authSubmit.textContent = "Create Account";
+  authError.textContent = "";
 });
 
 /* ==========================================================
@@ -298,7 +383,7 @@ onAuthStateChanged(auth, async (user) => {
   if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
   stopAllListeners();
   stopCarousel();
-  stopMiniCarousels();
+  stopPosMiniCarousels();
   stopAuthBgCarousel();
 
   if (!user) {
@@ -386,24 +471,27 @@ function startAllListeners() {
   const wsId = myWorkspace();
   if (!wsId) return;
 
+  /* ---------------- INVENTORY ---------------- */
   unsubscribers.inventory = onSnapshot(
     query(collection(db, "inventory"), where("workspaceId", "==", wsId)),
     (snap) => {
       inventory = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      renderInventory();
-      renderLowStockAlerts();
-      renderDashboardInventory();
-      updateStats();
-      populateCategoryFilter();
-      populateCategoryDatalist();
-      populateSaleItemSelect();
-      renderCharts();
-      renderCarousel();
-      renderSalesProducts();
-      renderFastMoving();
-      if (!itemId.value) updateSkuField();
+
+      safeRender(renderInventory);
+      safeRender(renderLowStockAlerts);
+      safeRender(renderExpiring);
+      safeRender(renderDashboardInventory);
+      safeRender(updateStats);
+      safeRender(populateCategoryFilter);
+      safeRender(populateCategoryDatalist);
+      safeRender(renderCarousel);
+      safeRender(renderPosProducts);
+      safeRender(renderFastMoving);
+      safeRender(renderSlowMoving);
+      safeRender(() => { if (!itemId.value) updateSkuField(); });
+      queueChartRender();
     },
     (err) => {
       console.error("[Inventory listener]", err.code, err.message);
@@ -411,6 +499,7 @@ function startAllListeners() {
     }
   );
 
+  /* ---------------- SALES ---------------- */
   unsubscribers.sales = onSnapshot(
     query(collection(db, "sales"), where("workspaceId", "==", wsId)),
     (snap) => {
@@ -421,28 +510,49 @@ function startAllListeners() {
           const tb = b.createdAt?.toMillis?.() ?? 0;
           return tb - ta;
         })
-        .slice(0, 50);
-      renderSales();
-      updateStats();
-      renderCharts();
-      renderCarousel();
-      renderSalesProducts();
-      renderFastMoving();
+        .slice(0, 200);
+
+      safeRender(renderSales);
+      safeRender(updateStats);
+      safeRender(renderCarousel);
+      safeRender(renderFastMoving);
+      safeRender(renderSlowMoving);
+      queueChartRender();
     },
     (err) => console.error("[Sales listener]", err.code, err.message)
   );
 
+  /* ---------------- CATEGORIES ---------------- */
   unsubscribers.categories = onSnapshot(
     query(collection(db, "categories"), where("workspaceId", "==", wsId)),
     (snap) => {
       categories = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      renderCategories();
-      updateStats();
-      populateCategoryDatalist();
+
+      safeRender(renderCategories);
+      safeRender(updateStats);
+      safeRender(populateCategoryDatalist);
     },
     (err) => console.error("[Categories listener]", err.code, err.message)
+  );
+
+  /* ---------------- MOVEMENTS ---------------- */
+  unsubscribers.movements = onSnapshot(
+    query(collection(db, "movements"), where("workspaceId", "==", wsId)),
+    (snap) => {
+      movements = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          const ta = a.createdAt?.toMillis?.() ?? 0;
+          const tb = b.createdAt?.toMillis?.() ?? 0;
+          return tb - ta;
+        })
+        .slice(0, 100);
+
+      safeRender(renderMovements);
+    },
+    (err) => console.error("[Movements listener]", err.code, err.message)
   );
 }
 
@@ -457,7 +567,7 @@ function startUserAdminListener() {
           const tb = b.createdAt?.toMillis?.() ?? 0;
           return tb - ta;
         });
-      renderAdminUsers();
+      safeRender(renderAdminUsers);
     },
     (err) => console.error("[Users listener]", err.code, err.message)
   );
@@ -468,7 +578,29 @@ function stopAllListeners() {
   Object.keys(unsubscribers).forEach((k) => delete unsubscribers[k]);
   destroyCharts();
   stopCarousel();
-  stopMiniCarousels();
+  stopPosMiniCarousels();
+}
+
+/* ==========================================================
+   MOVEMENT LOGGING
+   ========================================================== */
+async function logMovement({ itemId, itemName, type, quantity, reason, note }) {
+  const wsId = myWorkspace();
+  if (!wsId) return;
+  try {
+    await addDoc(collection(db, "movements"), {
+      workspaceId: wsId,
+      itemId, itemName,
+      type,                       // "in" | "out"
+      quantity: Number(quantity),
+      reason: reason || "other",  // "initial" | "restock" | "sale" | "adjustment"
+      note: note || "",
+      userId: currentUser?.uid || null,
+      createdAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.warn("[movement log] failed:", err.code, err.message);
+  }
 }
 
 /* ==========================================================
@@ -483,13 +615,19 @@ navButtons.forEach(btn => {
     if (target) target.classList.remove("hidden");
 
     if (btn.dataset.page === "page-dashboard") {
-      renderCharts();
-      renderDashboardInventory();
-      renderCarousel();
-      renderFastMoving();
+      safeRender(renderDashboardInventory);
+      safeRender(renderCarousel);
+      safeRender(renderFastMoving);
+      safeRender(renderSlowMoving);
+      safeRender(renderMovements);
+      safeRender(renderExpiring);
+      queueChartRender();
     }
     if (btn.dataset.page === "page-sales") {
-      renderSalesProducts();
+      safeRender(renderPosProducts);
+      safeRender(renderPosCart);
+      safeRender(updateChange);
+      startPosMiniCarousels();
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
@@ -563,7 +701,6 @@ photoRemoveBtn.addEventListener("click", () => {
    PRODUCT IMAGE HELPERS
    ========================================================== */
 const FALLBACK_COLORS = ["#12544F", "#2FA38F", "#5FC2A6", "#0C3E3A", "#16665F", "#0F4945"];
-
 function fallbackColorFor(name) {
   return FALLBACK_COLORS[((name || "").charCodeAt(0) || 0) % FALLBACK_COLORS.length];
 }
@@ -604,7 +741,10 @@ itemSku.addEventListener("input", () => { manualSku = true; });
    ========================================================== */
 function openScanner(target) {
   scannerTarget = target;
-  scannerTitle.textContent = target === "sku" ? "Scan SKU / Barcode" : "Scan Item for Sale";
+  scannerTitle.textContent =
+    target === "barcode" ? "Scan Product Barcode" :
+    target === "sale" ? "Scan Product for POS" :
+    "Scan Barcode";
   scannerStatus.textContent = "Point the camera at a barcode…";
   scannerStatus.classList.remove("error");
   scannerManualInput.value = "";
@@ -644,28 +784,34 @@ function handleScanResult(text) {
   if (!text) return;
   const code = text.trim();
 
-  if (scannerTarget === "sku") {
-    itemSku.value = code;
-    manualSku = true;
+  if (scannerTarget === "barcode") {
+    itemBarcode.value = code;
     playSuccessSound();
-    scannerStatus.textContent = "✅ SKU set: " + code;
+    scannerStatus.textContent = "✅ Barcode set: " + code;
     setTimeout(closeScanner, 400);
   } else if (scannerTarget === "sale") {
-    const item = inventory.find(i => i.sku === code);
+    const item = findItemByCode(code);
     if (item) {
-      saleItem.value = item.id;
+      addToCart(item.id);
       playSuccessSound();
-      scannerStatus.textContent = "✅ Found: " + item.name;
-      setTimeout(closeScanner, 400);
+      scannerStatus.textContent = "✅ Added: " + item.name;
+      setTimeout(closeScanner, 500);
     } else {
       playErrorSound();
-      scannerStatus.textContent = "❌ No item with SKU: " + code;
+      scannerStatus.textContent = "❌ No item with barcode/SKU: " + code;
       scannerStatus.classList.add("error");
     }
   }
 }
 
-scanSkuBtn.addEventListener("click", () => openScanner("sku"));
+function findItemByCode(code) {
+  let item = inventory.find(i => i.barcode && i.barcode === code);
+  if (item) return item;
+  item = inventory.find(i => i.sku === code);
+  return item || null;
+}
+
+scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
 scanSaleBtn.addEventListener("click", () => openScanner("sale"));
 scannerClose.addEventListener("click", closeScanner);
 
@@ -688,139 +834,534 @@ function getSoldMap() {
   return map;
 }
 
-/* ==========================================================
-   SALES PAGE — PRODUCT CARDS with MINI CAROUSEL
-   ========================================================== */
-const NEW_ARRIVAL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+function getSoldMapLastDays(days) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const map = {};
+  sales.forEach(s => {
+    const ms = s.createdAt?.toMillis?.() ?? 0;
+    if (ms < cutoff) return;
+    if (s.itemId) map[s.itemId] = (map[s.itemId] || 0) + (s.quantity || 0);
+  });
+  return map;
+}
 
-function buildMiniSlides(item, sold) {
+function getLastSoldMs(itemId) {
+  let last = 0;
+  sales.forEach(s => {
+    if (s.itemId !== itemId) return;
+    const ms = s.createdAt?.toMillis?.() ?? 0;
+    if (ms > last) last = ms;
+  });
+  return last;
+}
+
+/* ==========================================================
+   EXPIRY HELPERS
+   ========================================================== */
+function parseExpiry(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d.getTime()) ? null : d;
+}
+function daysUntilExpiry(iso) {
+  const d = parseExpiry(iso);
+  if (!d) return null;
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.round((d - now) / (24 * 60 * 60 * 1000));
+}
+function expiryStatus(iso) {
+  const days = daysUntilExpiry(iso);
+  if (days === null) return { level: "none", days: null, label: "" };
+  if (days < 0)  return { level: "expired",  days, label: `Expired ${Math.abs(days)}d ago` };
+  if (days === 0) return { level: "expired", days, label: "Expires today" };
+  if (days <= EXPIRY_WARNING_DAYS) return { level: "expiring", days, label: `Expires in ${days}d` };
+  return { level: "ok", days, label: `Expires ${dLabel(parseExpiry(iso))}` };
+}
+function dLabel(dateObj) {
+  return dateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/* ==========================================================
+   POS — CART
+   ========================================================== */
+function addToCart(itemId) {
+  const item = inventory.find(i => i.id === itemId);
+  if (!item) return;
+  if (item.quantity <= 0) { playErrorSound(); showToast("Out of stock ❌"); return; }
+
+  const existing = posCart.find(c => c.itemId === itemId);
+  if (existing) {
+    if (existing.qty + 1 > item.quantity) { playErrorSound(); showToast("Not enough stock ❌"); return; }
+    existing.qty++;
+  } else {
+    posCart.push({ itemId, name: item.name, price: item.price, qty: 1, stock: item.quantity });
+  }
+  renderPosCart();
+  updateChange();
+}
+
+function updateCartQty(itemId, delta) {
+  const entry = posCart.find(c => c.itemId === itemId);
+  if (!entry) return;
+  const item = inventory.find(i => i.id === itemId);
+  if (!item) return;
+  const next = entry.qty + delta;
+  if (next <= 0) { removeFromCart(itemId); return; }
+  if (next > item.quantity) { playErrorSound(); showToast("Not enough stock ❌"); return; }
+  entry.qty = next;
+  renderPosCart();
+  updateChange();
+}
+
+function removeFromCart(itemId) {
+  posCart = posCart.filter(c => c.itemId !== itemId);
+  renderPosCart();
+  updateChange();
+}
+
+function getCartTotal() {
+  return posCart.reduce((s, c) => s + c.qty * c.price, 0);
+}
+
+function clearCart() {
+  posCart = [];
+  posCashInput.value = "";
+  renderPosCart();
+  updateChange();
+}
+
+function renderPosCart() {
+  if (!posCart.length) {
+    posCartItems.innerHTML = `<div class="pos-cart-empty">Tap a product or scan a barcode to add.</div>`;
+  } else {
+    posCartItems.innerHTML = posCart.map(c => `
+      <div class="pos-cart-item">
+        <div class="pos-ci-main">
+          <div class="pos-ci-name">${esc(c.name)}</div>
+          <div class="pos-ci-meta">₱${c.price.toFixed(2)} × ${c.qty}</div>
+        </div>
+        <div class="pos-ci-qty">
+          <button type="button" class="pos-qty-btn" data-act="dec" data-id="${c.itemId}">−</button>
+          <span class="pos-ci-qty-num">${c.qty}</span>
+          <button type="button" class="pos-qty-btn" data-act="inc" data-id="${c.itemId}">+</button>
+        </div>
+        <div class="pos-ci-sub">₱${(c.price * c.qty).toFixed(2)}</div>
+        <button type="button" class="pos-ci-remove" data-act="rm" data-id="${c.itemId}" title="Remove">✕</button>
+      </div>
+    `).join("");
+  }
+
+  posCartItems.querySelectorAll("[data-act]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const act = btn.dataset.act;
+      if (act === "inc") updateCartQty(id, 1);
+      else if (act === "dec") updateCartQty(id, -1);
+      else if (act === "rm") removeFromCart(id);
+    });
+  });
+
+  posTotalEl.textContent = "₱" + getCartTotal().toFixed(2);
+}
+
+function updateChange() {
+  const total = getCartTotal();
+  const cash = Number(posCashInput.value) || 0;
+  const change = cash - total;
+  if (cash === 0) {
+    posChangeEl.textContent = "₱0.00";
+    posChangeEl.classList.remove("insufficient");
+  } else if (change < 0) {
+    posChangeEl.textContent = "−₱" + Math.abs(change).toFixed(2);
+    posChangeEl.classList.add("insufficient");
+  } else {
+    posChangeEl.textContent = "₱" + change.toFixed(2);
+    posChangeEl.classList.remove("insufficient");
+  }
+}
+
+posCashInput.addEventListener("input", updateChange);
+posClearBtn.addEventListener("click", () => { clearCart(); showToast("Cart cleared 🧹"); });
+
+/* ==========================================================
+   POS — Product grid with slide-up mini carousel
+   ========================================================== */
+function buildPosMiniSlides(item, sold) {
   const slides = [];
   const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
   const isOut = item.quantity === 0;
   const createdMs = item.createdAt?.toMillis?.() ?? 0;
   const isNew = createdMs && (Date.now() - createdMs) < NEW_ARRIVAL_WINDOW_MS;
   const revenue = sold * (item.price || 0);
+  const exp = expiryStatus(item.expiry);
 
-  if (isNew) slides.push({ cls: "new", text: "✨ New Arrival" });
-  if (isOut) slides.push({ cls: "low", text: "🚫 Out of Stock" });
-  else if (isLow) slides.push({ cls: "low", text: `⚠️ Low Stock · ${item.quantity} left` });
-  if (sold > 0) slides.push({ cls: "hot", text: `🔥 ${sold} pcs sold` });
-  if (revenue > 0) slides.push({ cls: "ok", text: `💰 ₱${revenue.toFixed(2)} revenue` });
-  slides.push({ cls: "ok", text: `📦 ${item.quantity} in stock` });
+  if (exp.level === "expired") slides.push({ cls: "expiry", text: `⛔ ${exp.label.toUpperCase()}` });
+  else if (exp.level === "expiring") slides.push({ cls: "expiry", text: `⏰ ${exp.label.toUpperCase()}` });
+  if (isNew) slides.push({ cls: "new", text: "✨ NEW ARRIVAL" });
+  if (sold > 0) slides.push({ cls: "hot", text: `🔥 ${sold} SOLD` });
+  if (isOut) slides.push({ cls: "low", text: "🚫 OUT OF STOCK" });
+  else if (isLow) slides.push({ cls: "low", text: `⚠️ ONLY ${item.quantity} LEFT` });
+  if (revenue > 0) slides.push({ cls: "ok", text: `💰 ₱${revenue.toFixed(0)} SALES` });
+  slides.push({ cls: "ok", text: `📦 ${item.quantity} IN STOCK` });
 
   return slides;
 }
 
-function renderSalesProducts() {
+function renderPosProducts() {
   if (!salesProductsGrid) return;
-
   const term = (salesSearchEl?.value || "").toLowerCase().trim();
   const filtered = inventory.filter(i => {
     if (!term) return true;
-    return i.name.toLowerCase().includes(term) || i.sku.toLowerCase().includes(term);
+    return i.name.toLowerCase().includes(term) ||
+           (i.sku || "").toLowerCase().includes(term) ||
+           (i.barcode || "").toLowerCase().includes(term);
   });
 
   if (!filtered.length) {
-    salesProductsGrid.innerHTML = `<div class="empty-state"><p>📭 No products yet — add one from the Add Item tab.</p></div>`;
-    stopMiniCarousels();
+    salesProductsGrid.innerHTML = `<div class="empty-state"><p>📭 No products. Add one from Add Item.</p></div>`;
+    stopPosMiniCarousels();
     return;
   }
 
   const soldMap = getSoldMap();
 
   salesProductsGrid.innerHTML = filtered.map(item => {
-    const sold = soldMap[item.id] || 0;
-    const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
     const isOut = item.quantity === 0;
-
-    const createdMs = item.createdAt?.toMillis?.() ?? 0;
-    const isNew = createdMs && (Date.now() - createdMs) < NEW_ARRIVAL_WINDOW_MS;
-
-    let topTag = "";
-    if (isOut) topTag = `<span class="product-tag low">Out</span>`;
-    else if (isLow) topTag = `<span class="product-tag low">Low</span>`;
-    else if (sold > 0) topTag = `<span class="product-tag hot">🔥 Hot</span>`;
-    else if (isNew) topTag = `<span class="product-tag new">New</span>`;
-
-    let qtyCls = "";
-    if (isOut) qtyCls = "danger";
-    else if (isLow) qtyCls = "warn";
+    const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
+    const sold = soldMap[item.id] || 0;
 
     const media = item.image
       ? `<img src="${item.image}" alt="${esc(item.name)}" loading="lazy" />`
       : `<div class="fallback" style="background:${fallbackColorFor(item.name)}">${esc((item.name || "?").charAt(0).toUpperCase())}</div>`;
 
-    const slides = buildMiniSlides(item, sold);
-    const slideHTML = slides.map(s => `<div class="mini-slide ${s.cls}">${esc(s.text)}</div>`).join("");
-    const dotHTML = slides.map((_, i) =>
-      `<button class="mini-dot ${i === 0 ? "active" : ""}" data-i="${i}" aria-label="Slide ${i + 1}"></button>`
+    const stockPill = isOut
+      ? `<span class="pos-stock-pill out">Out</span>`
+      : isLow
+      ? `<span class="pos-stock-pill low">${item.quantity} left</span>`
+      : `<span class="pos-stock-pill">${item.quantity}</span>`;
+
+    const slides = buildPosMiniSlides(item, sold);
+    const slideHTML = slides.map(s =>
+      `<div class="pos-mini-slide ${s.cls}">${esc(s.text)}</div>`
     ).join("");
 
     return `
-      <div class="product-card ${isLow ? "is-low" : ""} ${isOut ? "is-out" : ""}">
-        <div class="product-media">
+      <div class="pos-card ${isOut ? "is-out" : ""}" data-id="${item.id}">
+        <div class="pos-media">
           ${media}
-          ${topTag}
+          ${stockPill}
         </div>
-        <div class="product-body">
-          <div>
-            <div class="product-name" title="${esc(item.name)}">${esc(item.name)}</div>
-            <div class="product-sub">SKU: ${esc(item.sku)} · ${esc(item.category)}</div>
-          </div>
-          <div class="product-price-row">
-            <span class="product-price">₱${Number(item.price).toFixed(2)}</span>
-            <span class="product-qty ${qtyCls}">📦 ${item.quantity}</span>
-          </div>
-          <div class="mini-carousel" data-count="${slides.length}">
-            <div class="mini-track">${slideHTML}</div>
-          </div>
-          <div class="mini-dots">${dotHTML}</div>
+        <div class="pos-info">
+          <div class="pos-name" title="${esc(item.name)}">${esc(item.name)}</div>
+          <div class="pos-price">₱${Number(item.price).toFixed(2)}</div>
+          <div class="pos-sku">${esc(item.barcode || item.sku)}</div>
+        </div>
+        <div class="pos-mini" data-count="${slides.length}">
+          <div class="pos-mini-track">${slideHTML}</div>
         </div>
       </div>
     `;
   }).join("");
 
-  salesProductsGrid.querySelectorAll(".mini-carousel").forEach(carousel => {
-    const track = carousel.querySelector(".mini-track");
-    const dots = carousel.parentElement.querySelectorAll(".mini-dot");
-    dots.forEach((dot, i) => {
-      dot.addEventListener("click", () => {
-        track.style.transform = `translateX(-${i * 100}%)`;
-        dots.forEach((d, j) => d.classList.toggle("active", j === i));
-      });
-    });
-    track.style.transform = "translateX(0%)";
+  salesProductsGrid.querySelectorAll(".pos-card").forEach(card => {
+    card.addEventListener("click", () => addToCart(card.dataset.id));
   });
 
-  startMiniCarousels();
+  startPosMiniCarousels();
 }
 
-function startMiniCarousels() {
-  stopMiniCarousels();
-  miniCarouselTimer = setInterval(() => {
-    miniCarouselIndex++;
-    document.querySelectorAll(".mini-carousel").forEach(carousel => {
+function startPosMiniCarousels() {
+  stopPosMiniCarousels();
+  posMiniIndex = 0;
+  posMiniTimer = setInterval(() => {
+    posMiniIndex++;
+    document.querySelectorAll(".pos-mini").forEach(carousel => {
       const count = parseInt(carousel.dataset.count || "1");
       if (count <= 1) return;
-      const idx = miniCarouselIndex % count;
-      const track = carousel.querySelector(".mini-track");
-      if (track) track.style.transform = `translateX(-${idx * 100}%)`;
-      const dots = carousel.parentElement.querySelectorAll(".mini-dot");
-      dots.forEach((d, j) => d.classList.toggle("active", j === idx));
+      const idx = posMiniIndex % count;
+      const track = carousel.querySelector(".pos-mini-track");
+      if (track) track.style.transform = `translateY(-${idx * 24}px)`;
     });
-  }, 2800);
+  }, 2600);
 }
 
-function stopMiniCarousels() {
-  if (miniCarouselTimer) {
-    clearInterval(miniCarouselTimer);
-    miniCarouselTimer = null;
+function stopPosMiniCarousels() {
+  if (posMiniTimer) { clearInterval(posMiniTimer); posMiniTimer = null; }
+}
+
+/* ==========================================================
+   POS — Complete sale
+   ========================================================== */
+posCheckoutBtn.addEventListener("click", async () => {
+  if (!posCart.length) { showToast("Cart is empty ❌"); return; }
+  const total = getCartTotal();
+  const cash = Number(posCashInput.value) || 0;
+  if (cash < total) { playErrorSound(); showToast("Insufficient cash ❌"); return; }
+  const change = cash - total;
+
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+
+  const receiptNum = "INV-" + Date.now().toString().slice(-6);
+  const now = new Date();
+
+  try {
+    for (const ci of posCart) {
+      const item = inventory.find(i => i.id === ci.itemId);
+      if (!item) continue;
+      if (ci.qty > item.quantity) { showToast(`Not enough stock for ${item.name} ❌`); return; }
+
+      await addDoc(collection(db, "sales"), {
+        itemId: item.id, itemName: item.name, category: item.category,
+        quantity: ci.qty, unitPrice: item.price, total: ci.qty * item.price,
+        cost: item.cost || 0,
+        profit: ((item.price || 0) - (item.cost || 0)) * ci.qty,
+        workspaceId: wsId,
+        receiptNum, cash, change,
+        createdAt: serverTimestamp(), userId: currentUser.uid
+      });
+      await updateDoc(doc(db, "inventory", item.id), {
+        quantity: item.quantity - ci.qty,
+        updatedAt: serverTimestamp()
+      });
+
+      await logMovement({
+        itemId: item.id, itemName: item.name,
+        type: "out", quantity: ci.qty,
+        reason: "sale", note: `Receipt ${receiptNum}`
+      });
+    }
+
+    showReceipt({
+      items: posCart.map(c => ({ name: c.name, qty: c.qty, price: c.price })),
+      total, cash, change, receiptNum, date: now,
+      cashier: currentUser.email
+    });
+
+    playCashSound();
+    clearCart();
+    showToast("Sale completed ✅");
+  } catch (err) {
+    console.error("[POS sale]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
   }
+});
+
+/* ==========================================================
+   RECEIPT
+   ========================================================== */
+function showReceipt(data) {
+  const d = data.date;
+  const dateStr = d.toLocaleString(undefined, {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit"
+  });
+
+  const itemsHTML = data.items.map(it => `
+    <div class="receipt-item">
+      <div class="receipt-item-row1">
+        <span>${esc(it.name)}</span>
+        <span>₱${(it.qty * it.price).toFixed(2)}</span>
+      </div>
+      <div class="receipt-item-row2">
+        <span>${it.qty} × ₱${it.price.toFixed(2)}</span>
+        <span></span>
+      </div>
+    </div>
+  `).join("");
+
+  receiptContent.innerHTML = `
+    <div class="receipt-header">
+      <div class="receipt-store">${esc(STORE_NAME.toUpperCase())}</div>
+      <div class="receipt-sub">${esc(STORE_TAGLINE)}</div>
+    </div>
+    <div class="receipt-sep"></div>
+    <div class="receipt-meta">
+      <div>Date: ${dateStr}</div>
+      <div>Receipt #: ${esc(data.receiptNum)}</div>
+      <div>Cashier: ${esc(data.cashier || "-")}</div>
+    </div>
+    <div class="receipt-sep"></div>
+    <div class="receipt-items">${itemsHTML}</div>
+    <div class="receipt-sep"></div>
+    <div class="receipt-totals">
+      <div class="rt-line big"><span>TOTAL</span><span>₱${data.total.toFixed(2)}</span></div>
+      <div class="rt-line"><span>Cash</span><span>₱${data.cash.toFixed(2)}</span></div>
+      <div class="rt-line"><span>Change</span><span>₱${data.change.toFixed(2)}</span></div>
+    </div>
+    <div class="receipt-footer">
+      <strong>Thank you for your purchase!</strong>
+      Please come again 🙏
+    </div>
+  `;
+
+  receiptModal.classList.remove("hidden");
 }
 
-if (salesSearchEl) {
-  salesSearchEl.addEventListener("input", renderSalesProducts);
+printReceiptBtn.addEventListener("click", () => window.print());
+closeReceiptBtn.addEventListener("click", () => receiptModal.classList.add("hidden"));
+
+/* ==========================================================
+   RESTOCK
+   ========================================================== */
+window.restockItem = (id) => {
+  const item = inventory.find(i => i.id === id);
+  if (!item) return;
+  restockItemId = id;
+  restockItemName.textContent = item.name;
+  restockCurrent.textContent = `Current stock: ${item.quantity} · SKU: ${item.sku}${item.barcode ? " · Barcode: " + item.barcode : ""}`;
+  restockQty.value = 10;
+  restockModal.classList.remove("hidden");
+  setTimeout(() => restockQty.focus(), 100);
+};
+
+restockClose.addEventListener("click", () => restockModal.classList.add("hidden"));
+restockConfirm.addEventListener("click", async () => {
+  const qty = Number(restockQty.value);
+  if (!qty || qty <= 0) { showToast("Enter a valid quantity ❌"); return; }
+  const item = inventory.find(i => i.id === restockItemId);
+  if (!item) return;
+  try {
+    await updateDoc(doc(db, "inventory", restockItemId), {
+      quantity: item.quantity + qty,
+      updatedAt: serverTimestamp()
+    });
+    await logMovement({
+      itemId: item.id, itemName: item.name,
+      type: "in", quantity: qty,
+      reason: "restock", note: ""
+    });
+    playSuccessSound();
+    showToast(`Restocked +${qty} ✅`);
+    restockModal.classList.add("hidden");
+  } catch (err) {
+    console.error("[restock]", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+});
+
+/* ==========================================================
+   EXPORTS
+   ========================================================== */
+function exportInventoryToExcel() {
+  if (!inventory.length) { showToast("No inventory to export ❌"); return; }
+  if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
+  const data = inventory.map(i => ({
+    Name: i.name,
+    SKU: i.sku,
+    Barcode: i.barcode || "",
+    Category: i.category,
+    Quantity: i.quantity,
+    "Cost (₱)": Number((i.cost || 0).toFixed(2)),
+    "Price (₱)": Number(i.price.toFixed(2)),
+    Threshold: i.threshold ?? 5,
+    Expiry: i.expiry || "",
+    "Stock Value (₱)": Number((i.quantity * i.price).toFixed(2))
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+  XLSX.writeFile(wb, `inventory_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  showToast("Inventory exported ✅");
 }
+
+function exportInventoryToPDF() {
+  if (!inventory.length) { showToast("No inventory to export ❌"); return; }
+  if (!window.jspdf) { showToast("PDF library not loaded ❌"); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text("Inventory Report", 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
+  doc.autoTable({
+    startY: 30,
+    head: [["Name", "SKU", "Barcode", "Category", "Qty", "Cost", "Price", "Expiry"]],
+    body: inventory.map(i => [
+      i.name, i.sku, i.barcode || "-", i.category,
+      i.quantity, (i.cost || 0).toFixed(2), i.price.toFixed(2), i.expiry || "-"
+    ]),
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [18, 84, 79] }
+  });
+  doc.save(`inventory_${new Date().toISOString().slice(0, 10)}.pdf`);
+  showToast("Inventory PDF exported ✅");
+}
+
+function exportSalesToExcel() {
+  if (!sales.length) { showToast("No sales to export ❌"); return; }
+  if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
+  const data = sales.map(s => ({
+    Date: s.createdAt?.toDate?.().toLocaleString() ?? "",
+    Receipt: s.receiptNum || "",
+    Item: s.itemName,
+    Category: s.category,
+    Qty: s.quantity,
+    "Unit Price (₱)": Number((s.unitPrice || 0).toFixed(2)),
+    "Cost (₱)": Number((s.cost || 0).toFixed(2)),
+    "Profit (₱)": Number((s.profit || 0).toFixed(2)),
+    "Total (₱)": Number((s.total || 0).toFixed(2)),
+    Cash: Number((s.cash || 0).toFixed(2)),
+    Change: Number((s.change || 0).toFixed(2))
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sales");
+  XLSX.writeFile(wb, `sales_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  showToast("Sales exported ✅");
+}
+
+function exportSalesToPDF() {
+  if (!sales.length) { showToast("No sales to export ❌"); return; }
+  if (!window.jspdf) { showToast("PDF library not loaded ❌"); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text("Sales Report", 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
+  doc.autoTable({
+    startY: 30,
+    head: [["Date", "Receipt", "Item", "Qty", "Unit", "Profit", "Total"]],
+    body: sales.map(s => [
+      s.createdAt?.toDate?.().toLocaleString() ?? "-",
+      s.receiptNum || "-",
+      s.itemName,
+      s.quantity,
+      (s.unitPrice || 0).toFixed(2),
+      (s.profit || 0).toFixed(2),
+      (s.total || 0).toFixed(2)
+    ]),
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [18, 84, 79] }
+  });
+  doc.save(`sales_${new Date().toISOString().slice(0, 10)}.pdf`);
+  showToast("Sales PDF exported ✅");
+}
+
+function exportMovementsToExcel() {
+  if (!movements.length) { showToast("No movements to export ❌"); return; }
+  if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
+  const data = movements.map(m => ({
+    Date: m.createdAt?.toDate?.().toLocaleString() ?? "",
+    Item: m.itemName,
+    Type: m.type === "in" ? "IN (+)" : "OUT (−)",
+    Quantity: m.quantity,
+    Reason: m.reason || "",
+    Note: m.note || ""
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Movements");
+  XLSX.writeFile(wb, `movements_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  showToast("Movements exported ✅");
+}
+
+exportInvExcel.addEventListener("click", exportInventoryToExcel);
+exportInvPdf.addEventListener("click", exportInventoryToPdf);
+exportSalesExcel.addEventListener("click", exportSalesToExcel);
+exportSalesPdf.addEventListener("click", exportSalesToPDF);
+if (exportMovementsBtn) exportMovementsBtn.addEventListener("click", exportMovementsToExcel);
 
 /* ==========================================================
    DASHBOARD SPOTLIGHT CAROUSEL
@@ -874,10 +1415,24 @@ function buildSlides() {
     });
   }
 
+  const expiring = inventory.filter(i => {
+    const e = expiryStatus(i.expiry);
+    return e.level === "expiring" || e.level === "expired";
+  })[0];
+  if (expiring) {
+    slides.push({
+      type: "expiry", label: "Expiring Soon", item: expiring,
+      sold: soldMap[expiring.id] || 0,
+      revenue: (soldMap[expiring.id] || 0) * (expiring.price || 0)
+    });
+  }
+
   return slides;
 }
 
 function renderCarousel() {
+  if (!carouselTrack || !carouselDots) return;
+
   carouselSlides = buildSlides();
   if (carouselIndex >= carouselSlides.length) carouselIndex = 0;
 
@@ -903,7 +1458,7 @@ function renderCarousel() {
             <div class="spotlight-thumb">${thumbHTML(item)}</div>
             <div>
               <div class="spotlight-name">${esc(item.name)}</div>
-              <div class="spotlight-sku">SKU: ${esc(item.sku)}</div>
+              <div class="spotlight-sku">SKU: ${esc(item.sku)}${item.barcode ? " · " + esc(item.barcode) : ""}</div>
               <div class="spotlight-meta">
                 <span>📂 ${esc(item.category)}</span>
                 <span>💰 ₱${Number(item.price).toFixed(2)}</span>
@@ -941,7 +1496,7 @@ function renderCarousel() {
 }
 
 function updateCarouselPosition() {
-  if (!carouselSlides.length) return;
+  if (!carouselSlides.length || !carouselTrack) return;
   carouselTrack.style.transform = `translateX(-${carouselIndex * 100}%)`;
   carouselDots.querySelectorAll(".dot").forEach((dot, idx) => {
     dot.classList.toggle("active", idx === carouselIndex);
@@ -964,13 +1519,15 @@ function restartCarousel() {
 function stopCarousel() {
   if (carouselInterval) { clearInterval(carouselInterval); carouselInterval = null; }
 }
-carouselPrev.addEventListener("click", () => { prevSlide(); restartCarousel(); });
-carouselNext.addEventListener("click", () => { nextSlide(); restartCarousel(); });
+if (carouselPrev) carouselPrev.addEventListener("click", () => { prevSlide(); restartCarousel(); });
+if (carouselNext) carouselNext.addEventListener("click", () => { nextSlide(); restartCarousel(); });
 
 /* ==========================================================
    FAST MOVING
    ========================================================== */
 function renderFastMoving() {
+  if (!fastMovingList) return;
+
   const soldMap = getSoldMap();
   const ranked = [...inventory]
     .map(i => ({ ...i, sold: soldMap[i.id] || 0 }))
@@ -1004,6 +1561,46 @@ function renderFastMoving() {
 }
 
 /* ==========================================================
+   SLOW MOVING ITEMS
+   ========================================================== */
+function renderSlowMoving() {
+  if (!slowMovingList) return;
+
+  const sold30 = getSoldMapLastDays(30);
+  const ranked = [...inventory]
+    .map(i => ({ ...i, sold30: sold30[i.id] || 0, lastSold: getLastSoldMs(i.id) }))
+    .filter(i => i.quantity > 0)
+    .sort((a, b) => {
+      if (a.sold30 !== b.sold30) return a.sold30 - b.sold30;
+      return b.quantity - a.quantity;
+    })
+    .slice(0, 5);
+
+  if (!ranked.length) {
+    slowMovingList.innerHTML =
+      `<div class="empty-state"><p>No slow-moving items detected.</p></div>`;
+    return;
+  }
+
+  slowMovingList.innerHTML = ranked.map((item, idx) => {
+    const lastSoldTxt = item.lastSold
+      ? `${Math.floor((Date.now() - item.lastSold) / (24 * 60 * 60 * 1000))}d ago`
+      : "Never sold";
+    return `
+      <div class="rank-row slow">
+        <div class="rank-badge slow">${idx + 1}</div>
+        ${productImageHTML(item, "sm")}
+        <div class="rank-main">
+          <div class="rank-name">${esc(item.name)}</div>
+          <div class="rank-sub">SKU: ${esc(item.sku)} · Last sold: ${lastSoldTxt}</div>
+        </div>
+        <div class="rank-qty">${item.sold30}<span>sold/30d</span></div>
+      </div>
+    `;
+  }).join("");
+}
+
+/* ==========================================================
    PROGRESS BAR
    ========================================================== */
 function stockProgress(item) {
@@ -1020,10 +1617,15 @@ function stockProgress(item) {
    RENDER — Inventory grid
    ========================================================== */
 function renderInventory() {
+  if (!inventoryList) return;
+
   const s = (searchInput?.value || "").toLowerCase();
   const f = filterCat?.value || "";
   const filtered = inventory.filter(i => {
-    const mS = !s || i.name.toLowerCase().includes(s) || i.sku.toLowerCase().includes(s);
+    const mS = !s ||
+      i.name.toLowerCase().includes(s) ||
+      (i.sku || "").toLowerCase().includes(s) ||
+      (i.barcode || "").toLowerCase().includes(s);
     const mC = !f || i.category === f;
     return mS && mC;
   });
@@ -1036,21 +1638,34 @@ function renderInventory() {
   inventoryList.innerHTML = filtered.map(item => {
     const isLow = item.quantity <= (item.threshold ?? 5);
     const { percent, level } = stockProgress(item);
+    const exp = expiryStatus(item.expiry);
+    const expBadge = exp.level === "expired"
+      ? `<span class="badge expired">Expired</span>`
+      : exp.level === "expiring"
+      ? `<span class="badge expiring">Expiring</span>`
+      : "";
+    const expMeta = (exp.level === "expired" || exp.level === "expiring")
+      ? `<span class="expiry-tag">⏰ ${esc(exp.label)}</span>` : "";
     return `
-      <div class="item-card ${isLow ? "low-stock" : ""}">
+      <div class="item-card ${isLow ? "low-stock" : ""} ${exp.level === "expired" ? "expiring" : ""}">
         ${productImageHTML(item)}
         <div class="item-body">
           <div class="item-header">
             <div>
               <div class="item-name">${esc(item.name)}</div>
-              <div class="item-sku">SKU: ${esc(item.sku)}</div>
+              <div class="item-sku">SKU: ${esc(item.sku)}${item.barcode ? " · " + esc(item.barcode) : ""}</div>
             </div>
-            <span class="badge ${isLow ? "low" : "ok"}">${isLow ? "Low" : "OK"}</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+              ${expBadge}
+              <span class="badge ${isLow ? "low" : "ok"}">${isLow ? "Low" : "OK"}</span>
+            </div>
           </div>
           <div class="item-meta">
             <span>📂 ${esc(item.category)}</span>
             <span>📦 ${item.quantity}</span>
             <span>💰 ₱${Number(item.price).toFixed(2)}</span>
+            ${item.cost ? `<span>📉 Cost: ₱${Number(item.cost).toFixed(2)}</span>` : ""}
+            ${expMeta}
           </div>
           <div class="progress-wrap">
             <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
@@ -1058,6 +1673,7 @@ function renderInventory() {
           </div>
           <div class="item-actions">
             <button class="btn ghost" onclick="editItem('${item.id}')">Edit</button>
+            <button class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
             <button class="btn danger" onclick="deleteItem('${item.id}')">Delete</button>
           </div>
         </div>
@@ -1075,7 +1691,9 @@ function renderDashboardInventory() {
   const term = ($("dash-search")?.value || "").toLowerCase();
   const filtered = inventory.filter(i => {
     if (!term) return true;
-    return i.name.toLowerCase().includes(term) || i.sku.toLowerCase().includes(term);
+    return i.name.toLowerCase().includes(term) ||
+           (i.sku || "").toLowerCase().includes(term) ||
+           (i.barcode || "").toLowerCase().includes(term);
   });
 
   if (!filtered.length) {
@@ -1115,6 +1733,8 @@ function renderDashboardInventory() {
    RENDER — Low stock alerts
    ========================================================== */
 function renderLowStockAlerts() {
+  if (!lowStockList) return;
+
   const low = inventory.filter(i => i.quantity <= (i.threshold ?? 5));
   if (!low.length) {
     lowStockList.innerHTML = `<div class="empty-state"><p>✅ All items are well stocked.</p></div>`;
@@ -1138,8 +1758,104 @@ function renderLowStockAlerts() {
             <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
             <span class="progress-label">${percent.toFixed(0)}%</span>
           </div>
+          <div class="item-actions">
+            <button class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
+          </div>
         </div>
       </div>`;
+  }).join("");
+}
+
+/* ==========================================================
+   RENDER — Expiring items
+   ========================================================== */
+function renderExpiring() {
+  const expiring = inventory
+    .filter(i => {
+      const e = expiryStatus(i.expiry);
+      return e.level === "expiring" || e.level === "expired";
+    })
+    .sort((a, b) => (daysUntilExpiry(a.expiry) ?? 999) - (daysUntilExpiry(b.expiry) ?? 999));
+
+  if (expiryBanner && expiryBannerText) {
+    if (expiring.length) {
+      const expiredCount = expiring.filter(i => expiryStatus(i.expiry).level === "expired").length;
+      expiryBanner.classList.remove("hidden");
+      expiryBannerText.textContent = expiredCount
+        ? `${expiredCount} item(s) already expired — ${expiring.length} total need attention.`
+        : `${expiring.length} item(s) expiring within ${EXPIRY_WARNING_DAYS} days.`;
+    } else {
+      expiryBanner.classList.add("hidden");
+    }
+  }
+
+  if (!expiringList) return;
+  if (!expiring.length) {
+    expiringList.innerHTML = `<div class="empty-state"><p>✅ No items expiring soon.</p></div>`;
+    return;
+  }
+
+  expiringList.innerHTML = expiring.map(item => {
+    const exp = expiryStatus(item.expiry);
+    const cls = exp.level === "expired" ? "expired" : "expiring";
+    return `
+      <div class="item-card ${exp.level === "expired" ? "expiring" : ""}">
+        ${productImageHTML(item)}
+        <div class="item-body">
+          <div class="item-header">
+            <div><div class="item-name">${esc(item.name)}</div><div class="item-sku">SKU: ${esc(item.sku)}</div></div>
+            <span class="badge ${cls}">${exp.level === "expired" ? "Expired" : "Expiring"}</span>
+          </div>
+          <div class="item-meta">
+            <span>⏰ ${esc(exp.label)}</span>
+            <span>📦 ${item.quantity}</span>
+          </div>
+          <div class="item-actions">
+            <button class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+if (expiryBannerBtn) {
+  expiryBannerBtn.addEventListener("click", () => {
+    const el = $("expiring-list");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
+/* ==========================================================
+   RENDER — In/Out movements history
+   ========================================================== */
+function renderMovements() {
+  if (!movementsList) return;
+  if (!movements.length) {
+    movementsList.innerHTML = `<div class="empty-state"><p>No stock movements yet. Sales and restocks will appear here.</p></div>`;
+    return;
+  }
+
+  movementsList.innerHTML = movements.slice(0, 30).map(m => {
+    const isIn = m.type === "in";
+    const date = m.createdAt?.toDate?.().toLocaleString() ?? "Just now";
+    const reasonLabel = {
+      initial: "Initial stock",
+      restock: "Restock",
+      sale: "Sale",
+      adjustment: "Adjustment"
+    }[m.reason] || m.reason || "";
+    return `
+      <div class="movement-row">
+        <div class="movement-icon ${isIn ? "in" : "out"}">${isIn ? "⬇️" : "⬆️"}</div>
+        <div class="movement-main">
+          <div class="movement-name">${esc(m.itemName || "—")}</div>
+          <div class="movement-meta">${date} · ${esc(reasonLabel)}${m.note ? " · " + esc(m.note) : ""}</div>
+        </div>
+        <div class="movement-qty ${isIn ? "in" : "out"}">
+          ${isIn ? "+" : "−"}${m.quantity}
+        </div>
+      </div>
+    `;
   }).join("");
 }
 
@@ -1147,11 +1863,12 @@ function renderLowStockAlerts() {
    RENDER — Recent Sales
    ========================================================== */
 function renderSales() {
+  if (!salesList) return;
   if (!sales.length) {
     salesList.innerHTML = `<div class="empty-state"><p>🛒 No sales recorded yet.</p></div>`;
     return;
   }
-  salesList.innerHTML = sales.map(s => {
+  salesList.innerHTML = sales.slice(0, 30).map(s => {
     const item = inventory.find(i => i.id === s.itemId) || { name: s.itemName, image: null };
     const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
     return `
@@ -1160,7 +1877,7 @@ function renderSales() {
           ${productImageHTML(item, "sm")}
           <div class="sale-txt">
             <div class="sale-name">${esc(s.itemName)} × ${s.quantity}</div>
-            <div class="sale-date">${date}</div>
+            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}</div>
           </div>
         </div>
         <div class="sale-total">₱${Number(s.total).toFixed(2)}</div>
@@ -1172,6 +1889,7 @@ function renderSales() {
    RENDER — Categories
    ========================================================== */
 function renderCategories() {
+  if (!categoryGrid) return;
   if (!categories.length) {
     categoryGrid.innerHTML = `<div class="empty-state"><p>🗂️ No categories yet.</p></div>`;
     return;
@@ -1186,7 +1904,7 @@ function renderCategories() {
 }
 
 /* ==========================================================
-   STATS
+   STATS (with Profit)
    ========================================================== */
 function updateStats() {
   const total = inventory.length;
@@ -1198,122 +1916,178 @@ function updateStats() {
     .filter(s => s.createdAt?.toDate?.() >= today)
     .reduce((s, x) => s + (x.total || 0), 0);
 
-  statTotal.textContent = total;
-  statLow.textContent = low;
-  statValue.textContent = "₱" + value.toFixed(2);
-  statSales.textContent = "₱" + todaySales.toFixed(2);
-  statCats.textContent = categories.length;
+  const totalProfit = sales.reduce((sum, s) => {
+    if (typeof s.profit === "number") return sum + s.profit;
+    const it = inventory.find(i => i.id === s.itemId);
+    const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
+    return sum + ((s.unitPrice || 0) - cost) * (s.quantity || 0);
+  }, 0);
+
+  if (statTotal) statTotal.textContent = total;
+  if (statLow) statLow.textContent = low;
+  if (statValue) statValue.textContent = "₱" + value.toFixed(2);
+  if (statSales) statSales.textContent = "₱" + todaySales.toFixed(2);
+  if (statProfit) statProfit.textContent = "₱" + totalProfit.toFixed(2);
+  if (statCats) statCats.textContent = categories.length;
 }
 
 /* ==========================================================
-   CHARTS
+   CHARTS — robust rendering (waits for canvas size)
    ========================================================== */
 const CATEGORY_PALETTE = ["#12544F", "#2FA38F", "#5FC2A6", "#0C3E3A", "#16665F", "#0F4945", "#E8B33A", "#D79A6A"];
 const getCSSVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
 function commonChartOptions(textColor) {
   return {
-    responsive: true, maintainAspectRatio: false,
+    responsive: true,
+    maintainAspectRatio: false,
     animation: { duration: 400 },
-    plugins: { legend: { position: "bottom", labels: { color: textColor, padding: 12, font: { size: 12 }, boxWidth: 14, usePointStyle: true } } }
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: textColor, padding: 12, font: { size: 12 }, boxWidth: 14, usePointStyle: true }
+      }
+    }
   };
 }
 
 function renderCharts() {
-  if (typeof Chart === "undefined") return;
-  if (!inventory.length && !sales.length) return;
+  if (!chartJsReady || typeof Chart === "undefined") return;
+
+  const dashEl = $("page-dashboard");
+  if (!dashEl || dashEl.classList.contains("hidden")) return;
+
+  const stockCanvas = $("stock-status-chart");
+  const catCanvas   = $("category-value-chart");
+  const salesCanvas = $("sales-category-chart");
+  if (!stockCanvas || !catCanvas || !salesCanvas) return;
+
+  // Wait for canvas to actually have dimensions
+  const ready = stockCanvas.clientWidth > 0 && stockCanvas.clientHeight > 0;
+  if (!ready) {
+    setTimeout(renderCharts, 250);
+    return;
+  }
+
   const textColor = getCSSVar("--text") || "#1e293b";
 
-  const inStock = inventory.filter(i => i.quantity > (i.threshold ?? 5)).length;
-  const lowStock = inventory.filter(i => i.quantity > 0 && i.quantity <= (i.threshold ?? 5)).length;
-  const outStock = inventory.filter(i => i.quantity === 0).length;
-  const stockData = {
-    labels: ["In Stock", "Low Stock", "Out of Stock"],
-    datasets: [{ data: [inStock, lowStock, outStock], backgroundColor: ["#22c55e", "#f59e0b", "#ef4444"], borderWidth: 0, hoverOffset: 6 }]
-  };
-  if (stockChart) {
-    stockChart.data = stockData;
-    stockChart.options.plugins.legend.labels.color = textColor;
-    stockChart.update("none");
-  } else {
-    stockChart = new Chart($("stock-status-chart"), {
-      type: "doughnut", data: stockData,
-      options: {
-        ...commonChartOptions(textColor), cutout: "62%",
-        plugins: {
-          ...commonChartOptions(textColor).plugins,
-          tooltip: {
-            callbacks: {
-              label: (c) => {
-                const t = c.dataset.data.reduce((a, b) => a + b, 0) || 1;
-                return `${c.label}: ${c.parsed} (${((c.parsed / t) * 100).toFixed(1)}%)`;
-              }
-            }
+  /* ---------- 1. Stock Status ---------- */
+  try {
+    const inStock  = inventory.filter(i => i.quantity >  (i.threshold ?? 5)).length;
+    const lowStock = inventory.filter(i => i.quantity > 0 && i.quantity <= (i.threshold ?? 5)).length;
+    const outStock = inventory.filter(i => i.quantity === 0).length;
+    const stockData = {
+      labels: ["In Stock", "Low Stock", "Out of Stock"],
+      datasets: [{
+        data: [inStock, lowStock, outStock],
+        backgroundColor: ["#22c55e", "#f59e0b", "#ef4444"],
+        borderWidth: 0, hoverOffset: 6
+      }]
+    };
+
+    if (stockChart && stockChart.canvas && stockChart.canvas.isConnected) {
+      stockChart.data = stockData;
+      stockChart.options.plugins.legend.labels.color = textColor;
+      stockChart.update("none");
+    } else {
+      if (stockChart) { try { stockChart.destroy(); } catch (e) {} }
+      stockChart = new Chart(stockCanvas, {
+        type: "doughnut", data: stockData,
+        options: {
+          ...commonChartOptions(textColor), cutout: "62%",
+          plugins: {
+            ...commonChartOptions(textColor).plugins,
+            tooltip: { callbacks: { label: (c) => {
+              const t = c.dataset.data.reduce((a, b) => a + b, 0) || 1;
+              return `${c.label}: ${c.parsed} (${((c.parsed / t) * 100).toFixed(1)}%)`;
+            }}}
           }
         }
-      }
-    });
-  }
+      });
+    }
+  } catch (e) { console.error("[chart] stock:", e); }
 
-  const vbc = {};
-  inventory.forEach(i => { vbc[i.category] = (vbc[i.category] || 0) + (i.quantity * i.price || 0); });
-  const catLabels = Object.keys(vbc), catValues = Object.values(vbc);
-  const catData = {
-    labels: catLabels.length ? catLabels : ["No data"],
-    datasets: [{
-      data: catValues.length ? catValues : [1],
-      backgroundColor: catLabels.length ? catLabels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]) : ["#e2e8f0"],
-      borderWidth: 0, hoverOffset: 6
-    }]
-  };
-  if (categoryValueChart) {
-    categoryValueChart.data = catData;
-    categoryValueChart.options.plugins.legend.labels.color = textColor;
-    categoryValueChart.update("none");
-  } else {
-    categoryValueChart = new Chart($("category-value-chart"), {
-      type: "pie", data: catData,
-      options: {
-        ...commonChartOptions(textColor),
-        plugins: {
-          ...commonChartOptions(textColor).plugins,
-          tooltip: { callbacks: { label: (c) => `${c.label}: ₱${Number(c.parsed).toFixed(2)}` } }
-        }
-      }
-    });
-  }
+  /* ---------- 2. Value by Category ---------- */
+  try {
+    const vbc = {};
+    inventory.forEach(i => { vbc[i.category] = (vbc[i.category] || 0) + (i.quantity * i.price || 0); });
+    const catLabels = Object.keys(vbc), catValues = Object.values(vbc);
+    const catData = {
+      labels: catLabels.length ? catLabels : ["No data"],
+      datasets: [{
+        data: catValues.length ? catValues : [1],
+        backgroundColor: catLabels.length
+          ? catLabels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length])
+          : ["#e2e8f0"],
+        borderWidth: 0, hoverOffset: 6
+      }]
+    };
 
-  const sbc = {};
-  sales.forEach(s => { const k = s.category || "Unknown"; sbc[k] = (sbc[k] || 0) + (s.total || 0); });
-  const sLabels = Object.keys(sbc), sValues = Object.values(sbc);
-  const salesData = {
-    labels: sLabels.length ? sLabels : ["No sales yet"],
-    datasets: [{
-      data: sValues.length ? sValues : [1],
-      backgroundColor: sLabels.length ? sLabels.map((_, i) => CATEGORY_PALETTE[(i + 3) % CATEGORY_PALETTE.length]) : ["#e2e8f0"],
-      borderWidth: 0, hoverOffset: 6
-    }]
-  };
-  if (salesCategoryChart) {
-    salesCategoryChart.data = salesData;
-    salesCategoryChart.options.plugins.legend.labels.color = textColor;
-    salesCategoryChart.update("none");
-  } else {
-    salesCategoryChart = new Chart($("sales-category-chart"), {
-      type: "pie", data: salesData,
-      options: {
-        ...commonChartOptions(textColor),
-        plugins: {
-          ...commonChartOptions(textColor).plugins,
-          tooltip: { callbacks: { label: (c) => `${c.label}: ₱${Number(c.parsed).toFixed(2)}` } }
+    if (categoryValueChart && categoryValueChart.canvas && categoryValueChart.canvas.isConnected) {
+      categoryValueChart.data = catData;
+      categoryValueChart.options.plugins.legend.labels.color = textColor;
+      categoryValueChart.update("none");
+    } else {
+      if (categoryValueChart) { try { categoryValueChart.destroy(); } catch (e) {} }
+      categoryValueChart = new Chart(catCanvas, {
+        type: "pie", data: catData,
+        options: {
+          ...commonChartOptions(textColor),
+          plugins: {
+            ...commonChartOptions(textColor).plugins,
+            tooltip: { callbacks: { label: (c) => `${c.label}: ₱${Number(c.parsed).toFixed(2)}` } }
+          }
         }
-      }
+      });
+    }
+  } catch (e) { console.error("[chart] category value:", e); }
+
+  /* ---------- 3. Sales by Category ---------- */
+  try {
+    const sbc = {};
+    sales.forEach(s => { const k = s.category || "Unknown"; sbc[k] = (sbc[k] || 0) + (s.total || 0); });
+    const sLabels = Object.keys(sbc), sValues = Object.values(sbc);
+    const salesData = {
+      labels: sLabels.length ? sLabels : ["No sales yet"],
+      datasets: [{
+        data: sValues.length ? sValues : [1],
+        backgroundColor: sLabels.length
+          ? sLabels.map((_, i) => CATEGORY_PALETTE[(i + 3) % CATEGORY_PALETTE.length])
+          : ["#e2e8f0"],
+        borderWidth: 0, hoverOffset: 6
+      }]
+    };
+
+    if (salesCategoryChart && salesCategoryChart.canvas && salesCategoryChart.canvas.isConnected) {
+      salesCategoryChart.data = salesData;
+      salesCategoryChart.options.plugins.legend.labels.color = textColor;
+      salesCategoryChart.update("none");
+    } else {
+      if (salesCategoryChart) { try { salesCategoryChart.destroy(); } catch (e) {} }
+      salesCategoryChart = new Chart(salesCanvas, {
+        type: "pie", data: salesData,
+        options: {
+          ...commonChartOptions(textColor),
+          plugins: {
+            ...commonChartOptions(textColor).plugins,
+            tooltip: { callbacks: { label: (c) => `${c.label}: ₱${Number(c.parsed).toFixed(2)}` } }
+          }
+        }
+      });
+    }
+  } catch (e) { console.error("[chart] sales category:", e); }
+
+  requestAnimationFrame(() => {
+    [stockChart, categoryValueChart, salesCategoryChart].forEach(c => {
+      try { c && c.resize(); } catch (e) {}
     });
-  }
+  });
 }
 
 function destroyCharts() {
-  [stockChart, categoryValueChart, salesCategoryChart].forEach(c => c && c.destroy());
+  [stockChart, categoryValueChart, salesCategoryChart].forEach(c => {
+    try { c && c.destroy(); } catch (e) {}
+  });
   stockChart = categoryValueChart = salesCategoryChart = null;
 }
 
@@ -1321,6 +2095,7 @@ function destroyCharts() {
    SELECTS / DATALISTS
    ========================================================== */
 function populateCategoryFilter() {
+  if (!filterCat) return;
   const names = [...new Set(inventory.map(i => i.category))].sort();
   const cur = filterCat.value;
   filterCat.innerHTML = `<option value="">All Categories</option>` +
@@ -1328,18 +2103,13 @@ function populateCategoryFilter() {
   filterCat.value = cur;
 }
 function populateCategoryDatalist() {
+  if (!categoryList) return;
   const names = [...new Set([...categories.map(c => c.name), ...inventory.map(i => i.category)])].sort();
   categoryList.innerHTML = names.map(c => `<option value="${c}">`).join("");
 }
-function populateSaleItemSelect() {
-  const cur = saleItem.value;
-  saleItem.innerHTML = `<option value="">Select item…</option>` +
-    inventory.map(i => `<option value="${i.id}">${esc(i.name)} (${i.quantity} left)</option>`).join("");
-  saleItem.value = cur;
-}
 
-searchInput.addEventListener("input", renderInventory);
-filterCat.addEventListener("change", renderInventory);
+if (searchInput) searchInput.addEventListener("input", renderInventory);
+if (filterCat) filterCat.addEventListener("change", renderInventory);
 
 const dashSearchEl = $("dash-search");
 if (dashSearchEl) dashSearchEl.addEventListener("input", renderDashboardInventory);
@@ -1353,12 +2123,18 @@ itemForm.addEventListener("submit", async (e) => {
   const wsId = myWorkspace();
   if (!wsId) { showToast("Workspace not ready ❌"); return; }
 
+  const wasEditing = !!itemId.value;
+  const prev = wasEditing ? inventory.find(i => i.id === itemId.value) : null;
+
   const data = {
     name: itemName.value.trim(),
     sku: itemSku.value.trim(),
+    barcode: itemBarcode.value.trim(),
     category: itemCategory.value.trim(),
     quantity: Number(itemQty.value),
+    cost: Number(itemCost.value) || 0,
     price: Number(itemPrice.value),
+    expiry: itemExpiry.value || "",
     threshold: Number(itemThreshold.value),
     image: itemImageData.value || null,
     workspaceId: wsId,
@@ -1366,11 +2142,32 @@ itemForm.addEventListener("submit", async (e) => {
   };
 
   try {
-    if (itemId.value) {
+    if (wasEditing) {
       await updateDoc(doc(db, "inventory", itemId.value), data);
+
+      if (prev && data.quantity !== prev.quantity) {
+        const diff = data.quantity - prev.quantity;
+        await logMovement({
+          itemId: itemId.value,
+          itemName: data.name,
+          type: diff > 0 ? "in" : "out",
+          quantity: Math.abs(diff),
+          reason: "adjustment",
+          note: "Manual edit"
+        });
+      }
       showToast("Item updated ✅");
     } else {
-      await addDoc(collection(db, "inventory"), { ...data, createdAt: serverTimestamp() });
+      const newRef = await addDoc(collection(db, "inventory"), {
+        ...data, createdAt: serverTimestamp()
+      });
+      if (data.quantity > 0) {
+        await logMovement({
+          itemId: newRef.id, itemName: data.name,
+          type: "in", quantity: data.quantity,
+          reason: "initial", note: "Item created"
+        });
+      }
       showToast("Item added ✅");
     }
     itemForm.reset();
@@ -1389,8 +2186,11 @@ window.editItem = (id) => {
   const item = inventory.find(i => i.id === id);
   if (!item) return;
   itemId.value = item.id; itemName.value = item.name; itemSku.value = item.sku;
+  itemBarcode.value = item.barcode || "";
   itemCategory.value = item.category; itemQty.value = item.quantity;
-  itemPrice.value = item.price; itemThreshold.value = item.threshold ?? 5;
+  itemCost.value = item.cost ?? "";
+  itemPrice.value = item.price; itemExpiry.value = item.expiry || "";
+  itemThreshold.value = item.threshold ?? 5;
   itemImageData.value = item.image || "";
   showPhotoPreview(item.image || null);
   manualSku = true;
@@ -1408,40 +2208,6 @@ window.deleteItem = async (id) => {
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 };
-
-/* ==========================================================
-   RECORD SALE
-   ========================================================== */
-saleForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  const wsId = myWorkspace();
-  if (!wsId) { showToast("Workspace not ready ❌"); return; }
-
-  const item = inventory.find(i => i.id === saleItem.value);
-  const qty = Number(saleQty.value);
-  if (!item) { showToast("Select an item ❌"); return; }
-  if (qty > item.quantity) { showToast("Not enough stock ❌"); return; }
-
-  try {
-    await addDoc(collection(db, "sales"), {
-      itemId: item.id, itemName: item.name, category: item.category,
-      quantity: qty, unitPrice: item.price, total: qty * item.price,
-      workspaceId: wsId,
-      createdAt: serverTimestamp(), userId: currentUser.uid
-    });
-    await updateDoc(doc(db, "inventory", item.id), {
-      quantity: item.quantity - qty,
-      updatedAt: serverTimestamp()
-    });
-    saleForm.reset();
-    playSuccessSound();
-    showToast("Sale recorded ✅");
-  } catch (err) {
-    console.error("[record sale]", err.code, err.message);
-    showToast(`Failed: ${err.code || err.message} ❌`);
-  }
-});
 
 /* ==========================================================
    CATEGORIES CRUD
@@ -1485,6 +2251,7 @@ window.deleteCategory = async (id) => {
    ADMIN
    ========================================================== */
 function renderAdminUsers() {
+  if (!pendingUsersList || !allUsersList) return;
   const pending = allUsers.filter(u => !u.approved);
   pendingUsersList.innerHTML = pending.length
     ? pending.map(userRowHTML).join("")
@@ -1544,6 +2311,7 @@ window.deleteUser = async (userId) => {
    UTILITIES
    ========================================================== */
 function showToast(msg) {
+  if (!toast) return;
   toast.textContent = msg;
   toast.classList.remove("hidden");
   clearTimeout(showToast._timer);

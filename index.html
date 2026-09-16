@@ -20,8 +20,11 @@
 
   <link rel="stylesheet" href="style.css" />
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js" defer></script>
   <script type="module" src="app.js" defer></script>
 </head>
 <body>
@@ -40,7 +43,7 @@
     <div class="auth-card">
       <div class="brand-mark">
         <span class="brand-ring"></span>
-        <img id="logo-img" class="brand-logo" src="gtaversion.png" alt="Company logo"
+        <img id="logo-img" class="brand-logo" src="logo.png" alt="Company logo"
              onerror="this.classList.add('hidden');document.getElementById('brand-fallback').classList.remove('hidden');" />
         <div id="brand-fallback" class="brand-fallback hidden">📦</div>
       </div>
@@ -60,11 +63,11 @@
 
       <form id="auth-form" autocomplete="on">
         <div class="field">
-          <span class="field-icon"></span>
+          <span class="field-icon">✉️</span>
           <input type="email" id="email" placeholder="Email address" required />
         </div>
         <div class="field">
-          <span class="field-icon"></span>
+          <span class="field-icon">🔒</span>
           <input type="password" id="password" placeholder="Password" required />
         </div>
         <button type="submit" id="auth-submit" class="btn primary block">
@@ -103,7 +106,7 @@
 
     <header class="topbar">
       <div class="brand-mini">
-        <img id="brand-logo" class="brand-mini-logo" src="gtaversion.png" alt=""
+        <img id="brand-logo" class="brand-mini-logo" src="logo.png" alt=""
              onerror="this.classList.add('hidden');document.getElementById('brand-mini-fallback').classList.remove('hidden');" />
         <div id="brand-mini-fallback" class="brand-mini-fallback hidden">📦</div>
         <h1 class="logo">Kurt Inventory</h1>
@@ -123,13 +126,21 @@
 
     <!-- ========== DASHBOARD ========== -->
     <main id="page-dashboard" class="page active">
-      <h2 class="page-title">Sari-Sari Store Dashboard</h2>
+      <h2 class="page-title">Dashboard</h2>
+
+      <!-- Expiry alert banner (auto hides when no expiring items) -->
+      <div id="expiry-banner" class="expiry-banner hidden">
+        <span class="expiry-banner-icon">⚠️</span>
+        <span id="expiry-banner-text" class="expiry-banner-text"></span>
+        <button id="expiry-banner-btn" class="btn sm">View</button>
+      </div>
 
       <div class="stats-grid">
         <div class="stat-card"><span class="stat-label">Total Items</span><span id="stat-total" class="stat-value">0</span></div>
         <div class="stat-card warning"><span class="stat-label">Low Stock</span><span id="stat-low" class="stat-value">0</span></div>
         <div class="stat-card"><span class="stat-label">Inventory Value</span><span id="stat-value" class="stat-value">₱0</span></div>
         <div class="stat-card success"><span class="stat-label">Today's Sales</span><span id="stat-sales" class="stat-value">₱0</span></div>
+        <div class="stat-card profit"><span class="stat-label">Profit (Tubo)</span><span id="stat-profit" class="stat-value">₱0</span></div>
         <div class="stat-card"><span class="stat-label">Categories</span><span id="stat-cats" class="stat-value">0</span></div>
       </div>
 
@@ -147,6 +158,9 @@
 
       <h3 class="section-heading">🔥 Fast-Moving Products</h3>
       <div id="fast-moving-list" class="rank-list"></div>
+
+      <h3 class="section-heading">🐢 Slow-Moving Items</h3>
+      <div id="slow-moving-list" class="rank-list"></div>
 
       <h3 class="section-heading">Analytics</h3>
       <div class="charts-grid">
@@ -172,31 +186,65 @@
 
       <h3 class="section-heading">Low-Stock Alerts</h3>
       <div id="low-stock-list" class="inventory-list"></div>
+
+      <h3 class="section-heading">Expiring Soon</h3>
+      <div id="expiring-list" class="inventory-list"></div>
+
+      <div class="section-heading-row">
+        <h3 class="section-heading">📥📤 In / Out History</h3>
+        <button class="btn ghost sm" id="export-movements">📊 Export</button>
+      </div>
+      <div id="movements-list" class="movements-list"></div>
     </main>
 
-    <!-- ========== SALES ========== -->
+    <!-- ========== POS / SALES ========== -->
     <main id="page-sales" class="page hidden">
-      <h2 class="page-title">Sales</h2>
+      <h2 class="page-title">Point of Sale</h2>
 
-      <div class="card">
-        <h3 class="card-title">Record a Sale</h3>
-        <form id="sale-form" class="inline-form">
-          <select id="sale-item" required>
-            <option value="">Select item…</option>
-          </select>
-          <input type="number" id="sale-qty" min="1" placeholder="Qty" required />
-          <button type="button" class="btn scan-btn" id="scan-sale-btn" title="Scan barcode">📷 Scan</button>
-          <button type="submit" class="btn primary">Record Sale</button>
-        </form>
+      <div class="pos-layout">
+        <div class="pos-products">
+          <div class="pos-search-row">
+            <input type="search" id="sales-search" placeholder="Search by name, SKU, or barcode…" />
+            <button type="button" class="btn scan-btn" id="scan-sale-btn" title="Scan barcode">📷 Scan</button>
+          </div>
+          <div id="sales-products-grid" class="pos-grid"></div>
+        </div>
+
+        <aside class="pos-cart">
+          <div class="pos-cart-head">
+            <h3>🛒 Cart</h3>
+            <button type="button" class="btn ghost" id="pos-clear-btn">Clear</button>
+          </div>
+
+          <div id="pos-cart-items" class="pos-cart-items">
+            <div class="pos-cart-empty">Tap a product or scan a barcode to add.</div>
+          </div>
+
+          <div class="pos-totals">
+            <div class="pos-row">
+              <span>Total</span>
+              <span id="pos-total" class="pos-total-amount">₱0.00</span>
+            </div>
+            <div class="pos-row">
+              <span>Cash</span>
+              <input type="number" id="pos-cash" min="0" step="0.01" placeholder="0.00" />
+            </div>
+            <div class="pos-row pos-change-row">
+              <span>Change</span>
+              <span id="pos-change">₱0.00</span>
+            </div>
+            <button type="button" id="pos-checkout" class="btn primary block">✓ Complete Sale</button>
+          </div>
+        </aside>
       </div>
 
-      <h3 class="section-heading">Products</h3>
-      <div class="toolbar">
-        <input type="search" id="sales-search" placeholder="Search products by name or SKU…" />
+      <div class="section-heading-row">
+        <h3 class="section-heading">Recent Sales</h3>
+        <div class="export-btns">
+          <button class="btn ghost sm" id="export-sales-excel">📊 Excel</button>
+          <button class="btn ghost sm" id="export-sales-pdf">📄 PDF</button>
+        </div>
       </div>
-      <div id="sales-products-grid" class="sales-grid"></div>
-
-      <h3 class="section-heading">Recent Sales</h3>
       <div id="sales-list" class="inventory-list"></div>
     </main>
 
@@ -225,28 +273,58 @@
 
           <label>Name <input type="text" id="item-name" required /></label>
 
-          <label>SKU
+          <label>SKU (auto)
             <div class="input-with-btn">
               <input type="text" id="item-sku" required />
-              <button type="button" class="btn scan-btn" id="scan-sku-btn" title="Scan barcode">📷</button>
             </div>
-            <small class="hint">Auto-generated (1001, 1002, 1003…) — scan or type to override.</small>
+            <small class="hint">Auto-generated (1001, 1002, 1003…) — type to override.</small>
+          </label>
+
+          <label>Barcode
+            <div class="input-with-btn">
+              <input type="text" id="item-barcode" placeholder="Scan or type barcode…" />
+              <button type="button" class="btn scan-btn" id="scan-barcode-btn" title="Scan barcode">📷</button>
+            </div>
+            <small class="hint">The scanner fills this field. Used for POS lookup.</small>
           </label>
 
           <label>Category
             <input type="text" id="item-category" list="category-list" required />
             <datalist id="category-list"></datalist>
           </label>
+
           <label>Quantity <input type="number" id="item-qty" min="0" required /></label>
-          <label>Price (₱) <input type="number" id="item-price" step="0.01" min="0" required /></label>
-          <label>Low-Stock Threshold <input type="number" id="item-threshold" min="0" value="5" /></label>
+
+          <label>Cost Price (₱) — for profit calc
+            <input type="number" id="item-cost" step="0.01" min="0" placeholder="0.00" />
+          </label>
+
+          <label>Selling Price (₱)
+            <input type="number" id="item-price" step="0.01" min="0" required />
+          </label>
+
+          <label>Expiry Date (optional)
+            <input type="date" id="item-expiry" />
+          </label>
+
+          <label>Low-Stock Threshold
+            <input type="number" id="item-threshold" min="0" value="5" />
+          </label>
+
           <button type="submit" class="btn primary block">Save Item</button>
         </form>
       </div>
 
-      <h3 class="section-heading">All Inventory Items</h3>
+      <div class="section-heading-row">
+        <h3 class="section-heading">All Inventory Items</h3>
+        <div class="export-btns">
+          <button class="btn ghost sm" id="export-inv-excel">📊 Excel</button>
+          <button class="btn ghost sm" id="export-inv-pdf">📄 PDF</button>
+        </div>
+      </div>
+
       <div class="toolbar">
-        <input type="search" id="search-input" placeholder="Search by name or SKU…" />
+        <input type="search" id="search-input" placeholder="Search by name, SKU, or barcode…" />
         <select id="filter-category">
           <option value="">All Categories</option>
         </select>
@@ -286,7 +364,7 @@
         <span class="nav-icon">📊</span><span>Dashboard</span>
       </button>
       <button class="nav-btn" data-page="page-sales">
-        <span class="nav-icon">🛒</span><span>Sales</span>
+        <span class="nav-icon">🛒</span><span>POS</span>
       </button>
       <button class="nav-btn" data-page="page-add">
         <span class="nav-icon">➕</span><span>Add Item</span>
@@ -314,6 +392,33 @@
       <div class="scanner-manual">
         <input id="scanner-manual-input" type="text" inputmode="text" placeholder="Or type barcode / SKU…" />
         <button id="scanner-manual-btn" class="btn primary">Use</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= RESTOCK MODAL ================= -->
+  <div id="restock-modal" class="modal hidden">
+    <div class="modal-card restock-card">
+      <div class="modal-head">
+        <h3 id="restock-title">Restock Item</h3>
+        <button id="restock-close" class="btn ghost icon-btn" aria-label="Close">✕</button>
+      </div>
+      <p id="restock-item-name" class="restock-name"></p>
+      <p id="restock-current" class="restock-current"></p>
+      <label>Quantity to add
+        <input type="number" id="restock-qty" min="1" value="10" />
+      </label>
+      <button id="restock-confirm" class="btn primary block">➕ Add Stock</button>
+    </div>
+  </div>
+
+  <!-- ================= RECEIPT MODAL ================= -->
+  <div id="receipt-modal" class="modal hidden">
+    <div class="modal-card receipt-modal-card">
+      <div class="receipt" id="receipt-content"></div>
+      <div class="receipt-actions">
+        <button id="print-receipt-btn" class="btn primary">🖨️ Print Receipt</button>
+        <button id="close-receipt-btn" class="btn ghost">Close</button>
       </div>
     </div>
   </div>
