@@ -1,8 +1,8 @@
 /* ==========================================================
-   app.js — Kurt Inventory
-   Multi-tenant + Super Admin + POS + Receipt + Exports
-   + Profit + In/Out History + Slow Moving + Expiry
-   + Sales History page + per-sale receipt + delete
+   app.js — Kurt Inventory (FIXED)
+   Fixes: module no longer throws at load (login works again),
+          single scanner implementation, lazy format init,
+          robust barcode matching, camera + gallery photos.
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -131,7 +131,9 @@ const itemForm = $("item-form"), itemId = $("item-id"),
 const scanBarcodeBtn = $("scan-barcode-btn");
 
 const itemImageData = $("item-image-data"), itemImage = $("item-image"),
+  itemImageCamera = $("item-image-camera"),
   photoPreview = $("photo-preview"), photoPickBtn = $("photo-pick-btn"),
+  photoCameraBtn = $("photo-camera-btn"),
   photoRemoveBtn = $("photo-remove-btn");
 
 const categoryForm = $("category-form"), newCategory = $("new-category"),
@@ -182,9 +184,12 @@ let manualSku = false, skuInitialized = false;
 
 let posCart = [];
 let restockItemId = null;
-
-/* Track which receipt is currently displayed in the modal (for delete button) */
 let currentReceiptGroup = null;
+
+/* Scan debounce */
+let lastScanCode = "";
+let lastScanTime = 0;
+const SCAN_COOLDOWN_MS = 1500;
 
 /* ----------------------------------------------------------
    CHART.JS LOADER
@@ -313,6 +318,10 @@ if (authForm) authForm.addEventListener("submit", async (e) => {
   if (authError) authError.textContent = "";
   const email = valOf(emailInput).trim().toLowerCase();
   const password = valOf(passwordInput);
+  if (!email || !password) {
+    if (authError) authError.textContent = "Enter email and password.";
+    return;
+  }
   try {
     if (isSignupMode) {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -603,11 +612,8 @@ navButtons.forEach(btn => {
 });
 
 /* ----------------------------------------------------------
-   PHOTO HANDLING (gallery + camera capture)
+   PHOTO HANDLING
    ---------------------------------------------------------- */
-const photoCameraBtn = $("photo-camera-btn");
-const itemImageCamera = $("item-image-camera");
-
 function compressImage(file, maxSize = 420, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -661,17 +667,15 @@ async function handlePhotoFile(file) {
   }
 }
 
-/* Camera capture (opens device camera) */
 if (photoCameraBtn) photoCameraBtn.addEventListener("click", () => {
   if (itemImageCamera) itemImageCamera.click();
+  else if (itemImage) itemImage.click();
 });
 if (itemImageCamera) itemImageCamera.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
   handlePhotoFile(file);
-  e.target.value = "";  // reset so the same file can be re-picked
+  e.target.value = "";
 });
-
-/* Gallery picker */
 if (photoPickBtn) photoPickBtn.addEventListener("click", () => {
   if (itemImage) itemImage.click();
 });
@@ -680,243 +684,16 @@ if (itemImage) itemImage.addEventListener("change", (e) => {
   handlePhotoFile(file);
   e.target.value = "";
 });
-
-/* Click preview = open gallery too */
 if (photoPreview) photoPreview.addEventListener("click", () => {
   if (itemImage) itemImage.click();
 });
-
-/* Remove photo */
 if (photoRemoveBtn) photoRemoveBtn.addEventListener("click", () => {
   if (itemImage) itemImage.value = "";
   if (itemImageCamera) itemImageCamera.value = "";
   setVal(itemImageData, "");
   showPhotoPreview(null);
 });
-/* ----------------------------------------------------------
-   BARCODE SCANNER (enhanced, robust matching)
-   ---------------------------------------------------------- */
-/* Formats we attempt to detect. Adding these makes scanning faster
-   because the decoder doesn't waste time on irrelevant formats. */
-const SCANNER_FORMATS = [
-  Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.EAN_13,
-  Html5QrcodeSupportedFormats.EAN_8,
-  Html5QrcodeSupportedFormats.UPC_A,
-  Html5QrcodeSupportedFormats.UPC_E,
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-  Html5QrcodeSupportedFormats.CODE_93,
-  Html5QrcodeSupportedFormats.ITF,
-  Html5QrcodeSupportedFormats.CODABAR,
-  Html5QrcodeSupportedFormats.DATA_MATRIX,
-  Html5QrcodeSupportedFormats.PDF_417
-];
 
-/* Debounce — the camera fires the same decode ~15×/second. We only
-   want to handle a given code once per 1.5 s. */
-let lastScanCode = "";
-let lastScanTime = 0;
-const SCAN_COOLDOWN_MS = 1500;
-
-function setScannerStatus(text, type = "") {
-  if (!scannerStatus) return;
-  scannerStatus.textContent = text;
-  scannerStatus.classList.remove("success", "error");
-  if (type) scannerStatus.classList.add(type);
-}
-
-function openScanner(target) {
-  scannerTarget = target;
-
-  if (scannerTitle) {
-    scannerTitle.textContent =
-      target === "barcode" ? "Scan Product Barcode" :
-      target === "sale"    ? "Scan Items for POS" :
-      "Scan Barcode";
-  }
-
-  /* Show a helpful starting hint that includes inventory load status */
-  const invCount = inventory.length;
-  const invHint = invCount
-    ? `(${invCount} item${invCount !== 1 ? "s" : ""} loaded)`
-    : "(⚠️ inventory still loading…)";
-
-  setScannerStatus(
-    target === "sale"
-      ? `Point at a barcode. Keep scanning to add more — tap ✕ when done. ${invHint}`
-      : `Point the camera at a barcode… ${invHint}`
-  );
-
-  if (scannerManualInput) scannerManualInput.value = "";
-  scannerModal && scannerModal.classList.remove("hidden");
-
-  if (typeof Html5Qrcode === "undefined") {
-    setScannerStatus("Scanner library not loaded. Type the barcode below instead.", "error");
-    return;
-  }
-
-  /* Reset debounce */
-  lastScanCode = "";
-  lastScanTime = 0;
-
-  if (!html5QrCode) {
-    try {
-      html5QrCode = new Html5Qrcode("scanner-reader", {
-        formatsToSupport: SCANNER_FORMATS,
-        verbose: false
-      });
-    } catch (e) {
-      console.error("[Scanner] init failed:", e);
-      setScannerStatus("Scanner init failed. Type the barcode below.", "error");
-      return;
-    }
-  }
-
-  scannerActive = true;
-
-  html5QrCode.start(
-    { facingMode: { ideal: "environment" } },
-    {
-      fps: 15,
-      qrbox: (vw, vh) => {
-        const min = Math.min(vw, vh);
-        const size = Math.floor(min * 0.78);
-        return { width: size, height: size };
-      },
-      aspectRatio: 1.0,
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-    },
-    (decodedText) => onScanSuccess(decodedText),
-    () => { /* per-frame decode errors — safe to ignore */ }
-  ).catch(err => {
-    console.error("[Scanner] start failed:", err);
-    setScannerStatus("Camera error: " + (err?.message || err) + " — type the barcode below.", "error");
-    scannerActive = false;
-  });
-}
-
-function onScanSuccess(decodedText) {
-  const code = String(decodedText || "").trim();
-  if (!code) return;
-
-  const now = Date.now();
-  if (code === lastScanCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) return;
-  lastScanCode = code;
-  lastScanTime = now;
-
-  handleScanResult(code);
-}
-
-function closeScanner() {
-  if (html5QrCode && scannerActive) {
-    html5QrCode.stop().then(() => {
-      scannerActive = false;
-      scannerModal && scannerModal.classList.add("hidden");
-      setScannerStatus("Point the camera at a barcode…");
-    }).catch(() => {
-      scannerActive = false;
-      scannerModal && scannerModal.classList.add("hidden");
-    });
-  } else {
-    scannerModal && scannerModal.classList.add("hidden");
-  }
-}
-
-/* ----------------------------------------------------------
-   ROBUST ITEM LOOKUP
-   Tries: exact barcode → lowercase barcode → exact SKU →
-         lowercase SKU → substring on either.
-   Trims whitespace, strips inner whitespace, ignores case.
-   ---------------------------------------------------------- */
-function findItemByCode(code) {
-  if (!code) return null;
-  const norm  = String(code).trim().replace(/\s+/g, "");
-  if (!norm) return null;
-  const lower = norm.toLowerCase();
-
-  // 1. Exact barcode
-  let item = inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
-  if (item) return item;
-
-  // 2. Case-insensitive barcode (trimmed)
-  item = inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
-  if (item) return item;
-
-  // 3. Exact SKU
-  item = inventory.find(i => i.sku && String(i.sku).trim() === norm);
-  if (item) return item;
-
-  // 4. Case-insensitive SKU
-  item = inventory.find(i => i.sku && String(i.sku).trim().toLowerCase() === lower);
-  if (item) return item;
-
-  // 5. Substring fallback (e.g. scanner adds a leading zero)
-  item = inventory.find(i =>
-    (i.barcode && String(i.barcode).trim().toLowerCase().includes(lower)) ||
-    (i.sku && String(i.sku).trim().toLowerCase().includes(lower))
-  );
-  return item || null;
-}
-
-function handleScanResult(text) {
-  if (!text) return;
-  const code = String(text).trim();
-  if (!code) return;
-
-  /* ---------- ADD ITEM → fills Barcode field ---------- */
-  if (scannerTarget === "barcode") {
-    if (itemBarcode) itemBarcode.value = code;
-    playSuccessSound();
-    setScannerStatus("✅ Barcode set: " + code, "success");
-    setTimeout(closeScanner, 500);
-    return;
-  }
-
-  /* ---------- POS → add to cart, keep scanner open ---------- */
-  if (scannerTarget === "sale") {
-    /* Diagnostics so you can see exactly what's happening */
-    console.log("[Scanner] scanned:", JSON.stringify(code));
-    console.log("[Scanner] inventory size:", inventory.length);
-    console.log("[Scanner] sample barcodes:",
-      inventory.slice(0, 5).map(i => ({ name: i.name, barcode: i.barcode, sku: i.sku }))
-    );
-
-    if (!inventory.length) {
-      playErrorSound();
-      setScannerStatus("⚠️ Inventory still loading. Wait a moment and scan again.", "error");
-      return;
-    }
-
-    const item = findItemByCode(code);
-    if (!item) {
-      playErrorSound();
-      setScannerStatus(`❌ No match for: ${code}  ·  ${inventory.length} items loaded`, "error");
-      return;
-    }
-
-    addToCart(item.id);
-    playSuccessSound();
-
-    const cartCount = posCart.reduce((s, c) => s + c.qty, 0);
-    setScannerStatus(
-      `✅ Added: ${item.name}  ·  Cart: ${cartCount} item${cartCount !== 1 ? "s" : ""}`,
-      "success"
-    );
-    /* Do NOT close — user can keep scanning quickly */
-  }
-}
-
-if (scanBarcodeBtn) scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
-if (scanSaleBtn)    scanSaleBtn.addEventListener("click", () => openScanner("sale"));
-if (scannerClose)   scannerClose.addEventListener("click", closeScanner);
-if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
-  const val = valOf(scannerManualInput).trim();
-  if (val) handleScanResult(val);
-});
-if (scannerManualInput) scannerManualInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); scannerManualBtn && scannerManualBtn.click(); }
-});
 /* ----------------------------------------------------------
    PRODUCT IMAGE HELPERS
    ---------------------------------------------------------- */
@@ -964,40 +741,101 @@ if (itemSku) itemSku.addEventListener("input", () => {
 /* ----------------------------------------------------------
    BARCODE SCANNER
    ---------------------------------------------------------- */
+function getScannerFormats() {
+  const F = window.Html5QrcodeSupportedFormats;
+  if (!F) return null;
+  return [
+    F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
+    F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR,
+    F.DATA_MATRIX, F.PDF_417
+  ].filter(v => v !== undefined);
+}
+
+function setScannerStatus(text, type = "") {
+  if (!scannerStatus) return;
+  scannerStatus.textContent = text;
+  scannerStatus.classList.remove("success", "error");
+  if (type) scannerStatus.classList.add(type);
+}
+
 function openScanner(target) {
   scannerTarget = target;
+
   if (scannerTitle) {
     scannerTitle.textContent =
       target === "barcode" ? "Scan Product Barcode" :
-      target === "sale" ? "Scan Product for POS" : "Scan Barcode";
+      target === "sale"    ? "Scan Items for POS" :
+      "Scan Barcode";
   }
-  if (scannerStatus) {
-    scannerStatus.textContent = "Point the camera at a barcode…";
-    scannerStatus.classList.remove("error");
-  }
+
+  const invCount = inventory.length;
+  const invHint = invCount
+    ? `(${invCount} item${invCount !== 1 ? "s" : ""} loaded)`
+    : "(⚠️ inventory still loading…)";
+
+  setScannerStatus(
+    target === "sale"
+      ? `Point at a barcode. Keep scanning to add more — tap ✕ when done. ${invHint}`
+      : `Point the camera at a barcode… ${invHint}`
+  );
+
   if (scannerManualInput) scannerManualInput.value = "";
   scannerModal && scannerModal.classList.remove("hidden");
 
   if (typeof Html5Qrcode === "undefined") {
-    if (scannerStatus) {
-      scannerStatus.textContent = "Scanner library not loaded. Type the barcode below.";
-      scannerStatus.classList.add("error");
-    }
+    setScannerStatus("Scanner library not loaded. Type the barcode below instead.", "error");
     return;
   }
-  if (!html5QrCode) html5QrCode = new Html5Qrcode("scanner-reader");
+
+  lastScanCode = "";
+  lastScanTime = 0;
+
+  if (!html5QrCode) {
+    try {
+      const opts = { verbose: false };
+      const formats = getScannerFormats();
+      if (formats) opts.formatsToSupport = formats;
+      html5QrCode = new Html5Qrcode("scanner-reader", opts);
+    } catch (e) {
+      console.error("[Scanner] init failed:", e);
+      setScannerStatus("Scanner init failed. Type the barcode below.", "error");
+      return;
+    }
+  }
+
   scannerActive = true;
+
   html5QrCode.start(
-    { facingMode: "environment" },
-    { fps: 10, qrbox: { width: 250, height: 250 } },
-    (decodedText) => handleScanResult(decodedText),
+    { facingMode: { ideal: "environment" } },
+    {
+      fps: 15,
+      qrbox: (vw, vh) => {
+        const min = Math.min(vw, vh);
+        const size = Math.floor(min * 0.78);
+        return { width: size, height: size };
+      },
+      aspectRatio: 1.0,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+    },
+    (decodedText) => onScanSuccess(decodedText),
     () => {}
   ).catch(err => {
     console.error("[Scanner] start failed:", err);
-    if (scannerStatus) { scannerStatus.textContent = "Camera error: " + err; scannerStatus.classList.add("error"); }
+    setScannerStatus("Camera error: " + (err?.message || err) + " — type the barcode below.", "error");
     scannerActive = false;
   });
 }
+
+function onScanSuccess(decodedText) {
+  const code = String(decodedText || "").trim();
+  if (!code) return;
+  const now = Date.now();
+  if (code === lastScanCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) return;
+  lastScanCode = code;
+  lastScanTime = now;
+  handleScanResult(code);
+}
+
 function closeScanner() {
   if (html5QrCode && scannerActive) {
     html5QrCode.stop().then(() => {
@@ -1011,37 +849,66 @@ function closeScanner() {
     scannerModal && scannerModal.classList.add("hidden");
   }
 }
-function handleScanResult(text) {
-  if (!text) return;
-  const code = text.trim();
-  if (scannerTarget === "barcode") {
-    if (itemBarcode) itemBarcode.value = code;
-    playSuccessSound();
-    if (scannerStatus) scannerStatus.textContent = "✅ Barcode set: " + code;
-    setTimeout(closeScanner, 400);
-  } else if (scannerTarget === "sale") {
-    const item = findItemByCode(code);
-    if (item) {
-      addToCart(item.id);
-      playSuccessSound();
-      if (scannerStatus) scannerStatus.textContent = "✅ Added: " + item.name;
-      setTimeout(closeScanner, 500);
-    } else {
-      playErrorSound();
-      if (scannerStatus) { scannerStatus.textContent = "❌ No item with barcode/SKU: " + code; scannerStatus.classList.add("error"); }
-    }
-  }
-}
+
 function findItemByCode(code) {
-  let item = inventory.find(i => i.barcode && i.barcode === code);
+  if (!code) return null;
+  const norm  = String(code).trim().replace(/\s+/g, "");
+  if (!norm) return null;
+  const lower = norm.toLowerCase();
+
+  let item = inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
   if (item) return item;
-  item = inventory.find(i => i.sku === code);
+  item = inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
+  if (item) return item;
+  item = inventory.find(i => i.sku && String(i.sku).trim() === norm);
+  if (item) return item;
+  item = inventory.find(i => i.sku && String(i.sku).trim().toLowerCase() === lower);
+  if (item) return item;
+  item = inventory.find(i =>
+    (i.barcode && String(i.barcode).trim().toLowerCase().includes(lower)) ||
+    (i.sku && String(i.sku).trim().toLowerCase().includes(lower))
+  );
   return item || null;
 }
 
+function handleScanResult(text) {
+  if (!text) return;
+  const code = String(text).trim();
+  if (!code) return;
+
+  if (scannerTarget === "barcode") {
+    if (itemBarcode) itemBarcode.value = code;
+    playSuccessSound();
+    setScannerStatus("✅ Barcode set: " + code, "success");
+    setTimeout(closeScanner, 500);
+    return;
+  }
+
+  if (scannerTarget === "sale") {
+    if (!inventory.length) {
+      playErrorSound();
+      setScannerStatus("⚠️ Inventory still loading. Wait a moment and scan again.", "error");
+      return;
+    }
+    const item = findItemByCode(code);
+    if (!item) {
+      playErrorSound();
+      setScannerStatus(`❌ No match for: ${code}  ·  ${inventory.length} items loaded`, "error");
+      return;
+    }
+    addToCart(item.id);
+    playSuccessSound();
+    const cartCount = posCart.reduce((s, c) => s + c.qty, 0);
+    setScannerStatus(
+      `✅ Added: ${item.name}  ·  Cart: ${cartCount} item${cartCount !== 1 ? "s" : ""}`,
+      "success"
+    );
+  }
+}
+
 if (scanBarcodeBtn) scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
-if (scanSaleBtn)     scanSaleBtn.addEventListener("click", () => openScanner("sale"));
-if (scannerClose)    scannerClose.addEventListener("click", closeScanner);
+if (scanSaleBtn)    scanSaleBtn.addEventListener("click", () => openScanner("sale"));
+if (scannerClose)   scannerClose.addEventListener("click", closeScanner);
 if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
   const val = valOf(scannerManualInput).trim();
   if (val) handleScanResult(val);
@@ -1365,7 +1232,6 @@ function showReceipt(data, groupInfo) {
     </div>
   `;
 
-  /* Store which receipt is being shown so the delete button works */
   currentReceiptGroup = groupInfo || null;
   if (deleteReceiptBtn) {
     deleteReceiptBtn.classList.toggle("hidden", !currentReceiptGroup);
@@ -1386,12 +1252,11 @@ if (deleteReceiptBtn) deleteReceiptBtn.addEventListener("click", () => {
 });
 
 /* ----------------------------------------------------------
-   VIEW A SALE RECEIPT (from Recent Sales or History)
+   VIEW A SALE RECEIPT
    ---------------------------------------------------------- */
 window.viewSaleReceipt = (saleId) => {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) { showToast("Sale not found ❌"); return; }
-
   const receiptNum = sale.receiptNum;
   const lineItems = receiptNum ? sales.filter(s => s.receiptNum === receiptNum) : [sale];
   const items = lineItems.map(s => ({
@@ -1401,7 +1266,6 @@ window.viewSaleReceipt = (saleId) => {
   const cash   = sale.cash   || total;
   const change = sale.change || 0;
   const date   = sale.createdAt?.toDate?.() || new Date();
-
   showReceipt({
     items, total, cash, change,
     receiptNum: receiptNum || ("SALE-" + saleId.slice(0, 8).toUpperCase()),
@@ -1414,15 +1278,13 @@ window.viewSaleReceipt = (saleId) => {
 };
 
 /* ----------------------------------------------------------
-   DELETE A SINGLE SALE (with stock restoration)
+   DELETE A SINGLE SALE
    ---------------------------------------------------------- */
 window.deleteSale = async (id) => {
   const sale = sales.find(s => s.id === id);
   if (!sale) { showToast("Sale not found ❌"); return; }
-
   const msg = `Delete this sale?\n\n${sale.itemName} × ${sale.quantity} — ₱${Number(sale.total || 0).toFixed(2)}\n\n⚠️ Quantity will be restored to inventory.`;
   if (!confirm(msg)) return;
-
   try {
     if (sale.itemId) {
       const item = inventory.find(i => i.id === sale.itemId);
@@ -1449,14 +1311,13 @@ window.deleteSale = async (id) => {
 };
 
 /* ----------------------------------------------------------
-   DELETE A RECEIPT GROUP (multi-item sale)
+   DELETE A RECEIPT GROUP
    ---------------------------------------------------------- */
 async function deleteReceiptGroup(saleIds, receiptNum) {
   if (!saleIds || !saleIds.length) return;
   const itemCount = saleIds.length;
   const msg = `Delete this entire receipt?\n\n${itemCount} item${itemCount !== 1 ? "s" : ""} will be removed.\n\n⚠️ All quantities will be restored to inventory.`;
   if (!confirm(msg)) return;
-
   try {
     for (const id of saleIds) {
       const sale = sales.find(s => s.id === id);
@@ -1663,8 +1524,7 @@ function exportHistoryToPDF() {
     startY: 30,
     head: [["Receipt", "Date", "Item", "Qty", "Unit", "Total"]],
     body,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [18, 84, 79] }
+    styles: { fontSize: 8 }, headStyles: { fillColor: [18, 84, 79] }
   });
   doc.save(`sales_history_${new Date().toISOString().slice(0,10)}.pdf`);
   showToast("History PDF exported ✅");
@@ -1679,7 +1539,7 @@ if (exportHistoryExcel) exportHistoryExcel.addEventListener("click", exportHisto
 if (exportHistoryPdf)   exportHistoryPdf.addEventListener("click", exportHistoryToPDF);
 
 /* ----------------------------------------------------------
-   GROUP SALES BY RECEIPT (for the History page)
+   GROUP SALES BY RECEIPT
    ---------------------------------------------------------- */
 function groupSalesByReceipt() {
   const map = new Map();
@@ -1706,7 +1566,7 @@ function groupSalesByReceipt() {
 }
 
 /* ----------------------------------------------------------
-   RENDER — Recent Sales (with receipt + delete)
+   RENDER — Recent Sales
    ---------------------------------------------------------- */
 function renderSales() {
   if (!salesList) return;
@@ -1736,14 +1596,13 @@ function renderSales() {
 }
 
 /* ----------------------------------------------------------
-   RENDER — Sales History (grouped by receipt)
+   RENDER — Sales History
    ---------------------------------------------------------- */
 function renderHistory() {
   if (!historyList) return;
 
   let groups = groupSalesByReceipt();
 
-  /* Filter by time range */
   const range = valOf(historyFilterEl) || "all";
   if (range !== "all") {
     const now = Date.now();
@@ -1757,7 +1616,6 @@ function renderHistory() {
     groups = groups.filter(g => g.date.getTime() >= cutoff);
   }
 
-  /* Search by receipt, item name, or cashier */
   const term = valOf(historySearchEl).toLowerCase().trim();
   if (term) {
     groups = groups.filter(g =>
@@ -2520,6 +2378,7 @@ if (itemForm) itemForm.addEventListener("submit", async (e) => {
     if (itemThreshold) itemThreshold.value = "5";
     if (itemImageData) itemImageData.value = "";
     if (itemImage) itemImage.value = "";
+    if (itemImageCamera) itemImageCamera.value = "";
     showPhotoPreview(null);
     manualSku = false; skuInitialized = false;
     autoFillSku();

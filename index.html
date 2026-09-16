@@ -21,11 +21,11 @@
   <link rel="stylesheet" href="style.css" />
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js" defer></script>
-  <script type="module" src="app.js" defer></script>
+  <script type="module" src="app.js"></script>
 </head>
 <body>
 
@@ -254,23 +254,21 @@
           <input type="hidden" id="item-id" />
           <input type="hidden" id="item-image-data" />
 
-         <label>Product Photo <small class="hint-inline">(optional)</small>
-  <div class="photo-upload">
-    <div class="photo-preview" id="photo-preview">
-      <span class="photo-placeholder">📷<br>Add Photo</span>
-    </div>
-    <div class="photo-actions">
-      <!-- Hidden file inputs: one opens camera, one opens gallery -->
-      <input type="file" id="item-image" accept="image/*" hidden />
-      <input type="file" id="item-image-camera" accept="image/*" capture="environment" hidden />
-
-      <button type="button" class="btn primary" id="photo-camera-btn">📷 Take Photo</button>
-      <button type="button" class="btn ghost" id="photo-pick-btn">🖼️ Choose from Gallery</button>
-      <button type="button" class="btn danger hidden" id="photo-remove-btn">Remove</button>
-      <small class="hint">Auto-compressed · Stored securely · Optional</small>
-    </div>
-  </div>
-</label>
+          <label>Product Photo <small class="hint-inline">(optional)</small>
+            <div class="photo-upload">
+              <div class="photo-preview" id="photo-preview">
+                <span class="photo-placeholder">📷<br>Add Photo</span>
+              </div>
+              <div class="photo-actions">
+                <input type="file" id="item-image" accept="image/*" hidden />
+                <input type="file" id="item-image-camera" accept="image/*" capture="environment" hidden />
+                <button type="button" class="btn primary" id="photo-camera-btn">📷 Take Photo</button>
+                <button type="button" class="btn ghost" id="photo-pick-btn">🖼️ Choose from Gallery</button>
+                <button type="button" class="btn danger hidden" id="photo-remove-btn">Remove</button>
+                <small class="hint">Auto-compressed · Stored securely · Optional</small>
+              </div>
+            </div>
+          </label>
 
           <label>Name <input type="text" id="item-name" required /></label>
 
