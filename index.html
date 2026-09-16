@@ -70,9 +70,7 @@
           <span class="field-icon">🔒</span>
           <input type="password" id="password" placeholder="Password" required />
         </div>
-        <button type="submit" id="auth-submit" class="btn primary block">
-          <span>Login</span>
-        </button>
+        <button type="submit" id="auth-submit" class="btn primary block"><span>Login</span></button>
       </form>
 
       <p id="auth-error" class="error-msg"></p>
@@ -128,7 +126,6 @@
     <main id="page-dashboard" class="page active">
       <h2 class="page-title">Dashboard</h2>
 
-      <!-- Expiry alert banner (auto hides when no expiring items) -->
       <div id="expiry-banner" class="expiry-banner hidden">
         <span class="expiry-banner-icon">⚠️</span>
         <span id="expiry-banner-text" class="expiry-banner-text"></span>
@@ -347,6 +344,25 @@
       <div id="category-grid" class="inventory-list"></div>
     </main>
 
+    <!-- ========== HISTORY ========== -->
+    <main id="page-history" class="page hidden">
+      <h2 class="page-title">Sales History</h2>
+
+      <div class="history-toolbar">
+        <input type="search" id="history-search" placeholder="Search by item, receipt, or cashier…" />
+        <select id="history-filter">
+          <option value="all">All Time</option>
+          <option value="today">Today</option>
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+        </select>
+        <button type="button" class="btn ghost sm" id="export-history-excel">📊 Excel</button>
+        <button type="button" class="btn ghost sm" id="export-history-pdf">📄 PDF</button>
+      </div>
+
+      <div id="history-list" class="history-list"></div>
+    </main>
+
     <!-- ========== ADMIN ========== -->
     <main id="page-admin" class="page hidden">
       <h2 class="page-title">Admin · User Management</h2>
@@ -365,6 +381,9 @@
       </button>
       <button class="nav-btn" data-page="page-sales">
         <span class="nav-icon">🛒</span><span>POS</span>
+      </button>
+      <button class="nav-btn" data-page="page-history">
+        <span class="nav-icon">🧾</span><span>History</span>
       </button>
       <button class="nav-btn" data-page="page-add">
         <span class="nav-icon">➕</span><span>Add Item</span>
@@ -417,7 +436,8 @@
     <div class="modal-card receipt-modal-card">
       <div class="receipt" id="receipt-content"></div>
       <div class="receipt-actions">
-        <button id="print-receipt-btn" class="btn primary">🖨️ Print Receipt</button>
+        <button id="print-receipt-btn" class="btn primary">🖨️ Print</button>
+        <button id="delete-receipt-btn" class="btn danger">🗑️ Delete</button>
         <button id="close-receipt-btn" class="btn ghost">Close</button>
       </div>
     </div>

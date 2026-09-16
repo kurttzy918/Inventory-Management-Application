@@ -1,8 +1,8 @@
 /* ==========================================================
    app.js — Kurt Inventory
    Multi-tenant + Super Admin + POS + Receipt + Exports
-   + Profit (Tubo) + In/Out History + Slow Moving + Expiry
-   + Robust render isolation + deferred chart rendering
+   + Profit + In/Out History + Slow Moving + Expiry
+   + Sales History page + per-sale receipt + delete
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -17,7 +17,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 /* ----------------------------------------------------------
-   ⚠️ CONFIG
+   CONFIG
    ---------------------------------------------------------- */
 const firebaseConfig = {
   apiKey: "AIzaSyALhYN9Wufpqw8OxBlsvmEwpCrZjtGAtQo",
@@ -39,20 +39,29 @@ const AUTH_BG_IMAGES = [
   "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1920&q=80",
   "https://images.unsplash.com/photo-1601598851547-4302969d0614?auto=format&fit=crop&w=1920&q=80"
 ];
-const AUTH_BG_INTERVAL_MS    = 6000;
-const NEW_ARRIVAL_WINDOW_MS  = 7  * 24 * 60 * 60 * 1000;
-const SLOW_MOVING_WINDOW_MS  = 30 * 24 * 60 * 60 * 1000;
-const EXPIRY_WARNING_DAYS    = 30;
+const AUTH_BG_INTERVAL_MS   = 6000;
+const NEW_ARRIVAL_WINDOW_MS = 7  * 24 * 60 * 60 * 1000;
+const EXPIRY_WARNING_DAYS   = 30;
 
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
 
 /* ----------------------------------------------------------
-   DOM shorthand
+   HELPERS
    ---------------------------------------------------------- */
 const $ = (id) => document.getElementById(id);
+const valOf  = (el) => (el ? String(el.value || "") : "");
+const numOf  = (el) => (el ? (Number(el.value) || 0) : 0);
+const setVal = (el, v) => { if (el) el.value = v; };
+function safeRender(fn) {
+  try { if (typeof fn === "function") fn(); }
+  catch (e) { console.error("[render] " + (fn.name || "anon") + " failed:", e); }
+}
 
+/* ----------------------------------------------------------
+   DOM REFS
+   ---------------------------------------------------------- */
 const authScreen    = $("auth-screen");
 const pendingScreen = $("pending-screen");
 const appShell      = $("app-shell");
@@ -83,25 +92,31 @@ const carouselTrack = $("carousel-track");
 const carouselDots  = $("carousel-dots");
 const carouselPrev  = $("carousel-prev");
 const carouselNext  = $("carousel-next");
-
 const fastMovingList = $("fast-moving-list");
 
-/* Sales / POS */
-const salesList        = $("sales-list");
-const scanSaleBtn      = $("scan-sale-btn");
+/* POS */
+const salesList         = $("sales-list");
+const scanSaleBtn       = $("scan-sale-btn");
 const salesProductsGrid = $("sales-products-grid");
-const salesSearchEl    = $("sales-search");
-const posCartItems     = $("pos-cart-items");
-const posTotalEl       = $("pos-total");
-const posCashInput     = $("pos-cash");
-const posChangeEl      = $("pos-change");
-const posCheckoutBtn   = $("pos-checkout");
-const posClearBtn      = $("pos-clear-btn");
+const salesSearchEl     = $("sales-search");
+const posCartItems      = $("pos-cart-items");
+const posTotalEl        = $("pos-total");
+const posCashInput      = $("pos-cash");
+const posChangeEl       = $("pos-change");
+const posCheckoutBtn    = $("pos-checkout");
+const posClearBtn       = $("pos-clear-btn");
 
-const exportSalesExcel  = $("export-sales-excel");
-const exportSalesPdf    = $("export-sales-pdf");
-const exportInvExcel    = $("export-inv-excel");
-const exportInvPdf      = $("export-inv-pdf");
+/* History */
+const historyList        = $("history-list");
+const historySearchEl    = $("history-search");
+const historyFilterEl    = $("history-filter");
+const exportHistoryExcel = $("export-history-excel");
+const exportHistoryPdf   = $("export-history-pdf");
+
+const exportSalesExcel   = $("export-sales-excel");
+const exportSalesPdf     = $("export-sales-pdf");
+const exportInvExcel     = $("export-inv-excel");
+const exportInvPdf       = $("export-inv-pdf");
 const exportMovementsBtn = $("export-movements");
 
 /* Inventory */
@@ -109,18 +124,15 @@ const itemForm = $("item-form"), itemId = $("item-id"),
   itemName = $("item-name"), itemSku = $("item-sku"),
   itemBarcode = $("item-barcode"),
   itemCategory = $("item-category"), itemQty = $("item-qty"),
-  itemCost = $("item-cost"),
-  itemPrice = $("item-price"), itemExpiry = $("item-expiry"),
-  itemThreshold = $("item-threshold"),
+  itemCost = $("item-cost"), itemPrice = $("item-price"),
+  itemExpiry = $("item-expiry"), itemThreshold = $("item-threshold"),
   categoryList = $("category-list"), searchInput = $("search-input"),
   filterCat = $("filter-category"), inventoryList = $("inventory-list");
 const scanBarcodeBtn = $("scan-barcode-btn");
 
-const itemImageData  = $("item-image-data");
-const itemImage      = $("item-image");
-const photoPreview   = $("photo-preview");
-const photoPickBtn   = $("photo-pick-btn");
-const photoRemoveBtn = $("photo-remove-btn");
+const itemImageData = $("item-image-data"), itemImage = $("item-image"),
+  photoPreview = $("photo-preview"), photoPickBtn = $("photo-pick-btn"),
+  photoRemoveBtn = $("photo-remove-btn");
 
 const categoryForm = $("category-form"), newCategory = $("new-category"),
   categoryGrid = $("category-grid");
@@ -134,27 +146,20 @@ const pages      = document.querySelectorAll(".page");
 const toast      = $("toast");
 
 /* Scanner */
-const scannerModal       = $("scanner-modal");
-const scannerTitle       = $("scanner-title");
-const scannerReader      = $("scanner-reader");
-const scannerStatus      = $("scanner-status");
-const scannerClose       = $("scanner-close");
-const scannerManualInput = $("scanner-manual-input");
-const scannerManualBtn   = $("scanner-manual-btn");
+const scannerModal = $("scanner-modal"), scannerTitle = $("scanner-title"),
+  scannerReader = $("scanner-reader"), scannerStatus = $("scanner-status"),
+  scannerClose = $("scanner-close"), scannerManualInput = $("scanner-manual-input"),
+  scannerManualBtn = $("scanner-manual-btn");
 
 /* Restock */
-const restockModal    = $("restock-modal");
-const restockItemName = $("restock-item-name");
-const restockCurrent  = $("restock-current");
-const restockQty      = $("restock-qty");
-const restockClose    = $("restock-close");
-const restockConfirm  = $("restock-confirm");
+const restockModal = $("restock-modal"), restockItemName = $("restock-item-name"),
+  restockCurrent = $("restock-current"), restockQty = $("restock-qty"),
+  restockClose = $("restock-close"), restockConfirm = $("restock-confirm");
 
 /* Receipt */
-const receiptModal     = $("receipt-modal");
-const receiptContent   = $("receipt-content");
-const printReceiptBtn  = $("print-receipt-btn");
-const closeReceiptBtn  = $("close-receipt-btn");
+const receiptModal    = $("receipt-modal"), receiptContent = $("receipt-content"),
+  printReceiptBtn     = $("print-receipt-btn"), closeReceiptBtn = $("close-receipt-btn"),
+  deleteReceiptBtn    = $("delete-receipt-btn");
 
 /* ----------------------------------------------------------
    STATE
@@ -165,48 +170,27 @@ const unsubscribers = {};
 let unsubscribeUserDoc = null;
 
 let stockChart = null, categoryValueChart = null, salesCategoryChart = null;
-let chartJsReady = false;
-let chartRenderQueued = false;
+let chartJsReady = false, chartRenderQueued = false;
 
-let carouselSlides = [];
-let carouselIndex = 0;
-let carouselInterval = null;
+let carouselSlides = [], carouselIndex = 0, carouselInterval = null;
+let posMiniTimer = null, posMiniIndex = 0;
+let authBgTimer = null, authBgIndex = 0;
 
-let posMiniTimer = null;
-let posMiniIndex = 0;
-
-let authBgTimer = null;
-let authBgIndex = 0;
-
-let html5QrCode = null;
-let scannerTarget = null;
-let scannerActive = false;
-
+let html5QrCode = null, scannerTarget = null, scannerActive = false;
 let soundEnabled = localStorage.getItem("soundEnabled") !== "false";
-let manualSku = false;
+let manualSku = false, skuInitialized = false;
 
 let posCart = [];
 let restockItemId = null;
 
-/* ==========================================================
-   SAFE RENDER — prevents one broken render from killing the rest
-   ========================================================== */
-function safeRender(fn) {
-  try {
-    if (typeof fn === "function") fn();
-  } catch (e) {
-    console.error("[render] " + (fn.name || "anon") + " failed:", e);
-  }
-}
+/* Track which receipt is currently displayed in the modal (for delete button) */
+let currentReceiptGroup = null;
 
-/* ==========================================================
-   CHART.JS READY POLLER
-   ========================================================== */
+/* ----------------------------------------------------------
+   CHART.JS LOADER
+   ---------------------------------------------------------- */
 (function waitForChartJs() {
-  if (typeof Chart !== "undefined") {
-    chartJsReady = true;
-    return;
-  }
+  if (typeof Chart !== "undefined") { chartJsReady = true; return; }
   let tries = 0;
   const iv = setInterval(() => {
     tries++;
@@ -222,19 +206,18 @@ function safeRender(fn) {
   }, 150);
 })();
 
-/* Queue chart renders so multiple listener calls don't stack */
 function queueChartRender() {
   if (chartRenderQueued) return;
   chartRenderQueued = true;
   setTimeout(() => {
     chartRenderQueued = false;
     safeRender(renderCharts);
-  }, 150);
+  }, 200);
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    AUTH BACKGROUND CAROUSEL
-   ========================================================== */
+   ---------------------------------------------------------- */
 function buildAuthBackground(containerId) {
   const container = $(containerId);
   if (!container) return;
@@ -255,91 +238,81 @@ function startAuthBgCarousel(containerId) {
     slides[authBgIndex].classList.add("active");
   }, AUTH_BG_INTERVAL_MS);
 }
-function stopAuthBgCarousel() {
-  if (authBgTimer) { clearInterval(authBgTimer); authBgTimer = null; }
-}
+function stopAuthBgCarousel() { if (authBgTimer) { clearInterval(authBgTimer); authBgTimer = null; } }
 buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
-/* ==========================================================
+/* ----------------------------------------------------------
    THEME
-   ========================================================== */
+   ---------------------------------------------------------- */
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem("theme", theme);
-  themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
+  if (themeIcon) themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
   destroyCharts();
   queueChartRender();
 }
-themeToggle.addEventListener("click", () => {
+if (themeToggle) themeToggle.addEventListener("click", () => {
   const cur = document.documentElement.getAttribute("data-theme") || "light";
   applyTheme(cur === "dark" ? "light" : "dark");
 });
-themeIcon.textContent =
+if (themeIcon) themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
 
-/* ==========================================================
+/* ----------------------------------------------------------
    SOUND
-   ========================================================== */
-function updateSoundIcon() { soundIcon.textContent = soundEnabled ? "🔊" : "🔇"; }
-soundToggle.addEventListener("click", () => {
+   ---------------------------------------------------------- */
+function updateSoundIcon() { if (soundIcon) soundIcon.textContent = soundEnabled ? "🔊" : "🔇"; }
+if (soundToggle) soundToggle.addEventListener("click", () => {
   soundEnabled = !soundEnabled;
   localStorage.setItem("soundEnabled", soundEnabled);
   updateSoundIcon();
 });
 updateSoundIcon();
 
-function playBeep(frequency, duration, type = "sine") {
+function playBeep(freq, dur, type = "sine") {
   if (!soundEnabled) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = frequency;
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = type; osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
     osc.connect(gain); gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
-    setTimeout(() => ctx.close(), duration * 1000 + 100);
-  } catch (e) { /* ignore */ }
+    osc.start(); osc.stop(ctx.currentTime + dur);
+    setTimeout(() => ctx.close(), dur * 1000 + 100);
+  } catch (e) {}
 }
 function playSuccessSound() { playBeep(880, 0.12); setTimeout(() => playBeep(1100, 0.12), 120); }
 function playErrorSound()   { playBeep(220, 0.35, "sawtooth"); }
-function playCashSound() {
-  playBeep(1320, 0.08);
-  setTimeout(() => playBeep(1760, 0.08), 90);
-  setTimeout(() => playBeep(2093, 0.16), 180);
-}
+function playCashSound()    { playBeep(1320, 0.08); setTimeout(() => playBeep(1760, 0.08), 90); setTimeout(() => playBeep(2093, 0.16), 180); }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    AUTH TABS
-   ========================================================== */
-tabLogin.addEventListener("click", () => {
+   ---------------------------------------------------------- */
+if (tabLogin) tabLogin.addEventListener("click", () => {
   isSignupMode = false;
   tabLogin.classList.add("active");
-  tabSignup.classList.remove("active");
-  authSubmit.textContent = "Login";
-  authError.textContent = "";
+  tabSignup && tabSignup.classList.remove("active");
+  if (authSubmit) authSubmit.textContent = "Login";
+  if (authError) authError.textContent = "";
 });
-tabSignup.addEventListener("click", () => {
+if (tabSignup) tabSignup.addEventListener("click", () => {
   isSignupMode = true;
   tabSignup.classList.add("active");
-  tabLogin.classList.remove("active");
-  authSubmit.textContent = "Create Account";
-  authError.textContent = "";
+  tabLogin && tabLogin.classList.remove("active");
+  if (authSubmit) authSubmit.textContent = "Create Account";
+  if (authError) authError.textContent = "";
 });
 
-/* ==========================================================
+/* ----------------------------------------------------------
    SIGNUP / LOGIN
-   ========================================================== */
-authForm.addEventListener("submit", async (e) => {
+   ---------------------------------------------------------- */
+if (authForm) authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  authError.textContent = "";
-  const email = emailInput.value.trim().toLowerCase();
-  const password = passwordInput.value;
-
+  if (authError) authError.textContent = "";
+  const email = valOf(emailInput).trim().toLowerCase();
+  const password = valOf(passwordInput);
   try {
     if (isSignupMode) {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -352,14 +325,14 @@ authForm.addEventListener("submit", async (e) => {
         });
       } catch (profileErr) {
         console.error("[Signup] profile write failed:", profileErr);
-        authError.textContent = "Account created, but profile setup failed. Check Firestore rules.";
+        if (authError) authError.textContent = "Account created, but profile setup failed. Check Firestore rules.";
       }
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }
   } catch (err) {
     console.error("[Auth] submit error:", err);
-    authError.textContent = friendlyAuthError(err.code);
+    if (authError) authError.textContent = friendlyAuthError(err.code);
   }
 });
 
@@ -376,9 +349,9 @@ function friendlyAuthError(code) {
   return map[code] || `Login failed (${code || "unknown error"}).`;
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    AUTH STATE
-   ========================================================== */
+   ---------------------------------------------------------- */
 onAuthStateChanged(auth, async (user) => {
   if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
   stopAllListeners();
@@ -388,21 +361,20 @@ onAuthStateChanged(auth, async (user) => {
 
   if (!user) {
     currentUser = null; currentUserData = null;
-    authScreen.classList.remove("hidden");
-    pendingScreen.classList.add("hidden");
-    appShell.classList.add("hidden");
-    authForm.reset(); authError.textContent = "";
+    authScreen && authScreen.classList.remove("hidden");
+    pendingScreen && pendingScreen.classList.add("hidden");
+    appShell && appShell.classList.add("hidden");
+    authForm && authForm.reset();
+    if (authError) authError.textContent = "";
     startAuthBgCarousel("auth-bg-slides");
     return;
   }
 
   currentUser = user;
-  userEmailEl.textContent = user.email;
-  pendingEmail.textContent = user.email;
+  if (userEmailEl) userEmailEl.textContent = user.email;
+  if (pendingEmail) pendingEmail.textContent = user.email;
 
-  const isSuper =
-    (user.email || "").trim().toLowerCase() === SUPER_ADMIN_EMAIL.trim().toLowerCase();
-
+  const isSuper = (user.email || "").trim().toLowerCase() === SUPER_ADMIN_EMAIL.trim().toLowerCase();
   const userRef = doc(db, "users", user.uid);
 
   try {
@@ -421,10 +393,10 @@ onAuthStateChanged(auth, async (user) => {
     }
   } catch (err) {
     console.error("[Auth] profile setup FAILED:", err.code, err.message);
-    authError.textContent = `Profile setup failed: ${err.code || err.message}`;
-    authScreen.classList.remove("hidden");
-    appShell.classList.add("hidden");
-    pendingScreen.classList.add("hidden");
+    if (authError) authError.textContent = `Profile setup failed: ${err.code || err.message}`;
+    authScreen && authScreen.classList.remove("hidden");
+    appShell && appShell.classList.add("hidden");
+    pendingScreen && pendingScreen.classList.add("hidden");
     startAuthBgCarousel("auth-bg-slides");
     return;
   }
@@ -434,44 +406,41 @@ onAuthStateChanged(auth, async (user) => {
     currentUserData = docSnap.data();
 
     if (!currentUserData.approved) {
-      authScreen.classList.add("hidden");
-      appShell.classList.add("hidden");
-      pendingScreen.classList.remove("hidden");
+      authScreen && authScreen.classList.add("hidden");
+      appShell && appShell.classList.add("hidden");
+      pendingScreen && pendingScreen.classList.remove("hidden");
       stopAuthBgCarousel();
       startAuthBgCarousel("pending-bg-slides");
       return;
     }
 
-    pendingScreen.classList.add("hidden");
-    authScreen.classList.add("hidden");
-    appShell.classList.remove("hidden");
+    pendingScreen && pendingScreen.classList.add("hidden");
+    authScreen && authScreen.classList.add("hidden");
+    appShell && appShell.classList.remove("hidden");
     stopAuthBgCarousel();
 
-    navAdmin.classList.toggle("hidden", currentUserData.role !== "superadmin");
+    if (navAdmin) navAdmin.classList.toggle("hidden", currentUserData.role !== "superadmin");
 
     if (!unsubscribers.inventory) startAllListeners();
-    if (currentUserData.role === "superadmin" && !unsubscribers.users) {
-      startUserAdminListener();
-    }
+    if (currentUserData.role === "superadmin" && !unsubscribers.users) startUserAdminListener();
   }, (err) => {
     console.error("[Auth] profile watch FAILED:", err.code, err.message);
     showToast(`Profile stream: ${err.code || err.message} ❌`);
   });
 });
 
-logoutBtn.addEventListener("click", () => signOut(auth));
-pendingLogout.addEventListener("click", () => signOut(auth));
+if (logoutBtn) logoutBtn.addEventListener("click", () => signOut(auth));
+if (pendingLogout) pendingLogout.addEventListener("click", () => signOut(auth));
 
 function myWorkspace() { return currentUser?.uid; }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    REAL-TIME LISTENERS
-   ========================================================== */
+   ---------------------------------------------------------- */
 function startAllListeners() {
   const wsId = myWorkspace();
   if (!wsId) return;
 
-  /* ---------------- INVENTORY ---------------- */
   unsubscribers.inventory = onSnapshot(
     query(collection(db, "inventory"), where("workspaceId", "==", wsId)),
     (snap) => {
@@ -490,7 +459,7 @@ function startAllListeners() {
       safeRender(renderPosProducts);
       safeRender(renderFastMoving);
       safeRender(renderSlowMoving);
-      safeRender(() => { if (!itemId.value) updateSkuField(); });
+      safeRender(autoFillSku);
       queueChartRender();
     },
     (err) => {
@@ -499,7 +468,6 @@ function startAllListeners() {
     }
   );
 
-  /* ---------------- SALES ---------------- */
   unsubscribers.sales = onSnapshot(
     query(collection(db, "sales"), where("workspaceId", "==", wsId)),
     (snap) => {
@@ -510,9 +478,10 @@ function startAllListeners() {
           const tb = b.createdAt?.toMillis?.() ?? 0;
           return tb - ta;
         })
-        .slice(0, 200);
+        .slice(0, 500);
 
       safeRender(renderSales);
+      safeRender(renderHistory);
       safeRender(updateStats);
       safeRender(renderCarousel);
       safeRender(renderFastMoving);
@@ -522,14 +491,12 @@ function startAllListeners() {
     (err) => console.error("[Sales listener]", err.code, err.message)
   );
 
-  /* ---------------- CATEGORIES ---------------- */
   unsubscribers.categories = onSnapshot(
     query(collection(db, "categories"), where("workspaceId", "==", wsId)),
     (snap) => {
       categories = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
       safeRender(renderCategories);
       safeRender(updateStats);
       safeRender(populateCategoryDatalist);
@@ -537,7 +504,6 @@ function startAllListeners() {
     (err) => console.error("[Categories listener]", err.code, err.message)
   );
 
-  /* ---------------- MOVEMENTS ---------------- */
   unsubscribers.movements = onSnapshot(
     query(collection(db, "movements"), where("workspaceId", "==", wsId)),
     (snap) => {
@@ -549,7 +515,6 @@ function startAllListeners() {
           return tb - ta;
         })
         .slice(0, 100);
-
       safeRender(renderMovements);
     },
     (err) => console.error("[Movements listener]", err.code, err.message)
@@ -581,19 +546,17 @@ function stopAllListeners() {
   stopPosMiniCarousels();
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    MOVEMENT LOGGING
-   ========================================================== */
+   ---------------------------------------------------------- */
 async function logMovement({ itemId, itemName, type, quantity, reason, note }) {
   const wsId = myWorkspace();
   if (!wsId) return;
   try {
     await addDoc(collection(db, "movements"), {
-      workspaceId: wsId,
-      itemId, itemName,
-      type,                       // "in" | "out"
+      workspaceId: wsId, itemId, itemName, type,
       quantity: Number(quantity),
-      reason: reason || "other",  // "initial" | "restock" | "sale" | "adjustment"
+      reason: reason || "other",
       note: note || "",
       userId: currentUser?.uid || null,
       createdAt: serverTimestamp()
@@ -603,9 +566,9 @@ async function logMovement({ itemId, itemName, type, quantity, reason, note }) {
   }
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    NAV
-   ========================================================== */
+   ---------------------------------------------------------- */
 navButtons.forEach(btn => {
   btn.addEventListener("click", () => {
     navButtons.forEach(b => b.classList.remove("active"));
@@ -629,13 +592,19 @@ navButtons.forEach(btn => {
       safeRender(updateChange);
       startPosMiniCarousels();
     }
+    if (btn.dataset.page === "page-history") {
+      safeRender(renderHistory);
+    }
+    if (btn.dataset.page === "page-add") {
+      safeRender(autoFillSku);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 });
 
-/* ==========================================================
+/* ----------------------------------------------------------
    PHOTO HANDLING
-   ========================================================== */
+   ---------------------------------------------------------- */
 function compressImage(file, maxSize = 420, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -644,11 +613,8 @@ function compressImage(file, maxSize = 420, quality = 0.72) {
       img.onload = () => {
         const canvas = document.createElement("canvas");
         let { width, height } = img;
-        if (width > height) {
-          if (width > maxSize) { height *= maxSize / width; width = maxSize; }
-        } else {
-          if (height > maxSize) { width *= maxSize / height; height = maxSize; }
-        }
+        if (width > height) { if (width > maxSize) { height *= maxSize / width; width = maxSize; } }
+        else { if (height > maxSize) { width *= maxSize / height; height = maxSize; } }
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
@@ -663,52 +629,46 @@ function compressImage(file, maxSize = 420, quality = 0.72) {
 }
 
 function showPhotoPreview(dataUrl) {
+  if (!photoPreview) return;
   if (dataUrl) {
     photoPreview.classList.add("has-image");
     photoPreview.innerHTML = `<img src="${dataUrl}" alt="Preview" />`;
-    photoRemoveBtn.classList.remove("hidden");
+    photoRemoveBtn && photoRemoveBtn.classList.remove("hidden");
   } else {
     photoPreview.classList.remove("has-image");
     photoPreview.innerHTML = `<span class="photo-placeholder">📷<br>Add Photo</span>`;
-    photoRemoveBtn.classList.add("hidden");
+    photoRemoveBtn && photoRemoveBtn.classList.add("hidden");
   }
 }
 
-photoPickBtn.addEventListener("click", () => itemImage.click());
-photoPreview.addEventListener("click", () => itemImage.click());
-
-itemImage.addEventListener("change", async (e) => {
+if (photoPickBtn) photoPickBtn.addEventListener("click", () => itemImage && itemImage.click());
+if (photoPreview) photoPreview.addEventListener("click", () => itemImage && itemImage.click());
+if (itemImage) itemImage.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   try {
     const dataUrl = await compressImage(file);
-    itemImageData.value = dataUrl;
+    setVal(itemImageData, dataUrl);
     showPhotoPreview(dataUrl);
     showToast("Photo ready ✅");
-  } catch (err) {
-    console.error("[photo]", err);
-    showToast("Failed to process photo ❌");
-  }
+  } catch (err) { console.error("[photo]", err); showToast("Failed to process photo ❌"); }
 });
-
-photoRemoveBtn.addEventListener("click", () => {
-  itemImage.value = "";
-  itemImageData.value = "";
+if (photoRemoveBtn) photoRemoveBtn.addEventListener("click", () => {
+  if (itemImage) itemImage.value = "";
+  setVal(itemImageData, "");
   showPhotoPreview(null);
 });
 
-/* ==========================================================
+/* ----------------------------------------------------------
    PRODUCT IMAGE HELPERS
-   ========================================================== */
+   ---------------------------------------------------------- */
 const FALLBACK_COLORS = ["#12544F", "#2FA38F", "#5FC2A6", "#0C3E3A", "#16665F", "#0F4945"];
 function fallbackColorFor(name) {
   return FALLBACK_COLORS[((name || "").charCodeAt(0) || 0) % FALLBACK_COLORS.length];
 }
 function productImageHTML(item, size = "md") {
   const cls = size === "sm" ? "product-img sm" : "product-img";
-  if (item.image) {
-    return `<img class="${cls}" src="${item.image}" alt="${esc(item.name)}" loading="lazy" />`;
-  }
+  if (item.image) return `<img class="${cls}" src="${item.image}" alt="${esc(item.name)}" loading="lazy" />`;
   const initial = (item.name || "?").charAt(0).toUpperCase();
   return `<div class="${cls} fallback" style="background:${fallbackColorFor(item.name)}">${initial}</div>`;
 }
@@ -717,9 +677,9 @@ function thumbHTML(item) {
   return esc((item.name || "?").charAt(0).toUpperCase());
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    AUTO SKU
-   ========================================================== */
+   ---------------------------------------------------------- */
 function nextSku() {
   let max = 1000;
   inventory.forEach(item => {
@@ -728,30 +688,46 @@ function nextSku() {
   });
   return String(max + 1);
 }
-function updateSkuField() {
-  if (itemId.value) return;
+function autoFillSku() {
+  if (!itemSku) return;
+  if (itemId && itemId.value) return;
   if (manualSku) return;
   const next = nextSku();
-  if (itemSku.value !== next) itemSku.value = next;
+  if (itemSku.value !== next) {
+    itemSku.value = next;
+    skuInitialized = true;
+  }
 }
-itemSku.addEventListener("input", () => { manualSku = true; });
+if (itemSku) itemSku.addEventListener("input", () => {
+  if (!skuInitialized) manualSku = true;
+  else if (itemSku.value !== nextSku() && !manualSku) manualSku = true;
+});
 
-/* ==========================================================
+/* ----------------------------------------------------------
    BARCODE SCANNER
-   ========================================================== */
+   ---------------------------------------------------------- */
 function openScanner(target) {
   scannerTarget = target;
-  scannerTitle.textContent =
-    target === "barcode" ? "Scan Product Barcode" :
-    target === "sale" ? "Scan Product for POS" :
-    "Scan Barcode";
-  scannerStatus.textContent = "Point the camera at a barcode…";
-  scannerStatus.classList.remove("error");
-  scannerManualInput.value = "";
-  scannerModal.classList.remove("hidden");
+  if (scannerTitle) {
+    scannerTitle.textContent =
+      target === "barcode" ? "Scan Product Barcode" :
+      target === "sale" ? "Scan Product for POS" : "Scan Barcode";
+  }
+  if (scannerStatus) {
+    scannerStatus.textContent = "Point the camera at a barcode…";
+    scannerStatus.classList.remove("error");
+  }
+  if (scannerManualInput) scannerManualInput.value = "";
+  scannerModal && scannerModal.classList.remove("hidden");
 
+  if (typeof Html5Qrcode === "undefined") {
+    if (scannerStatus) {
+      scannerStatus.textContent = "Scanner library not loaded. Type the barcode below.";
+      scannerStatus.classList.add("error");
+    }
+    return;
+  }
   if (!html5QrCode) html5QrCode = new Html5Qrcode("scanner-reader");
-
   scannerActive = true;
   html5QrCode.start(
     { facingMode: "environment" },
@@ -760,50 +736,44 @@ function openScanner(target) {
     () => {}
   ).catch(err => {
     console.error("[Scanner] start failed:", err);
-    scannerStatus.textContent = "Camera error: " + err;
-    scannerStatus.classList.add("error");
+    if (scannerStatus) { scannerStatus.textContent = "Camera error: " + err; scannerStatus.classList.add("error"); }
     scannerActive = false;
   });
 }
-
 function closeScanner() {
   if (html5QrCode && scannerActive) {
     html5QrCode.stop().then(() => {
       scannerActive = false;
-      scannerModal.classList.add("hidden");
+      scannerModal && scannerModal.classList.add("hidden");
     }).catch(() => {
       scannerActive = false;
-      scannerModal.classList.add("hidden");
+      scannerModal && scannerModal.classList.add("hidden");
     });
   } else {
-    scannerModal.classList.add("hidden");
+    scannerModal && scannerModal.classList.add("hidden");
   }
 }
-
 function handleScanResult(text) {
   if (!text) return;
   const code = text.trim();
-
   if (scannerTarget === "barcode") {
-    itemBarcode.value = code;
+    if (itemBarcode) itemBarcode.value = code;
     playSuccessSound();
-    scannerStatus.textContent = "✅ Barcode set: " + code;
+    if (scannerStatus) scannerStatus.textContent = "✅ Barcode set: " + code;
     setTimeout(closeScanner, 400);
   } else if (scannerTarget === "sale") {
     const item = findItemByCode(code);
     if (item) {
       addToCart(item.id);
       playSuccessSound();
-      scannerStatus.textContent = "✅ Added: " + item.name;
+      if (scannerStatus) scannerStatus.textContent = "✅ Added: " + item.name;
       setTimeout(closeScanner, 500);
     } else {
       playErrorSound();
-      scannerStatus.textContent = "❌ No item with barcode/SKU: " + code;
-      scannerStatus.classList.add("error");
+      if (scannerStatus) { scannerStatus.textContent = "❌ No item with barcode/SKU: " + code; scannerStatus.classList.add("error"); }
     }
   }
 }
-
 function findItemByCode(code) {
   let item = inventory.find(i => i.barcode && i.barcode === code);
   if (item) return item;
@@ -811,29 +781,25 @@ function findItemByCode(code) {
   return item || null;
 }
 
-scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
-scanSaleBtn.addEventListener("click", () => openScanner("sale"));
-scannerClose.addEventListener("click", closeScanner);
-
-scannerManualBtn.addEventListener("click", () => {
-  const val = scannerManualInput.value.trim();
+if (scanBarcodeBtn) scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
+if (scanSaleBtn)     scanSaleBtn.addEventListener("click", () => openScanner("sale"));
+if (scannerClose)    scannerClose.addEventListener("click", closeScanner);
+if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
+  const val = valOf(scannerManualInput).trim();
   if (val) handleScanResult(val);
 });
-scannerManualInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); scannerManualBtn.click(); }
+if (scannerManualInput) scannerManualInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); scannerManualBtn && scannerManualBtn.click(); }
 });
 
-/* ==========================================================
+/* ----------------------------------------------------------
    DATA HELPERS
-   ========================================================== */
+   ---------------------------------------------------------- */
 function getSoldMap() {
   const map = {};
-  sales.forEach(s => {
-    if (s.itemId) map[s.itemId] = (map[s.itemId] || 0) + (s.quantity || 0);
-  });
+  sales.forEach(s => { if (s.itemId) map[s.itemId] = (map[s.itemId] || 0) + (s.quantity || 0); });
   return map;
 }
-
 function getSoldMapLastDays(days) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const map = {};
@@ -844,7 +810,6 @@ function getSoldMapLastDays(days) {
   });
   return map;
 }
-
 function getLastSoldMs(itemId) {
   let last = 0;
   sales.forEach(s => {
@@ -855,9 +820,9 @@ function getLastSoldMs(itemId) {
   return last;
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    EXPIRY HELPERS
-   ========================================================== */
+   ---------------------------------------------------------- */
 function parseExpiry(iso) {
   if (!iso) return null;
   const d = new Date(iso + "T00:00:00");
@@ -866,7 +831,7 @@ function parseExpiry(iso) {
 function daysUntilExpiry(iso) {
   const d = parseExpiry(iso);
   if (!d) return null;
-  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const now = new Date(); now.setHours(0,0,0,0);
   return Math.round((d - now) / (24 * 60 * 60 * 1000));
 }
 function expiryStatus(iso) {
@@ -875,20 +840,17 @@ function expiryStatus(iso) {
   if (days < 0)  return { level: "expired",  days, label: `Expired ${Math.abs(days)}d ago` };
   if (days === 0) return { level: "expired", days, label: "Expires today" };
   if (days <= EXPIRY_WARNING_DAYS) return { level: "expiring", days, label: `Expires in ${days}d` };
-  return { level: "ok", days, label: `Expires ${dLabel(parseExpiry(iso))}` };
-}
-function dLabel(dateObj) {
-  return dateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const d = parseExpiry(iso);
+  return { level: "ok", days, label: `Expires ${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` };
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    POS — CART
-   ========================================================== */
+   ---------------------------------------------------------- */
 function addToCart(itemId) {
   const item = inventory.find(i => i.id === itemId);
   if (!item) return;
   if (item.quantity <= 0) { playErrorSound(); showToast("Out of stock ❌"); return; }
-
   const existing = posCart.find(c => c.itemId === itemId);
   if (existing) {
     if (existing.qty + 1 > item.quantity) { playErrorSound(); showToast("Not enough stock ❌"); return; }
@@ -896,10 +858,8 @@ function addToCart(itemId) {
   } else {
     posCart.push({ itemId, name: item.name, price: item.price, qty: 1, stock: item.quantity });
   }
-  renderPosCart();
-  updateChange();
+  renderPosCart(); updateChange();
 }
-
 function updateCartQty(itemId, delta) {
   const entry = posCart.find(c => c.itemId === itemId);
   if (!entry) return;
@@ -909,28 +869,20 @@ function updateCartQty(itemId, delta) {
   if (next <= 0) { removeFromCart(itemId); return; }
   if (next > item.quantity) { playErrorSound(); showToast("Not enough stock ❌"); return; }
   entry.qty = next;
-  renderPosCart();
-  updateChange();
+  renderPosCart(); updateChange();
 }
-
 function removeFromCart(itemId) {
   posCart = posCart.filter(c => c.itemId !== itemId);
-  renderPosCart();
-  updateChange();
+  renderPosCart(); updateChange();
 }
-
-function getCartTotal() {
-  return posCart.reduce((s, c) => s + c.qty * c.price, 0);
-}
-
+function getCartTotal() { return posCart.reduce((s, c) => s + c.qty * c.price, 0); }
 function clearCart() {
   posCart = [];
-  posCashInput.value = "";
-  renderPosCart();
-  updateChange();
+  if (posCashInput) posCashInput.value = "";
+  renderPosCart(); updateChange();
 }
-
 function renderPosCart() {
+  if (!posCartItems) return;
   if (!posCart.length) {
     posCartItems.innerHTML = `<div class="pos-cart-empty">Tap a product or scan a barcode to add.</div>`;
   } else {
@@ -950,42 +902,31 @@ function renderPosCart() {
       </div>
     `).join("");
   }
-
   posCartItems.querySelectorAll("[data-act]").forEach(btn => {
     btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const act = btn.dataset.act;
+      const id = btn.dataset.id, act = btn.dataset.act;
       if (act === "inc") updateCartQty(id, 1);
       else if (act === "dec") updateCartQty(id, -1);
       else if (act === "rm") removeFromCart(id);
     });
   });
-
-  posTotalEl.textContent = "₱" + getCartTotal().toFixed(2);
+  if (posTotalEl) posTotalEl.textContent = "₱" + getCartTotal().toFixed(2);
 }
-
 function updateChange() {
+  if (!posChangeEl) return;
   const total = getCartTotal();
-  const cash = Number(posCashInput.value) || 0;
+  const cash = Number(valOf(posCashInput)) || 0;
   const change = cash - total;
-  if (cash === 0) {
-    posChangeEl.textContent = "₱0.00";
-    posChangeEl.classList.remove("insufficient");
-  } else if (change < 0) {
-    posChangeEl.textContent = "−₱" + Math.abs(change).toFixed(2);
-    posChangeEl.classList.add("insufficient");
-  } else {
-    posChangeEl.textContent = "₱" + change.toFixed(2);
-    posChangeEl.classList.remove("insufficient");
-  }
+  if (cash === 0) { posChangeEl.textContent = "₱0.00"; posChangeEl.classList.remove("insufficient"); }
+  else if (change < 0) { posChangeEl.textContent = "−₱" + Math.abs(change).toFixed(2); posChangeEl.classList.add("insufficient"); }
+  else { posChangeEl.textContent = "₱" + change.toFixed(2); posChangeEl.classList.remove("insufficient"); }
 }
+if (posCashInput) posCashInput.addEventListener("input", updateChange);
+if (posClearBtn) posClearBtn.addEventListener("click", () => { clearCart(); showToast("Cart cleared 🧹"); });
 
-posCashInput.addEventListener("input", updateChange);
-posClearBtn.addEventListener("click", () => { clearCart(); showToast("Cart cleared 🧹"); });
-
-/* ==========================================================
-   POS — Product grid with slide-up mini carousel
-   ========================================================== */
+/* ----------------------------------------------------------
+   POS — Product grid
+   ---------------------------------------------------------- */
 function buildPosMiniSlides(item, sold) {
   const slides = [];
   const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
@@ -994,7 +935,6 @@ function buildPosMiniSlides(item, sold) {
   const isNew = createdMs && (Date.now() - createdMs) < NEW_ARRIVAL_WINDOW_MS;
   const revenue = sold * (item.price || 0);
   const exp = expiryStatus(item.expiry);
-
   if (exp.level === "expired") slides.push({ cls: "expiry", text: `⛔ ${exp.label.toUpperCase()}` });
   else if (exp.level === "expiring") slides.push({ cls: "expiry", text: `⏰ ${exp.label.toUpperCase()}` });
   if (isNew) slides.push({ cls: "new", text: "✨ NEW ARRIVAL" });
@@ -1003,54 +943,40 @@ function buildPosMiniSlides(item, sold) {
   else if (isLow) slides.push({ cls: "low", text: `⚠️ ONLY ${item.quantity} LEFT` });
   if (revenue > 0) slides.push({ cls: "ok", text: `💰 ₱${revenue.toFixed(0)} SALES` });
   slides.push({ cls: "ok", text: `📦 ${item.quantity} IN STOCK` });
-
   return slides;
 }
-
 function renderPosProducts() {
   if (!salesProductsGrid) return;
-  const term = (salesSearchEl?.value || "").toLowerCase().trim();
+  const term = valOf(salesSearchEl).toLowerCase().trim();
   const filtered = inventory.filter(i => {
     if (!term) return true;
     return i.name.toLowerCase().includes(term) ||
            (i.sku || "").toLowerCase().includes(term) ||
            (i.barcode || "").toLowerCase().includes(term);
   });
-
   if (!filtered.length) {
     salesProductsGrid.innerHTML = `<div class="empty-state"><p>📭 No products. Add one from Add Item.</p></div>`;
     stopPosMiniCarousels();
     return;
   }
-
   const soldMap = getSoldMap();
-
   salesProductsGrid.innerHTML = filtered.map(item => {
     const isOut = item.quantity === 0;
     const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
     const sold = soldMap[item.id] || 0;
-
     const media = item.image
       ? `<img src="${item.image}" alt="${esc(item.name)}" loading="lazy" />`
       : `<div class="fallback" style="background:${fallbackColorFor(item.name)}">${esc((item.name || "?").charAt(0).toUpperCase())}</div>`;
-
     const stockPill = isOut
       ? `<span class="pos-stock-pill out">Out</span>`
       : isLow
       ? `<span class="pos-stock-pill low">${item.quantity} left</span>`
       : `<span class="pos-stock-pill">${item.quantity}</span>`;
-
     const slides = buildPosMiniSlides(item, sold);
-    const slideHTML = slides.map(s =>
-      `<div class="pos-mini-slide ${s.cls}">${esc(s.text)}</div>`
-    ).join("");
-
+    const slideHTML = slides.map(s => `<div class="pos-mini-slide ${s.cls}">${esc(s.text)}</div>`).join("");
     return `
       <div class="pos-card ${isOut ? "is-out" : ""}" data-id="${item.id}">
-        <div class="pos-media">
-          ${media}
-          ${stockPill}
-        </div>
+        <div class="pos-media">${media}${stockPill}</div>
         <div class="pos-info">
           <div class="pos-name" title="${esc(item.name)}">${esc(item.name)}</div>
           <div class="pos-price">₱${Number(item.price).toFixed(2)}</div>
@@ -1062,14 +988,11 @@ function renderPosProducts() {
       </div>
     `;
   }).join("");
-
   salesProductsGrid.querySelectorAll(".pos-card").forEach(card => {
     card.addEventListener("click", () => addToCart(card.dataset.id));
   });
-
   startPosMiniCarousels();
 }
-
 function startPosMiniCarousels() {
   stopPosMiniCarousels();
   posMiniIndex = 0;
@@ -1084,60 +1007,49 @@ function startPosMiniCarousels() {
     });
   }, 2600);
 }
+function stopPosMiniCarousels() { if (posMiniTimer) { clearInterval(posMiniTimer); posMiniTimer = null; } }
+if (salesSearchEl) salesSearchEl.addEventListener("input", renderPosProducts);
 
-function stopPosMiniCarousels() {
-  if (posMiniTimer) { clearInterval(posMiniTimer); posMiniTimer = null; }
-}
-
-/* ==========================================================
+/* ----------------------------------------------------------
    POS — Complete sale
-   ========================================================== */
-posCheckoutBtn.addEventListener("click", async () => {
+   ---------------------------------------------------------- */
+if (posCheckoutBtn) posCheckoutBtn.addEventListener("click", async () => {
   if (!posCart.length) { showToast("Cart is empty ❌"); return; }
   const total = getCartTotal();
-  const cash = Number(posCashInput.value) || 0;
+  const cash = Number(valOf(posCashInput)) || 0;
   if (cash < total) { playErrorSound(); showToast("Insufficient cash ❌"); return; }
   const change = cash - total;
-
   const wsId = myWorkspace();
   if (!wsId) { showToast("Workspace not ready ❌"); return; }
-
   const receiptNum = "INV-" + Date.now().toString().slice(-6);
   const now = new Date();
-
   try {
     for (const ci of posCart) {
       const item = inventory.find(i => i.id === ci.itemId);
       if (!item) continue;
       if (ci.qty > item.quantity) { showToast(`Not enough stock for ${item.name} ❌`); return; }
-
       await addDoc(collection(db, "sales"), {
         itemId: item.id, itemName: item.name, category: item.category,
         quantity: ci.qty, unitPrice: item.price, total: ci.qty * item.price,
         cost: item.cost || 0,
         profit: ((item.price || 0) - (item.cost || 0)) * ci.qty,
-        workspaceId: wsId,
-        receiptNum, cash, change,
+        workspaceId: wsId, receiptNum, cash, change,
         createdAt: serverTimestamp(), userId: currentUser.uid
       });
       await updateDoc(doc(db, "inventory", item.id), {
-        quantity: item.quantity - ci.qty,
-        updatedAt: serverTimestamp()
+        quantity: item.quantity - ci.qty, updatedAt: serverTimestamp()
       });
-
       await logMovement({
         itemId: item.id, itemName: item.name,
         type: "out", quantity: ci.qty,
         reason: "sale", note: `Receipt ${receiptNum}`
       });
     }
-
     showReceipt({
       items: posCart.map(c => ({ name: c.name, qty: c.qty, price: c.price })),
       total, cash, change, receiptNum, date: now,
       cashier: currentUser.email
     });
-
     playCashSound();
     clearCart();
     showToast("Sale completed ✅");
@@ -1147,16 +1059,16 @@ posCheckoutBtn.addEventListener("click", async () => {
   }
 });
 
-/* ==========================================================
-   RECEIPT
-   ========================================================== */
-function showReceipt(data) {
+/* ----------------------------------------------------------
+   RECEIPT MODAL
+   ---------------------------------------------------------- */
+function showReceipt(data, groupInfo) {
+  if (!receiptContent) return;
   const d = data.date;
   const dateStr = d.toLocaleString(undefined, {
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit"
   });
-
   const itemsHTML = data.items.map(it => `
     <div class="receipt-item">
       <div class="receipt-item-row1">
@@ -1195,107 +1107,205 @@ function showReceipt(data) {
     </div>
   `;
 
-  receiptModal.classList.remove("hidden");
+  /* Store which receipt is being shown so the delete button works */
+  currentReceiptGroup = groupInfo || null;
+  if (deleteReceiptBtn) {
+    deleteReceiptBtn.classList.toggle("hidden", !currentReceiptGroup);
+  }
+  receiptModal && receiptModal.classList.remove("hidden");
+}
+if (printReceiptBtn) printReceiptBtn.addEventListener("click", () => window.print());
+if (closeReceiptBtn) closeReceiptBtn.addEventListener("click", () => {
+  receiptModal && receiptModal.classList.add("hidden");
+  currentReceiptGroup = null;
+});
+if (deleteReceiptBtn) deleteReceiptBtn.addEventListener("click", () => {
+  if (!currentReceiptGroup) return;
+  const group = currentReceiptGroup;
+  receiptModal && receiptModal.classList.add("hidden");
+  currentReceiptGroup = null;
+  deleteReceiptGroup(group.saleIds, group.receiptNum);
+});
+
+/* ----------------------------------------------------------
+   VIEW A SALE RECEIPT (from Recent Sales or History)
+   ---------------------------------------------------------- */
+window.viewSaleReceipt = (saleId) => {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) { showToast("Sale not found ❌"); return; }
+
+  const receiptNum = sale.receiptNum;
+  const lineItems = receiptNum ? sales.filter(s => s.receiptNum === receiptNum) : [sale];
+  const items = lineItems.map(s => ({
+    name: s.itemName, qty: s.quantity, price: s.unitPrice || 0
+  }));
+  const total  = lineItems.reduce((sum, s) => sum + (s.total || 0), 0);
+  const cash   = sale.cash   || total;
+  const change = sale.change || 0;
+  const date   = sale.createdAt?.toDate?.() || new Date();
+
+  showReceipt({
+    items, total, cash, change,
+    receiptNum: receiptNum || ("SALE-" + saleId.slice(0, 8).toUpperCase()),
+    date, cashier: currentUser?.email || "-"
+  }, {
+    receiptNum: receiptNum || ("SALE-" + saleId.slice(0, 8).toUpperCase()),
+    saleIds: lineItems.map(s => s.id),
+    total
+  });
+};
+
+/* ----------------------------------------------------------
+   DELETE A SINGLE SALE (with stock restoration)
+   ---------------------------------------------------------- */
+window.deleteSale = async (id) => {
+  const sale = sales.find(s => s.id === id);
+  if (!sale) { showToast("Sale not found ❌"); return; }
+
+  const msg = `Delete this sale?\n\n${sale.itemName} × ${sale.quantity} — ₱${Number(sale.total || 0).toFixed(2)}\n\n⚠️ Quantity will be restored to inventory.`;
+  if (!confirm(msg)) return;
+
+  try {
+    if (sale.itemId) {
+      const item = inventory.find(i => i.id === sale.itemId);
+      if (item) {
+        await updateDoc(doc(db, "inventory", sale.itemId), {
+          quantity: (item.quantity || 0) + (sale.quantity || 0),
+          updatedAt: serverTimestamp()
+        });
+        await logMovement({
+          itemId: sale.itemId, itemName: sale.itemName,
+          type: "in", quantity: sale.quantity || 0,
+          reason: "adjustment",
+          note: `Sale ${sale.receiptNum || id} deleted`
+        });
+      }
+    }
+    await deleteDoc(doc(db, "sales", id));
+    playSuccessSound();
+    showToast("Sale deleted & stock restored ✅");
+  } catch (err) {
+    console.error("[delete sale] FAILED:", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+};
+
+/* ----------------------------------------------------------
+   DELETE A RECEIPT GROUP (multi-item sale)
+   ---------------------------------------------------------- */
+async function deleteReceiptGroup(saleIds, receiptNum) {
+  if (!saleIds || !saleIds.length) return;
+  const itemCount = saleIds.length;
+  const msg = `Delete this entire receipt?\n\n${itemCount} item${itemCount !== 1 ? "s" : ""} will be removed.\n\n⚠️ All quantities will be restored to inventory.`;
+  if (!confirm(msg)) return;
+
+  try {
+    for (const id of saleIds) {
+      const sale = sales.find(s => s.id === id);
+      if (!sale) continue;
+      if (sale.itemId) {
+        const item = inventory.find(i => i.id === sale.itemId);
+        if (item) {
+          await updateDoc(doc(db, "inventory", sale.itemId), {
+            quantity: (item.quantity || 0) + (sale.quantity || 0),
+            updatedAt: serverTimestamp()
+          });
+          await logMovement({
+            itemId: sale.itemId, itemName: sale.itemName,
+            type: "in", quantity: sale.quantity || 0,
+            reason: "adjustment",
+            note: `Receipt ${receiptNum || id} deleted`
+          });
+        }
+      }
+      await deleteDoc(doc(db, "sales", id));
+    }
+    playSuccessSound();
+    showToast(`Receipt deleted · ${itemCount} item${itemCount !== 1 ? "s" : ""} restored ✅`);
+  } catch (err) {
+    console.error("[delete receipt group] FAILED:", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
 }
 
-printReceiptBtn.addEventListener("click", () => window.print());
-closeReceiptBtn.addEventListener("click", () => receiptModal.classList.add("hidden"));
-
-/* ==========================================================
+/* ----------------------------------------------------------
    RESTOCK
-   ========================================================== */
+   ---------------------------------------------------------- */
 window.restockItem = (id) => {
   const item = inventory.find(i => i.id === id);
   if (!item) return;
   restockItemId = id;
-  restockItemName.textContent = item.name;
-  restockCurrent.textContent = `Current stock: ${item.quantity} · SKU: ${item.sku}${item.barcode ? " · Barcode: " + item.barcode : ""}`;
-  restockQty.value = 10;
-  restockModal.classList.remove("hidden");
-  setTimeout(() => restockQty.focus(), 100);
+  if (restockItemName) restockItemName.textContent = item.name;
+  if (restockCurrent) restockCurrent.textContent = `Current stock: ${item.quantity} · SKU: ${item.sku}${item.barcode ? " · Barcode: " + item.barcode : ""}`;
+  if (restockQty) restockQty.value = 10;
+  restockModal && restockModal.classList.remove("hidden");
+  setTimeout(() => restockQty && restockQty.focus(), 100);
 };
-
-restockClose.addEventListener("click", () => restockModal.classList.add("hidden"));
-restockConfirm.addEventListener("click", async () => {
-  const qty = Number(restockQty.value);
+if (restockClose) restockClose.addEventListener("click", () => restockModal && restockModal.classList.add("hidden"));
+if (restockConfirm) restockConfirm.addEventListener("click", async () => {
+  const qty = Number(valOf(restockQty));
   if (!qty || qty <= 0) { showToast("Enter a valid quantity ❌"); return; }
   const item = inventory.find(i => i.id === restockItemId);
   if (!item) return;
   try {
     await updateDoc(doc(db, "inventory", restockItemId), {
-      quantity: item.quantity + qty,
-      updatedAt: serverTimestamp()
+      quantity: item.quantity + qty, updatedAt: serverTimestamp()
     });
     await logMovement({
       itemId: item.id, itemName: item.name,
-      type: "in", quantity: qty,
-      reason: "restock", note: ""
+      type: "in", quantity: qty, reason: "restock", note: ""
     });
     playSuccessSound();
     showToast(`Restocked +${qty} ✅`);
-    restockModal.classList.add("hidden");
+    restockModal && restockModal.classList.add("hidden");
   } catch (err) {
     console.error("[restock]", err.code, err.message);
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 });
 
-/* ==========================================================
+/* ----------------------------------------------------------
    EXPORTS
-   ========================================================== */
+   ---------------------------------------------------------- */
 function exportInventoryToExcel() {
   if (!inventory.length) { showToast("No inventory to export ❌"); return; }
   if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
   const data = inventory.map(i => ({
-    Name: i.name,
-    SKU: i.sku,
-    Barcode: i.barcode || "",
-    Category: i.category,
-    Quantity: i.quantity,
+    Name: i.name, SKU: i.sku, Barcode: i.barcode || "",
+    Category: i.category, Quantity: i.quantity,
     "Cost (₱)": Number((i.cost || 0).toFixed(2)),
-    "Price (₱)": Number(i.price.toFixed(2)),
-    Threshold: i.threshold ?? 5,
-    Expiry: i.expiry || "",
-    "Stock Value (₱)": Number((i.quantity * i.price).toFixed(2))
+    "Price (₱)": Number((i.price || 0).toFixed(2)),
+    Threshold: i.threshold ?? 5, Expiry: i.expiry || "",
+    "Stock Value (₱)": Number(((i.quantity || 0) * (i.price || 0)).toFixed(2))
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Inventory");
-  XLSX.writeFile(wb, `inventory_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `inventory_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("Inventory exported ✅");
 }
-
 function exportInventoryToPDF() {
   if (!inventory.length) { showToast("No inventory to export ❌"); return; }
   if (!window.jspdf) { showToast("PDF library not loaded ❌"); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text("Inventory Report", 14, 18);
-  doc.setFontSize(10);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
+  doc.setFontSize(16); doc.text("Inventory Report", 14, 18);
+  doc.setFontSize(10); doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
   doc.autoTable({
     startY: 30,
     head: [["Name", "SKU", "Barcode", "Category", "Qty", "Cost", "Price", "Expiry"]],
-    body: inventory.map(i => [
-      i.name, i.sku, i.barcode || "-", i.category,
-      i.quantity, (i.cost || 0).toFixed(2), i.price.toFixed(2), i.expiry || "-"
-    ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [18, 84, 79] }
+    body: inventory.map(i => [i.name, i.sku, i.barcode || "-", i.category, i.quantity, (i.cost||0).toFixed(2), (i.price||0).toFixed(2), i.expiry || "-"]),
+    styles: { fontSize: 8 }, headStyles: { fillColor: [18, 84, 79] }
   });
-  doc.save(`inventory_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`inventory_${new Date().toISOString().slice(0,10)}.pdf`);
   showToast("Inventory PDF exported ✅");
 }
-
 function exportSalesToExcel() {
   if (!sales.length) { showToast("No sales to export ❌"); return; }
   if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
   const data = sales.map(s => ({
     Date: s.createdAt?.toDate?.().toLocaleString() ?? "",
-    Receipt: s.receiptNum || "",
-    Item: s.itemName,
-    Category: s.category,
+    Receipt: s.receiptNum || "", Item: s.itemName, Category: s.category,
     Qty: s.quantity,
     "Unit Price (₱)": Number((s.unitPrice || 0).toFixed(2)),
     "Cost (₱)": Number((s.cost || 0).toFixed(2)),
@@ -1307,38 +1317,31 @@ function exportSalesToExcel() {
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Sales");
-  XLSX.writeFile(wb, `sales_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `sales_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("Sales exported ✅");
 }
-
 function exportSalesToPDF() {
   if (!sales.length) { showToast("No sales to export ❌"); return; }
   if (!window.jspdf) { showToast("PDF library not loaded ❌"); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text("Sales Report", 14, 18);
-  doc.setFontSize(10);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
+  doc.setFontSize(16); doc.text("Sales Report", 14, 18);
+  doc.setFontSize(10); doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
   doc.autoTable({
     startY: 30,
     head: [["Date", "Receipt", "Item", "Qty", "Unit", "Profit", "Total"]],
     body: sales.map(s => [
       s.createdAt?.toDate?.().toLocaleString() ?? "-",
-      s.receiptNum || "-",
-      s.itemName,
-      s.quantity,
+      s.receiptNum || "-", s.itemName, s.quantity,
       (s.unitPrice || 0).toFixed(2),
       (s.profit || 0).toFixed(2),
       (s.total || 0).toFixed(2)
     ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [18, 84, 79] }
+    styles: { fontSize: 8 }, headStyles: { fillColor: [18, 84, 79] }
   });
-  doc.save(`sales_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`sales_${new Date().toISOString().slice(0,10)}.pdf`);
   showToast("Sales PDF exported ✅");
 }
-
 function exportMovementsToExcel() {
   if (!movements.length) { showToast("No movements to export ❌"); return; }
   if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
@@ -1346,30 +1349,256 @@ function exportMovementsToExcel() {
     Date: m.createdAt?.toDate?.().toLocaleString() ?? "",
     Item: m.itemName,
     Type: m.type === "in" ? "IN (+)" : "OUT (−)",
-    Quantity: m.quantity,
-    Reason: m.reason || "",
-    Note: m.note || ""
+    Quantity: m.quantity, Reason: m.reason || "", Note: m.note || ""
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Movements");
-  XLSX.writeFile(wb, `movements_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `movements_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("Movements exported ✅");
 }
+function exportHistoryToExcel() {
+  const groups = groupSalesByReceipt();
+  if (!groups.length) { showToast("No history to export ❌"); return; }
+  if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
+  const rows = [];
+  groups.forEach(g => {
+    g.items.forEach(it => {
+      rows.push({
+        Receipt: g.receiptNum,
+        Date: g.date?.toLocaleString() || "",
+        Item: it.itemName,
+        Qty: it.quantity,
+        "Unit (₱)": Number((it.unitPrice || 0).toFixed(2)),
+        "Total (₱)": Number((it.total || 0).toFixed(2)),
+        Cashier: g.cashier || ""
+      });
+    });
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "SalesHistory");
+  XLSX.writeFile(wb, `sales_history_${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast("History exported ✅");
+}
+function exportHistoryToPDF() {
+  const groups = groupSalesByReceipt();
+  if (!groups.length) { showToast("No history to export ❌"); return; }
+  if (!window.jspdf) { showToast("PDF library not loaded ❌"); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16); doc.text("Sales History", 14, 18);
+  doc.setFontSize(10); doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 24);
+  const body = [];
+  groups.forEach(g => {
+    g.items.forEach((it, idx) => {
+      body.push([
+        idx === 0 ? g.receiptNum : "",
+        idx === 0 ? (g.date?.toLocaleString() || "") : "",
+        it.itemName, it.quantity,
+        (it.unitPrice || 0).toFixed(2),
+        (it.total || 0).toFixed(2)
+      ]);
+    });
+  });
+  doc.autoTable({
+    startY: 30,
+    head: [["Receipt", "Date", "Item", "Qty", "Unit", "Total"]],
+    body,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [18, 84, 79] }
+  });
+  doc.save(`sales_history_${new Date().toISOString().slice(0,10)}.pdf`);
+  showToast("History PDF exported ✅");
+}
 
-exportInvExcel.addEventListener("click", exportInventoryToExcel);
-exportInvPdf.addEventListener("click", exportInventoryToPdf);
-exportSalesExcel.addEventListener("click", exportSalesToExcel);
-exportSalesPdf.addEventListener("click", exportSalesToPDF);
+if (exportInvExcel)     exportInvExcel.addEventListener("click", exportInventoryToExcel);
+if (exportInvPdf)       exportInvPdf.addEventListener("click", exportInventoryToPDF);
+if (exportSalesExcel)   exportSalesExcel.addEventListener("click", exportSalesToExcel);
+if (exportSalesPdf)     exportSalesPdf.addEventListener("click", exportSalesToPDF);
 if (exportMovementsBtn) exportMovementsBtn.addEventListener("click", exportMovementsToExcel);
+if (exportHistoryExcel) exportHistoryExcel.addEventListener("click", exportHistoryToExcel);
+if (exportHistoryPdf)   exportHistoryPdf.addEventListener("click", exportHistoryToPDF);
 
-/* ==========================================================
+/* ----------------------------------------------------------
+   GROUP SALES BY RECEIPT (for the History page)
+   ---------------------------------------------------------- */
+function groupSalesByReceipt() {
+  const map = new Map();
+  sales.forEach(s => {
+    const key = s.receiptNum || ("LEGACY-" + s.id);
+    if (!map.has(key)) {
+      map.set(key, {
+        receiptNum: key,
+        date: s.createdAt?.toDate?.() || new Date(),
+        cashier: s.userId || "",
+        cash: s.cash || 0,
+        change: s.change || 0,
+        items: [],
+        saleIds: [],
+        total: 0
+      });
+    }
+    const g = map.get(key);
+    g.items.push(s);
+    g.saleIds.push(s.id);
+    g.total += (s.total || 0);
+  });
+  return [...map.values()].sort((a, b) => b.date - a.date);
+}
+
+/* ----------------------------------------------------------
+   RENDER — Recent Sales (with receipt + delete)
+   ---------------------------------------------------------- */
+function renderSales() {
+  if (!salesList) return;
+  if (!sales.length) {
+    salesList.innerHTML = `<div class="empty-state"><p>🛒 No sales recorded yet.</p></div>`;
+    return;
+  }
+  salesList.innerHTML = sales.slice(0, 30).map(s => {
+    const item = inventory.find(i => i.id === s.itemId) || { name: s.itemName, image: null };
+    const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
+    return `
+      <div class="sale-row">
+        <div class="sale-info">
+          ${productImageHTML(item, "sm")}
+          <div class="sale-txt">
+            <div class="sale-name">${esc(s.itemName)} × ${s.quantity}</div>
+            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}</div>
+          </div>
+        </div>
+        <div class="sale-total">₱${Number(s.total).toFixed(2)}</div>
+        <div class="sale-actions">
+          <button type="button" class="sale-action-btn receipt" onclick="viewSaleReceipt('${s.id}')" title="View receipt">🧾</button>
+          <button type="button" class="sale-action-btn delete" onclick="deleteSale('${s.id}')" title="Delete sale">🗑️</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+/* ----------------------------------------------------------
+   RENDER — Sales History (grouped by receipt)
+   ---------------------------------------------------------- */
+function renderHistory() {
+  if (!historyList) return;
+
+  let groups = groupSalesByReceipt();
+
+  /* Filter by time range */
+  const range = valOf(historyFilterEl) || "all";
+  if (range !== "all") {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    let cutoff = 0;
+    if (range === "today") {
+      const t = new Date(); t.setHours(0,0,0,0);
+      cutoff = t.getTime();
+    } else if (range === "7") cutoff = now - 7 * dayMs;
+    else if (range === "30") cutoff = now - 30 * dayMs;
+    groups = groups.filter(g => g.date.getTime() >= cutoff);
+  }
+
+  /* Search by receipt, item name, or cashier */
+  const term = valOf(historySearchEl).toLowerCase().trim();
+  if (term) {
+    groups = groups.filter(g =>
+      g.receiptNum.toLowerCase().includes(term) ||
+      (g.cashier || "").toLowerCase().includes(term) ||
+      g.items.some(it => (it.itemName || "").toLowerCase().includes(term))
+    );
+  }
+
+  if (!groups.length) {
+    historyList.innerHTML = `<div class="empty-state"><p>🧾 No sales history found.</p></div>`;
+    return;
+  }
+
+  historyList.innerHTML = groups.slice(0, 60).map(g => {
+    const itemCount = g.items.length;
+    const qtyTotal = g.items.reduce((sum, it) => sum + (it.quantity || 0), 0);
+    const dateStr = g.date.toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+    const itemsHTML = g.items.map(it => `
+      <div class="history-item-line">
+        <span class="history-item-name">${esc(it.itemName)}</span>
+        <span class="history-item-qty">× ${it.quantity}</span>
+        <span class="history-item-price">₱${Number(it.total || 0).toFixed(2)}</span>
+      </div>
+    `).join("");
+
+    return `
+      <div class="history-receipt">
+        <div class="history-receipt-head">
+          <div class="history-receipt-meta">
+            <div class="history-receipt-num">🧾 ${esc(g.receiptNum)}</div>
+            <div class="history-receipt-date">${dateStr}</div>
+          </div>
+          <div class="history-receipt-total">₱${g.total.toFixed(2)}</div>
+          <div class="history-receipt-actions">
+            <button type="button" class="sale-action-btn receipt"
+                    onclick="viewReceiptGroup('${esc(g.receiptNum)}')"
+                    title="View receipt">🧾</button>
+            <button type="button" class="sale-action-btn delete"
+                    onclick="deleteReceiptGroupFromHistory('${esc(g.receiptNum)}')"
+                    title="Delete receipt">🗑️</button>
+          </div>
+        </div>
+        <div class="history-receipt-items">${itemsHTML}</div>
+        <div class="history-receipt-footer">
+          <span>${itemCount} item${itemCount !== 1 ? "s" : ""} · ${qtyTotal} unit${qtyTotal !== 1 ? "s" : ""}</span>
+          <span>Cashier: ${esc((g.cashier || "-").slice(0, 20))}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+/* ----------------------------------------------------------
+   HISTORY ACTIONS
+   ---------------------------------------------------------- */
+window.viewReceiptGroup = (receiptNum) => {
+  const groups = groupSalesByReceipt();
+  const g = groups.find(x => x.receiptNum === receiptNum);
+  if (!g) { showToast("Receipt not found ❌"); return; }
+
+  const items = g.items.map(it => ({
+    name: it.itemName, qty: it.quantity, price: it.unitPrice || 0
+  }));
+
+  showReceipt({
+    items,
+    total: g.total,
+    cash: g.cash || g.total,
+    change: g.change || 0,
+    receiptNum: g.receiptNum,
+    date: g.date,
+    cashier: currentUser?.email || "-"
+  }, {
+    receiptNum: g.receiptNum,
+    saleIds: g.saleIds,
+    total: g.total
+  });
+};
+
+window.deleteReceiptGroupFromHistory = (receiptNum) => {
+  const groups = groupSalesByReceipt();
+  const g = groups.find(x => x.receiptNum === receiptNum);
+  if (!g) { showToast("Receipt not found ❌"); return; }
+  deleteReceiptGroup(g.saleIds, g.receiptNum);
+};
+
+if (historySearchEl) historySearchEl.addEventListener("input", renderHistory);
+if (historyFilterEl) historyFilterEl.addEventListener("change", renderHistory);
+
+/* ----------------------------------------------------------
    DASHBOARD SPOTLIGHT CAROUSEL
-   ========================================================== */
+   ---------------------------------------------------------- */
 function buildSlides() {
   const slides = [];
   const soldMap = getSoldMap();
-
   if (inventory.length) {
     const newest = [...inventory].sort((a, b) => {
       const ta = a.createdAt?.toMillis?.() ?? 0;
@@ -1382,7 +1611,6 @@ function buildSlides() {
       revenue: (soldMap[newest.id] || 0) * (newest.price || 0)
     });
   }
-
   if (inventory.length) {
     const fast = [...inventory].sort((a, b) => (soldMap[b.id] || 0) - (soldMap[a.id] || 0))[0];
     if (fast && (soldMap[fast.id] || 0) > 0) slides.push({
@@ -1391,7 +1619,6 @@ function buildSlides() {
       revenue: (soldMap[fast.id] || 0) * (fast.price || 0)
     });
   }
-
   if (inventory.length) {
     let topItem = null, topRev = 0;
     inventory.forEach(item => {
@@ -1403,7 +1630,6 @@ function buildSlides() {
       sold: soldMap[topItem.id] || 0, revenue: topRev
     });
   }
-
   if (inventory.length) {
     const low = [...inventory]
       .filter(i => i.quantity <= (i.threshold ?? 5))
@@ -1414,35 +1640,28 @@ function buildSlides() {
       revenue: (soldMap[low.id] || 0) * (low.price || 0)
     });
   }
-
   const expiring = inventory.filter(i => {
     const e = expiryStatus(i.expiry);
     return e.level === "expiring" || e.level === "expired";
   })[0];
-  if (expiring) {
-    slides.push({
-      type: "expiry", label: "Expiring Soon", item: expiring,
-      sold: soldMap[expiring.id] || 0,
-      revenue: (soldMap[expiring.id] || 0) * (expiring.price || 0)
-    });
-  }
-
+  if (expiring) slides.push({
+    type: "expiry", label: "Expiring Soon", item: expiring,
+    sold: soldMap[expiring.id] || 0,
+    revenue: (soldMap[expiring.id] || 0) * (expiring.price || 0)
+  });
   return slides;
 }
 
 function renderCarousel() {
   if (!carouselTrack || !carouselDots) return;
-
   carouselSlides = buildSlides();
   if (carouselIndex >= carouselSlides.length) carouselIndex = 0;
-
   if (!carouselSlides.length) {
     carouselTrack.innerHTML = `<div class="carousel-empty">No inventory yet — add items to see spotlight.</div>`;
     carouselDots.innerHTML = "";
     stopCarousel();
     return;
   }
-
   carouselTrack.innerHTML = carouselSlides.map((slide, idx) => {
     const item = slide.item;
     const isLow = item.quantity <= (item.threshold ?? 5);
@@ -1478,11 +1697,9 @@ function renderCarousel() {
       </div>
     `;
   }).join("");
-
   carouselDots.innerHTML = carouselSlides.map((_, idx) =>
     `<button class="dot ${idx === carouselIndex ? "active" : ""}" data-index="${idx}"></button>`
   ).join("");
-
   carouselDots.querySelectorAll(".dot").forEach(dot => {
     dot.addEventListener("click", () => {
       carouselIndex = parseInt(dot.dataset.index);
@@ -1490,11 +1707,9 @@ function renderCarousel() {
       restartCarousel();
     });
   });
-
   updateCarouselPosition();
   restartCarousel();
 }
-
 function updateCarouselPosition() {
   if (!carouselSlides.length || !carouselTrack) return;
   carouselTrack.style.transform = `translateX(-${carouselIndex * 100}%)`;
@@ -1502,45 +1717,28 @@ function updateCarouselPosition() {
     dot.classList.toggle("active", idx === carouselIndex);
   });
 }
-function nextSlide() {
-  if (!carouselSlides.length) return;
-  carouselIndex = (carouselIndex + 1) % carouselSlides.length;
-  updateCarouselPosition();
-}
-function prevSlide() {
-  if (!carouselSlides.length) return;
-  carouselIndex = (carouselIndex - 1 + carouselSlides.length) % carouselSlides.length;
-  updateCarouselPosition();
-}
-function restartCarousel() {
-  stopCarousel();
-  if (carouselSlides.length > 1) carouselInterval = setInterval(nextSlide, 5000);
-}
-function stopCarousel() {
-  if (carouselInterval) { clearInterval(carouselInterval); carouselInterval = null; }
-}
+function nextSlide() { if (!carouselSlides.length) return; carouselIndex = (carouselIndex + 1) % carouselSlides.length; updateCarouselPosition(); }
+function prevSlide() { if (!carouselSlides.length) return; carouselIndex = (carouselIndex - 1 + carouselSlides.length) % carouselSlides.length; updateCarouselPosition(); }
+function restartCarousel() { stopCarousel(); if (carouselSlides.length > 1) carouselInterval = setInterval(nextSlide, 5000); }
+function stopCarousel() { if (carouselInterval) { clearInterval(carouselInterval); carouselInterval = null; } }
 if (carouselPrev) carouselPrev.addEventListener("click", () => { prevSlide(); restartCarousel(); });
 if (carouselNext) carouselNext.addEventListener("click", () => { nextSlide(); restartCarousel(); });
 
-/* ==========================================================
+/* ----------------------------------------------------------
    FAST MOVING
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderFastMoving() {
   if (!fastMovingList) return;
-
   const soldMap = getSoldMap();
   const ranked = [...inventory]
     .map(i => ({ ...i, sold: soldMap[i.id] || 0 }))
     .filter(i => i.sold > 0)
     .sort((a, b) => b.sold - a.sold)
     .slice(0, 5);
-
   if (!ranked.length) {
-    fastMovingList.innerHTML =
-      `<div class="empty-state"><p>No sales yet — record a sale to see fast-moving products.</p></div>`;
+    fastMovingList.innerHTML = `<div class="empty-state"><p>No sales yet — record a sale to see fast-moving products.</p></div>`;
     return;
   }
-
   const maxSold = ranked[0].sold;
   fastMovingList.innerHTML = ranked.map((item, idx) => {
     const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
@@ -1560,28 +1758,21 @@ function renderFastMoving() {
   }).join("");
 }
 
-/* ==========================================================
-   SLOW MOVING ITEMS
-   ========================================================== */
+/* ----------------------------------------------------------
+   SLOW MOVING
+   ---------------------------------------------------------- */
 function renderSlowMoving() {
   if (!slowMovingList) return;
-
   const sold30 = getSoldMapLastDays(30);
   const ranked = [...inventory]
     .map(i => ({ ...i, sold30: sold30[i.id] || 0, lastSold: getLastSoldMs(i.id) }))
     .filter(i => i.quantity > 0)
-    .sort((a, b) => {
-      if (a.sold30 !== b.sold30) return a.sold30 - b.sold30;
-      return b.quantity - a.quantity;
-    })
+    .sort((a, b) => { if (a.sold30 !== b.sold30) return a.sold30 - b.sold30; return b.quantity - a.quantity; })
     .slice(0, 5);
-
   if (!ranked.length) {
-    slowMovingList.innerHTML =
-      `<div class="empty-state"><p>No slow-moving items detected.</p></div>`;
+    slowMovingList.innerHTML = `<div class="empty-state"><p>No slow-moving items detected.</p></div>`;
     return;
   }
-
   slowMovingList.innerHTML = ranked.map((item, idx) => {
     const lastSoldTxt = item.lastSold
       ? `${Math.floor((Date.now() - item.lastSold) / (24 * 60 * 60 * 1000))}d ago`
@@ -1600,9 +1791,9 @@ function renderSlowMoving() {
   }).join("");
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    PROGRESS BAR
-   ========================================================== */
+   ---------------------------------------------------------- */
 function stockProgress(item) {
   const t = item.threshold ?? 5;
   const capacity = Math.max(t * 3, 1);
@@ -1613,39 +1804,28 @@ function stockProgress(item) {
   return { percent, level };
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    RENDER — Inventory grid
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderInventory() {
   if (!inventoryList) return;
-
-  const s = (searchInput?.value || "").toLowerCase();
-  const f = filterCat?.value || "";
+  const s = valOf(searchInput).toLowerCase();
+  const f = valOf(filterCat);
   const filtered = inventory.filter(i => {
-    const mS = !s ||
-      i.name.toLowerCase().includes(s) ||
-      (i.sku || "").toLowerCase().includes(s) ||
-      (i.barcode || "").toLowerCase().includes(s);
+    const mS = !s || i.name.toLowerCase().includes(s) || (i.sku || "").toLowerCase().includes(s) || (i.barcode || "").toLowerCase().includes(s);
     const mC = !f || i.category === f;
     return mS && mC;
   });
-
   if (!filtered.length) {
     inventoryList.innerHTML = `<div class="empty-state"><p>📭 No items found.</p></div>`;
     return;
   }
-
   inventoryList.innerHTML = filtered.map(item => {
     const isLow = item.quantity <= (item.threshold ?? 5);
     const { percent, level } = stockProgress(item);
     const exp = expiryStatus(item.expiry);
-    const expBadge = exp.level === "expired"
-      ? `<span class="badge expired">Expired</span>`
-      : exp.level === "expiring"
-      ? `<span class="badge expiring">Expiring</span>`
-      : "";
-    const expMeta = (exp.level === "expired" || exp.level === "expiring")
-      ? `<span class="expiry-tag">⏰ ${esc(exp.label)}</span>` : "";
+    const expBadge = exp.level === "expired" ? `<span class="badge expired">Expired</span>` : exp.level === "expiring" ? `<span class="badge expiring">Expiring</span>` : "";
+    const expMeta = (exp.level === "expired" || exp.level === "expiring") ? `<span class="expiry-tag">⏰ ${esc(exp.label)}</span>` : "";
     return `
       <div class="item-card ${isLow ? "low-stock" : ""} ${exp.level === "expired" ? "expiring" : ""}">
         ${productImageHTML(item)}
@@ -1672,35 +1852,30 @@ function renderInventory() {
             <span class="progress-label">${percent.toFixed(0)}%</span>
           </div>
           <div class="item-actions">
-            <button class="btn ghost" onclick="editItem('${item.id}')">Edit</button>
-            <button class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
-            <button class="btn danger" onclick="deleteItem('${item.id}')">Delete</button>
+            <button type="button" class="btn ghost" onclick="editItem('${item.id}')">Edit</button>
+            <button type="button" class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
+            <button type="button" class="btn danger" onclick="deleteItem('${item.id}')">Delete</button>
           </div>
         </div>
       </div>`;
   }).join("");
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    RENDER — Dashboard live inventory
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderDashboardInventory() {
   const container = $("dashboard-inventory");
   if (!container) return;
-
-  const term = ($("dash-search")?.value || "").toLowerCase();
+  const term = valOf($("dash-search")).toLowerCase();
   const filtered = inventory.filter(i => {
     if (!term) return true;
-    return i.name.toLowerCase().includes(term) ||
-           (i.sku || "").toLowerCase().includes(term) ||
-           (i.barcode || "").toLowerCase().includes(term);
+    return i.name.toLowerCase().includes(term) || (i.sku || "").toLowerCase().includes(term) || (i.barcode || "").toLowerCase().includes(term);
   });
-
   if (!filtered.length) {
     container.innerHTML = `<div class="empty-state"><p>📭 No items yet — add one to get started.</p></div>`;
     return;
   }
-
   container.innerHTML = filtered.map(item => {
     const isLow = item.quantity <= (item.threshold ?? 5);
     const { percent, level } = stockProgress(item);
@@ -1729,12 +1904,11 @@ function renderDashboardInventory() {
   }).join("");
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    RENDER — Low stock alerts
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderLowStockAlerts() {
   if (!lowStockList) return;
-
   const low = inventory.filter(i => i.quantity <= (i.threshold ?? 5));
   if (!low.length) {
     lowStockList.innerHTML = `<div class="empty-state"><p>✅ All items are well stocked.</p></div>`;
@@ -1750,25 +1924,20 @@ function renderLowStockAlerts() {
             <div><div class="item-name">${esc(item.name)}</div><div class="item-sku">SKU: ${esc(item.sku)}</div></div>
             <span class="badge low">Low</span>
           </div>
-          <div class="item-meta">
-            <span>📦 ${item.quantity}</span>
-            <span>⚠️ Threshold: ${item.threshold ?? 5}</span>
-          </div>
+          <div class="item-meta"><span>📦 ${item.quantity}</span><span>⚠️ Threshold: ${item.threshold ?? 5}</span></div>
           <div class="progress-wrap">
             <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
             <span class="progress-label">${percent.toFixed(0)}%</span>
           </div>
-          <div class="item-actions">
-            <button class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
-          </div>
+          <div class="item-actions"><button type="button" class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button></div>
         </div>
       </div>`;
   }).join("");
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    RENDER — Expiring items
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderExpiring() {
   const expiring = inventory
     .filter(i => {
@@ -1788,13 +1957,11 @@ function renderExpiring() {
       expiryBanner.classList.add("hidden");
     }
   }
-
   if (!expiringList) return;
   if (!expiring.length) {
     expiringList.innerHTML = `<div class="empty-state"><p>✅ No items expiring soon.</p></div>`;
     return;
   }
-
   expiringList.innerHTML = expiring.map(item => {
     const exp = expiryStatus(item.expiry);
     const cls = exp.level === "expired" ? "expired" : "expiring";
@@ -1806,44 +1973,30 @@ function renderExpiring() {
             <div><div class="item-name">${esc(item.name)}</div><div class="item-sku">SKU: ${esc(item.sku)}</div></div>
             <span class="badge ${cls}">${exp.level === "expired" ? "Expired" : "Expiring"}</span>
           </div>
-          <div class="item-meta">
-            <span>⏰ ${esc(exp.label)}</span>
-            <span>📦 ${item.quantity}</span>
-          </div>
-          <div class="item-actions">
-            <button class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
-          </div>
+          <div class="item-meta"><span>⏰ ${esc(exp.label)}</span><span>📦 ${item.quantity}</span></div>
+          <div class="item-actions"><button type="button" class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button></div>
         </div>
       </div>`;
   }).join("");
 }
+if (expiryBannerBtn) expiryBannerBtn.addEventListener("click", () => {
+  const el = $("expiring-list");
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+});
 
-if (expiryBannerBtn) {
-  expiryBannerBtn.addEventListener("click", () => {
-    const el = $("expiring-list");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
-}
-
-/* ==========================================================
+/* ----------------------------------------------------------
    RENDER — In/Out movements history
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderMovements() {
   if (!movementsList) return;
   if (!movements.length) {
     movementsList.innerHTML = `<div class="empty-state"><p>No stock movements yet. Sales and restocks will appear here.</p></div>`;
     return;
   }
-
   movementsList.innerHTML = movements.slice(0, 30).map(m => {
     const isIn = m.type === "in";
     const date = m.createdAt?.toDate?.().toLocaleString() ?? "Just now";
-    const reasonLabel = {
-      initial: "Initial stock",
-      restock: "Restock",
-      sale: "Sale",
-      adjustment: "Adjustment"
-    }[m.reason] || m.reason || "";
+    const reasonLabel = { initial: "Initial stock", restock: "Restock", sale: "Sale", adjustment: "Adjustment" }[m.reason] || m.reason || "";
     return `
       <div class="movement-row">
         <div class="movement-icon ${isIn ? "in" : "out"}">${isIn ? "⬇️" : "⬆️"}</div>
@@ -1851,43 +2004,15 @@ function renderMovements() {
           <div class="movement-name">${esc(m.itemName || "—")}</div>
           <div class="movement-meta">${date} · ${esc(reasonLabel)}${m.note ? " · " + esc(m.note) : ""}</div>
         </div>
-        <div class="movement-qty ${isIn ? "in" : "out"}">
-          ${isIn ? "+" : "−"}${m.quantity}
-        </div>
+        <div class="movement-qty ${isIn ? "in" : "out"}">${isIn ? "+" : "−"}${m.quantity}</div>
       </div>
     `;
   }).join("");
 }
 
-/* ==========================================================
-   RENDER — Recent Sales
-   ========================================================== */
-function renderSales() {
-  if (!salesList) return;
-  if (!sales.length) {
-    salesList.innerHTML = `<div class="empty-state"><p>🛒 No sales recorded yet.</p></div>`;
-    return;
-  }
-  salesList.innerHTML = sales.slice(0, 30).map(s => {
-    const item = inventory.find(i => i.id === s.itemId) || { name: s.itemName, image: null };
-    const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
-    return `
-      <div class="sale-row">
-        <div class="sale-info">
-          ${productImageHTML(item, "sm")}
-          <div class="sale-txt">
-            <div class="sale-name">${esc(s.itemName)} × ${s.quantity}</div>
-            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}</div>
-          </div>
-        </div>
-        <div class="sale-total">₱${Number(s.total).toFixed(2)}</div>
-      </div>`;
-  }).join("");
-}
-
-/* ==========================================================
+/* ----------------------------------------------------------
    RENDER — Categories
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderCategories() {
   if (!categoryGrid) return;
   if (!categories.length) {
@@ -1898,24 +2023,22 @@ function renderCategories() {
     const count = inventory.filter(i => i.category === cat.name).length;
     return `<div class="category-card">
       <div><div class="cat-name">${esc(cat.name)}</div><div class="cat-count">${count} item${count !== 1 ? "s" : ""}</div></div>
-      <button class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
+      <button type="button" class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
     </div>`;
   }).join("");
 }
 
-/* ==========================================================
-   STATS (with Profit)
-   ========================================================== */
+/* ----------------------------------------------------------
+   STATS
+   ---------------------------------------------------------- */
 function updateStats() {
   const total = inventory.length;
   const low = inventory.filter(i => i.quantity <= (i.threshold ?? 5)).length;
   const value = inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0,0,0,0);
   const todaySales = sales
     .filter(s => s.createdAt?.toDate?.() >= today)
     .reduce((s, x) => s + (x.total || 0), 0);
-
   const totalProfit = sales.reduce((sum, s) => {
     if (typeof s.profit === "number") return sum + s.profit;
     const it = inventory.find(i => i.id === s.itemId);
@@ -1931,60 +2054,46 @@ function updateStats() {
   if (statCats) statCats.textContent = categories.length;
 }
 
-/* ==========================================================
-   CHARTS — robust rendering (waits for canvas size)
-   ========================================================== */
+/* ----------------------------------------------------------
+   CHARTS
+   ---------------------------------------------------------- */
 const CATEGORY_PALETTE = ["#12544F", "#2FA38F", "#5FC2A6", "#0C3E3A", "#16665F", "#0F4945", "#E8B33A", "#D79A6A"];
 const getCSSVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
 function commonChartOptions(textColor) {
   return {
-    responsive: true,
-    maintainAspectRatio: false,
+    responsive: true, maintainAspectRatio: false,
     animation: { duration: 400 },
-    plugins: {
-      legend: {
-        position: "bottom",
-        labels: { color: textColor, padding: 12, font: { size: 12 }, boxWidth: 14, usePointStyle: true }
-      }
-    }
+    plugins: { legend: { position: "bottom", labels: { color: textColor, padding: 12, font: { size: 12 }, boxWidth: 14, usePointStyle: true } } }
   };
 }
 
-function renderCharts() {
-  if (!chartJsReady || typeof Chart === "undefined") return;
-
+function renderCharts(retries = 0) {
+  if (!chartJsReady || typeof Chart === "undefined") {
+    if (retries < 40) setTimeout(() => renderCharts(retries + 1), 200);
+    return;
+  }
   const dashEl = $("page-dashboard");
   if (!dashEl || dashEl.classList.contains("hidden")) return;
-
   const stockCanvas = $("stock-status-chart");
   const catCanvas   = $("category-value-chart");
   const salesCanvas = $("sales-category-chart");
   if (!stockCanvas || !catCanvas || !salesCanvas) return;
-
-  // Wait for canvas to actually have dimensions
   const ready = stockCanvas.clientWidth > 0 && stockCanvas.clientHeight > 0;
   if (!ready) {
-    setTimeout(renderCharts, 250);
+    if (retries < 40) setTimeout(() => renderCharts(retries + 1), 200);
     return;
   }
-
   const textColor = getCSSVar("--text") || "#1e293b";
 
-  /* ---------- 1. Stock Status ---------- */
   try {
     const inStock  = inventory.filter(i => i.quantity >  (i.threshold ?? 5)).length;
     const lowStock = inventory.filter(i => i.quantity > 0 && i.quantity <= (i.threshold ?? 5)).length;
     const outStock = inventory.filter(i => i.quantity === 0).length;
     const stockData = {
       labels: ["In Stock", "Low Stock", "Out of Stock"],
-      datasets: [{
-        data: [inStock, lowStock, outStock],
-        backgroundColor: ["#22c55e", "#f59e0b", "#ef4444"],
-        borderWidth: 0, hoverOffset: 6
-      }]
+      datasets: [{ data: [inStock, lowStock, outStock], backgroundColor: ["#22c55e", "#f59e0b", "#ef4444"], borderWidth: 0, hoverOffset: 6 }]
     };
-
     if (stockChart && stockChart.canvas && stockChart.canvas.isConnected) {
       stockChart.data = stockData;
       stockChart.options.plugins.legend.labels.color = textColor;
@@ -1995,8 +2104,7 @@ function renderCharts() {
         type: "doughnut", data: stockData,
         options: {
           ...commonChartOptions(textColor), cutout: "62%",
-          plugins: {
-            ...commonChartOptions(textColor).plugins,
+          plugins: { ...commonChartOptions(textColor).plugins,
             tooltip: { callbacks: { label: (c) => {
               const t = c.dataset.data.reduce((a, b) => a + b, 0) || 1;
               return `${c.label}: ${c.parsed} (${((c.parsed / t) * 100).toFixed(1)}%)`;
@@ -2007,7 +2115,6 @@ function renderCharts() {
     }
   } catch (e) { console.error("[chart] stock:", e); }
 
-  /* ---------- 2. Value by Category ---------- */
   try {
     const vbc = {};
     inventory.forEach(i => { vbc[i.category] = (vbc[i.category] || 0) + (i.quantity * i.price || 0); });
@@ -2016,13 +2123,10 @@ function renderCharts() {
       labels: catLabels.length ? catLabels : ["No data"],
       datasets: [{
         data: catValues.length ? catValues : [1],
-        backgroundColor: catLabels.length
-          ? catLabels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length])
-          : ["#e2e8f0"],
+        backgroundColor: catLabels.length ? catLabels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]) : ["#e2e8f0"],
         borderWidth: 0, hoverOffset: 6
       }]
     };
-
     if (categoryValueChart && categoryValueChart.canvas && categoryValueChart.canvas.isConnected) {
       categoryValueChart.data = catData;
       categoryValueChart.options.plugins.legend.labels.color = textColor;
@@ -2031,10 +2135,8 @@ function renderCharts() {
       if (categoryValueChart) { try { categoryValueChart.destroy(); } catch (e) {} }
       categoryValueChart = new Chart(catCanvas, {
         type: "pie", data: catData,
-        options: {
-          ...commonChartOptions(textColor),
-          plugins: {
-            ...commonChartOptions(textColor).plugins,
+        options: { ...commonChartOptions(textColor),
+          plugins: { ...commonChartOptions(textColor).plugins,
             tooltip: { callbacks: { label: (c) => `${c.label}: ₱${Number(c.parsed).toFixed(2)}` } }
           }
         }
@@ -2042,7 +2144,6 @@ function renderCharts() {
     }
   } catch (e) { console.error("[chart] category value:", e); }
 
-  /* ---------- 3. Sales by Category ---------- */
   try {
     const sbc = {};
     sales.forEach(s => { const k = s.category || "Unknown"; sbc[k] = (sbc[k] || 0) + (s.total || 0); });
@@ -2051,13 +2152,10 @@ function renderCharts() {
       labels: sLabels.length ? sLabels : ["No sales yet"],
       datasets: [{
         data: sValues.length ? sValues : [1],
-        backgroundColor: sLabels.length
-          ? sLabels.map((_, i) => CATEGORY_PALETTE[(i + 3) % CATEGORY_PALETTE.length])
-          : ["#e2e8f0"],
+        backgroundColor: sLabels.length ? sLabels.map((_, i) => CATEGORY_PALETTE[(i + 3) % CATEGORY_PALETTE.length]) : ["#e2e8f0"],
         borderWidth: 0, hoverOffset: 6
       }]
     };
-
     if (salesCategoryChart && salesCategoryChart.canvas && salesCategoryChart.canvas.isConnected) {
       salesCategoryChart.data = salesData;
       salesCategoryChart.options.plugins.legend.labels.color = textColor;
@@ -2066,10 +2164,8 @@ function renderCharts() {
       if (salesCategoryChart) { try { salesCategoryChart.destroy(); } catch (e) {} }
       salesCategoryChart = new Chart(salesCanvas, {
         type: "pie", data: salesData,
-        options: {
-          ...commonChartOptions(textColor),
-          plugins: {
-            ...commonChartOptions(textColor).plugins,
+        options: { ...commonChartOptions(textColor),
+          plugins: { ...commonChartOptions(textColor).plugins,
             tooltip: { callbacks: { label: (c) => `${c.label}: ₱${Number(c.parsed).toFixed(2)}` } }
           }
         }
@@ -2078,89 +2174,80 @@ function renderCharts() {
   } catch (e) { console.error("[chart] sales category:", e); }
 
   requestAnimationFrame(() => {
-    [stockChart, categoryValueChart, salesCategoryChart].forEach(c => {
-      try { c && c.resize(); } catch (e) {}
-    });
+    [stockChart, categoryValueChart, salesCategoryChart].forEach(c => { try { c && c.resize(); } catch (e) {} });
   });
 }
 
 function destroyCharts() {
-  [stockChart, categoryValueChart, salesCategoryChart].forEach(c => {
-    try { c && c.destroy(); } catch (e) {}
-  });
+  [stockChart, categoryValueChart, salesCategoryChart].forEach(c => { try { c && c.destroy(); } catch (e) {} });
   stockChart = categoryValueChart = salesCategoryChart = null;
 }
 
-/* ==========================================================
+/* ----------------------------------------------------------
    SELECTS / DATALISTS
-   ========================================================== */
+   ---------------------------------------------------------- */
 function populateCategoryFilter() {
   if (!filterCat) return;
-  const names = [...new Set(inventory.map(i => i.category))].sort();
+  const names = [...new Set(inventory.map(i => i.category).filter(Boolean))].sort();
   const cur = filterCat.value;
-  filterCat.innerHTML = `<option value="">All Categories</option>` +
-    names.map(c => `<option value="${c}">${c}</option>`).join("");
+  filterCat.innerHTML = `<option value="">All Categories</option>` + names.map(c => `<option value="${c}">${c}</option>`).join("");
   filterCat.value = cur;
 }
 function populateCategoryDatalist() {
   if (!categoryList) return;
-  const names = [...new Set([...categories.map(c => c.name), ...inventory.map(i => i.category)])].sort();
+  const names = [...new Set([...categories.map(c => c.name), ...inventory.map(i => i.category)].filter(Boolean))].sort();
   categoryList.innerHTML = names.map(c => `<option value="${c}">`).join("");
 }
-
 if (searchInput) searchInput.addEventListener("input", renderInventory);
-if (filterCat) filterCat.addEventListener("change", renderInventory);
-
+if (filterCat)   filterCat.addEventListener("change", renderInventory);
 const dashSearchEl = $("dash-search");
 if (dashSearchEl) dashSearchEl.addEventListener("input", renderDashboardInventory);
 
-/* ==========================================================
+/* ----------------------------------------------------------
    CRUD — Inventory items
-   ========================================================== */
-itemForm.addEventListener("submit", async (e) => {
+   ---------------------------------------------------------- */
+if (itemForm) itemForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-
   const wsId = myWorkspace();
   if (!wsId) { showToast("Workspace not ready ❌"); return; }
-
-  const wasEditing = !!itemId.value;
+  const wasEditing = !!(itemId && itemId.value);
   const prev = wasEditing ? inventory.find(i => i.id === itemId.value) : null;
 
   const data = {
-    name: itemName.value.trim(),
-    sku: itemSku.value.trim(),
-    barcode: itemBarcode.value.trim(),
-    category: itemCategory.value.trim(),
-    quantity: Number(itemQty.value),
-    cost: Number(itemCost.value) || 0,
-    price: Number(itemPrice.value),
-    expiry: itemExpiry.value || "",
-    threshold: Number(itemThreshold.value),
-    image: itemImageData.value || null,
+    name: valOf(itemName).trim(),
+    sku: valOf(itemSku).trim(),
+    barcode: itemBarcode ? valOf(itemBarcode).trim() : "",
+    category: valOf(itemCategory).trim(),
+    quantity: numOf(itemQty),
+    cost: itemCost ? (Number(valOf(itemCost)) || 0) : 0,
+    price: numOf(itemPrice),
+    expiry: itemExpiry ? valOf(itemExpiry) : "",
+    threshold: itemThreshold ? (Number(valOf(itemThreshold)) || 5) : 5,
+    image: itemImageData ? (valOf(itemImageData) || null) : null,
     workspaceId: wsId,
     updatedAt: serverTimestamp()
   };
 
+  if (!data.name)     { showToast("Name is required ❌"); return; }
+  if (!data.sku)      { showToast("SKU is required ❌"); return; }
+  if (!data.category) { showToast("Category is required ❌"); return; }
+  if (!data.price || data.price <= 0) { showToast("Price must be greater than 0 ❌"); return; }
+
   try {
     if (wasEditing) {
       await updateDoc(doc(db, "inventory", itemId.value), data);
-
       if (prev && data.quantity !== prev.quantity) {
         const diff = data.quantity - prev.quantity;
         await logMovement({
-          itemId: itemId.value,
-          itemName: data.name,
+          itemId: itemId.value, itemName: data.name,
           type: diff > 0 ? "in" : "out",
           quantity: Math.abs(diff),
-          reason: "adjustment",
-          note: "Manual edit"
+          reason: "adjustment", note: "Manual edit"
         });
       }
       showToast("Item updated ✅");
     } else {
-      const newRef = await addDoc(collection(db, "inventory"), {
-        ...data, createdAt: serverTimestamp()
-      });
+      const newRef = await addDoc(collection(db, "inventory"), { ...data, createdAt: serverTimestamp() });
       if (data.quantity > 0) {
         await logMovement({
           itemId: newRef.id, itemName: data.name,
@@ -2171,13 +2258,15 @@ itemForm.addEventListener("submit", async (e) => {
       showToast("Item added ✅");
     }
     itemForm.reset();
-    itemId.value = ""; itemThreshold.value = 5;
-    itemImageData.value = ""; itemImage.value = "";
+    if (itemId) itemId.value = "";
+    if (itemThreshold) itemThreshold.value = "5";
+    if (itemImageData) itemImageData.value = "";
+    if (itemImage) itemImage.value = "";
     showPhotoPreview(null);
-    manualSku = false;
-    updateSkuField();
+    manualSku = false; skuInitialized = false;
+    autoFillSku();
   } catch (err) {
-    console.error("[add/update item]", err.code, err.message);
+    console.error("[add/update item] FAILED:", err.code, err.message, err);
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 });
@@ -2185,16 +2274,21 @@ itemForm.addEventListener("submit", async (e) => {
 window.editItem = (id) => {
   const item = inventory.find(i => i.id === id);
   if (!item) return;
-  itemId.value = item.id; itemName.value = item.name; itemSku.value = item.sku;
-  itemBarcode.value = item.barcode || "";
-  itemCategory.value = item.category; itemQty.value = item.quantity;
-  itemCost.value = item.cost ?? "";
-  itemPrice.value = item.price; itemExpiry.value = item.expiry || "";
-  itemThreshold.value = item.threshold ?? 5;
-  itemImageData.value = item.image || "";
+  if (itemId) itemId.value = item.id;
+  setVal(itemName, item.name);
+  setVal(itemSku, item.sku);
+  if (itemBarcode) itemBarcode.value = item.barcode || "";
+  setVal(itemCategory, item.category);
+  setVal(itemQty, item.quantity);
+  if (itemCost) itemCost.value = item.cost ?? "";
+  setVal(itemPrice, item.price);
+  if (itemExpiry) itemExpiry.value = item.expiry || "";
+  if (itemThreshold) itemThreshold.value = item.threshold ?? 5;
+  if (itemImageData) itemImageData.value = item.image || "";
   showPhotoPreview(item.image || null);
-  manualSku = true;
-  document.querySelector('[data-page="page-add"]').click();
+  manualSku = true; skuInitialized = true;
+  const addBtn = document.querySelector('[data-page="page-add"]');
+  if (addBtn) addBtn.click();
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
@@ -2204,31 +2298,26 @@ window.deleteItem = async (id) => {
     await deleteDoc(doc(db, "inventory", id));
     showToast("Item deleted 🗑️");
   } catch (err) {
-    console.error("[delete item]", err.code, err.message);
+    console.error("[delete item] FAILED:", err.code, err.message, err);
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 };
 
-/* ==========================================================
+/* ----------------------------------------------------------
    CATEGORIES CRUD
-   ========================================================== */
-categoryForm.addEventListener("submit", async (e) => {
+   ---------------------------------------------------------- */
+if (categoryForm) categoryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-
   const wsId = myWorkspace();
   if (!wsId) { showToast("Workspace not ready ❌"); return; }
-
-  const name = newCategory.value.trim();
+  const name = valOf(newCategory).trim();
   if (!name) return;
   if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
     showToast("Category already exists ❌"); return;
   }
-
   try {
-    await addDoc(collection(db, "categories"), {
-      name, workspaceId: wsId, createdAt: serverTimestamp()
-    });
-    newCategory.value = "";
+    await addDoc(collection(db, "categories"), { name, workspaceId: wsId, createdAt: serverTimestamp() });
+    if (newCategory) newCategory.value = "";
     showToast("Category added ✅");
   } catch (err) {
     console.error("[add category]", err.code, err.message);
@@ -2247,20 +2336,15 @@ window.deleteCategory = async (id) => {
   }
 };
 
-/* ==========================================================
+/* ----------------------------------------------------------
    ADMIN
-   ========================================================== */
+   ---------------------------------------------------------- */
 function renderAdminUsers() {
   if (!pendingUsersList || !allUsersList) return;
   const pending = allUsers.filter(u => !u.approved);
-  pendingUsersList.innerHTML = pending.length
-    ? pending.map(userRowHTML).join("")
-    : `<div class="empty-state"><p>✅ No pending approvals.</p></div>`;
-  allUsersList.innerHTML = allUsers.length
-    ? allUsers.map(userRowHTML).join("")
-    : `<div class="empty-state"><p>No users yet.</p></div>`;
+  pendingUsersList.innerHTML = pending.length ? pending.map(userRowHTML).join("") : `<div class="empty-state"><p>✅ No pending approvals.</p></div>`;
+  allUsersList.innerHTML = allUsers.length ? allUsers.map(userRowHTML).join("") : `<div class="empty-state"><p>No users yet.</p></div>`;
 }
-
 function userRowHTML(u) {
   const isSuper = u.role === "superadmin";
   return `
@@ -2277,13 +2361,12 @@ function userRowHTML(u) {
       </div>
       <div class="user-actions">
         ${u.approved
-          ? `<button class="btn ghost" onclick="toggleApproval('${u.id}', false)">Revoke</button>`
-          : `<button class="btn primary" onclick="toggleApproval('${u.id}', true)">Approve</button>`}
-        ${isSuper ? "" : `<button class="btn danger" onclick="deleteUser('${u.id}')">Delete</button>`}
+          ? `<button type="button" class="btn ghost" onclick="toggleApproval('${u.id}', false)">Revoke</button>`
+          : `<button type="button" class="btn primary" onclick="toggleApproval('${u.id}', true)">Approve</button>`}
+        ${isSuper ? "" : `<button type="button" class="btn danger" onclick="deleteUser('${u.id}')">Delete</button>`}
       </div>
     </div>`;
 }
-
 window.toggleApproval = async (userId, approved) => {
   if (!currentUserData || currentUserData.role !== "superadmin") return;
   try {
@@ -2294,7 +2377,6 @@ window.toggleApproval = async (userId, approved) => {
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 };
-
 window.deleteUser = async (userId) => {
   if (!currentUserData || currentUserData.role !== "superadmin") return;
   if (!confirm("Delete this user profile? (Their workspace data will remain)")) return;
@@ -2307,9 +2389,9 @@ window.deleteUser = async (userId) => {
   }
 };
 
-/* ==========================================================
+/* ----------------------------------------------------------
    UTILITIES
-   ========================================================== */
+   ---------------------------------------------------------- */
 function showToast(msg) {
   if (!toast) return;
   toast.textContent = msg;
@@ -2317,7 +2399,6 @@ function showToast(msg) {
   clearTimeout(showToast._timer);
   showToast._timer = setTimeout(() => toast.classList.add("hidden"), 3000);
 }
-
 function esc(str) {
   return String(str)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
