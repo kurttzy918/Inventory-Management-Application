@@ -1,6 +1,9 @@
 /* ==========================================================
-   app.js — Kurt Inventory (SCANNER FULLY FIXED)
-   State machine prevents "cannot close" and "not starting".
+   app.js — Kurt Inventory
+   Multi-tenant + Super Admin + POS + Receipt + Exports
+   + Profit + In/Out History + Slow Moving + Expiry
+   + Sales History page + per-sale receipt + delete
+   + FIXED SCANNER: device enumeration, retry, image fallback
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -142,15 +145,21 @@ const navButtons = document.querySelectorAll(".nav-btn");
 const pages      = document.querySelectorAll(".page");
 const toast      = $("toast");
 
+/* Scanner */
 const scannerModal = $("scanner-modal"), scannerTitle = $("scanner-title"),
   scannerReader = $("scanner-reader"), scannerStatus = $("scanner-status"),
   scannerClose = $("scanner-close"), scannerManualInput = $("scanner-manual-input"),
   scannerManualBtn = $("scanner-manual-btn");
+const scannerRetryBtn   = $("scanner-retry-btn");
+const scannerUploadBtn  = $("scanner-upload-btn");
+const scannerUploadInput = $("scanner-upload-input");
 
+/* Restock */
 const restockModal = $("restock-modal"), restockItemName = $("restock-item-name"),
   restockCurrent = $("restock-current"), restockQty = $("restock-qty"),
   restockClose = $("restock-close"), restockConfirm = $("restock-confirm");
 
+/* Receipt */
 const receiptModal    = $("receipt-modal"), receiptContent = $("receipt-content"),
   printReceiptBtn     = $("print-receipt-btn"), closeReceiptBtn = $("close-receipt-btn"),
   deleteReceiptBtn    = $("delete-receipt-btn");
@@ -176,17 +185,6 @@ let manualSku = false, skuInitialized = false;
 let posCart = [];
 let restockItemId = null;
 let currentReceiptGroup = null;
-
-/* Scanner state machine */
-const SCANNER_STATE = { IDLE: "idle", STARTING: "starting", RUNNING: "running", STOPPING: "stopping" };
-let scannerState = SCANNER_STATE.IDLE;
-let scannerInstance = null;       // Html5Qrcode instance
-let scannerStartPromise = null;   // promise from .start()
-let scannerTarget = null;         // "barcode" | "sale"
-let scannerOpening = false;       // guard against double-open clicks
-let lastScanCode = "";
-let lastScanTime = 0;
-const SCAN_COOLDOWN_MS = 1200;
 
 /* ----------------------------------------------------------
    CHART.JS LOADER
@@ -364,7 +362,6 @@ onAuthStateChanged(auth, async (user) => {
   stopCarousel();
   stopPosMiniCarousels();
   stopAuthBgCarousel();
-  /* Force-close scanner when auth changes */
   forceCloseScanner();
 
   if (!user) {
@@ -579,7 +576,6 @@ async function logMovement({ itemId, itemName, type, quantity, reason, note }) {
    ---------------------------------------------------------- */
 navButtons.forEach(btn => {
   btn.addEventListener("click", () => {
-    /* Close scanner when navigating away */
     forceCloseScanner();
 
     navButtons.forEach(b => b.classList.remove("active"));
@@ -741,13 +737,21 @@ if (itemSku) itemSku.addEventListener("input", () => {
 });
 
 /* ==========================================================
-   ============ BARCODE SCANNER — FIXED VERSION =============
-   ==========================================================
-   Uses a 4-state machine (idle/starting/running/stopping) so:
-   - Close works even if the camera is still initializing
-   - Opening twice does nothing
-   - Container is fully cleared between sessions
+   ============ BARCODE SCANNER — v3 (fully fixed) ==========
    ========================================================== */
+
+const SCANNER_STATE = { IDLE: "idle", STARTING: "starting", RUNNING: "running", STOPPING: "stopping" };
+
+let scannerInstance = null;
+let scannerState = SCANNER_STATE.IDLE;
+let scannerOpening = false;
+let scannerTarget = null;
+let lastScanCode = "";
+let lastScanTime = 0;
+const SCAN_COOLDOWN_MS = 1200;
+
+let cameraList = [];
+let selectedCameraId = localStorage.getItem("preferredCameraId") || "";
 
 function getScannerFormats() {
   const F = window.Html5QrcodeSupportedFormats;
@@ -762,55 +766,64 @@ function getScannerFormats() {
 
 function setScannerStatus(text, type = "") {
   if (!scannerStatus) return;
-  scannerStatus.textContent = text;
+  scannerStatus.innerHTML = text;
   scannerStatus.classList.remove("success", "error");
   if (type) scannerStatus.classList.add(type);
 }
 
-function isInsecureContext() {
-  return !(window.isSecureContext ||
-    location.protocol === "https:" ||
-    location.hostname === "localhost" ||
-    location.hostname === "127.0.0.1" ||
-    location.protocol === "file:");
+function checkCameraEnvironment() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return { ok: false, reason: "Your browser does not support camera access. Type the barcode below." };
+  }
+  const isHttps = location.protocol === "https:";
+  const isLocal = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+  const isFile = location.protocol === "file:";
+  if (!isHttps && !isLocal && !isFile) {
+    return {
+      ok: false,
+      reason: `Camera requires <b>HTTPS</b> or <b>localhost</b>. Currently on <code>${location.protocol}//${location.host}</code>.`
+    };
+  }
+  return { ok: true };
 }
 
-/* Hard reset — safe to call anytime */
-function forceCloseScanner() {
+async function enumerateCameras() {
   try {
-    if (scannerInstance) {
-      // Attempt graceful stop; ignore errors
-      const stop = scannerInstance.stop?.();
-      if (stop && typeof stop.then === "function") {
-        stop.catch(() => {});
-      }
-    }
-  } catch (e) {}
-  scannerInstance = null;
-  scannerStartPromise = null;
-  scannerState = SCANNER_STATE.IDLE;
-  scannerOpening = false;
-  lastScanCode = "";
-  lastScanTime = 0;
-
-  /* Hide modal and clear container */
-  if (scannerModal) scannerModal.classList.add("hidden");
-  const readerEl = document.getElementById("scanner-reader");
-  if (readerEl) {
-    try { readerEl.innerHTML = ""; } catch (e) {}
+    const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    tempStream.getTracks().forEach(t => t.stop());
+  } catch (permErr) {
+    throw permErr;
   }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter(d => d.kind === "videoinput");
 }
 
-/* Open scanner — click handler */
-function openScanner(target) {
-  /* Prevent double-clicks while opening */
-  if (scannerOpening) return;
-  if (scannerState === SCANNER_STATE.STARTING || scannerState === SCANNER_STATE.RUNNING) {
-    console.log("[Scanner] already active, ignoring open");
-    return;
-  }
-  scannerOpening = true;
+function cameraErrorMessage(err) {
+  const name = err?.name || "";
+  const msg = err?.message || String(err);
 
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "🚫 Camera permission <b>denied</b>. Click the 🔒 icon in the address bar → allow Camera → reload.";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "📷 <b>No camera found</b>. Type the barcode below instead.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "⚠️ Camera is <b>busy</b> — another app or tab is using it. Close it and tap Retry.";
+  }
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return "⚠️ Camera doesn't support the requested settings. Tap Retry.";
+  }
+  if (name === "SecurityError") {
+    return "🔒 Browser blocked camera for security. Use HTTPS or localhost.";
+  }
+  return "❌ Camera error: <code>" + esc(msg.slice(0, 80)) + "</code>";
+}
+
+function openScanner(target) {
+  if (scannerOpening) return;
+  if (scannerState === SCANNER_STATE.STARTING || scannerState === SCANNER_STATE.RUNNING) return;
+  scannerOpening = true;
   scannerTarget = target;
 
   if (scannerTitle) {
@@ -820,121 +833,117 @@ function openScanner(target) {
       "Scan Barcode";
   }
 
-  const invCount = inventory.length;
-  const invHint = invCount
-    ? `${invCount} item${invCount !== 1 ? "s" : ""} loaded`
-    : "⚠️ inventory still loading…";
-
-  if (isInsecureContext()) {
-    setScannerStatus(
-      "⚠️ Camera needs HTTPS. Type the barcode below.",
-      "error"
-    );
-  } else if (typeof Html5Qrcode === "undefined") {
-    setScannerStatus("Scanner library not loaded. Type the barcode below.", "error");
+  const env = checkCameraEnvironment();
+  if (!env.ok) {
+    setScannerStatus(env.reason, "error");
   } else {
-    setScannerStatus(`Starting camera… (${invHint})`);
+    setScannerStatus("Requesting camera permission…");
   }
 
   if (scannerManualInput) scannerManualInput.value = "";
   if (scannerModal) scannerModal.classList.remove("hidden");
+  setTimeout(() => { if (scannerManualInput) scannerManualInput.focus(); }, 300);
 
-  /* If library missing, just keep modal open with manual input */
+  if (!env.ok) { scannerOpening = false; return; }
   if (typeof Html5Qrcode === "undefined") {
+    setScannerStatus("Scanner library not loaded. Type the barcode below.", "error");
     scannerOpening = false;
-    setTimeout(() => { if (scannerManualInput) scannerManualInput.focus(); }, 250);
     return;
   }
 
-  /* Wait for modal layout to compute sizes, then start camera */
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      startCameraNow();
-    });
-  });
+  requestAnimationFrame(() => requestAnimationFrame(() => startCameraNow()));
 }
 
-/* Actually start the camera */
-function startCameraNow() {
+async function startCameraNow() {
   const readerEl = document.getElementById("scanner-reader");
-  if (!readerEl) {
-    scannerOpening = false;
-    setScannerStatus("Scanner container missing. Type the barcode below.", "error");
-    return;
-  }
+  if (!readerEl) { scannerOpening = false; return; }
 
-  /* Container must have real dimensions */
   if (readerEl.clientWidth < 40 || readerEl.clientHeight < 40) {
-    setTimeout(() => {
-      if (readerEl.clientWidth < 40 || readerEl.clientHeight < 40) {
-        scannerOpening = false;
-        setScannerStatus("Scanner viewport has no size. Type the barcode below.", "error");
-        return;
-      }
-      reallyStartCamera(readerEl);
-    }, 200);
+    await new Promise(r => setTimeout(r, 250));
+    if (readerEl.clientWidth < 40 || readerEl.clientHeight < 40) {
+      setScannerStatus("Scanner viewport has no size. Type the barcode below.", "error");
+      scannerOpening = false;
+      return;
+    }
+  }
+
+  try {
+    setScannerStatus("Looking for cameras…");
+    cameraList = await enumerateCameras();
+    if (!cameraList.length) {
+      setScannerStatus("📷 No camera found. Type the barcode below.", "error");
+      scannerOpening = false;
+      return;
+    }
+    console.log("[Scanner] cameras:", cameraList.map(c => ({ id: c.deviceId.slice(0,8), label: c.label })));
+  } catch (permErr) {
+    console.warn("[Scanner] permission/enum error:", permErr);
+    setScannerStatus(cameraErrorMessage(permErr), "error");
+    scannerOpening = false;
     return;
   }
 
-  reallyStartCamera(readerEl);
+  let chosen = cameraList.find(c => /back|rear|environment/i.test(c.label));
+  if (!chosen) chosen = cameraList.find(c => c.deviceId === selectedCameraId);
+  if (!chosen) chosen = cameraList[0];
+  selectedCameraId = chosen.deviceId;
+  localStorage.setItem("preferredCameraId", selectedCameraId);
+
+  console.log("[Scanner] using camera:", chosen.label || chosen.deviceId);
+  reallyStartCamera(readerEl, chosen.deviceId);
 }
 
-/* Instantiate and start Html5Qrcode with fallback camera configs */
-function reallyStartCamera(readerEl) {
-  /* Clear leftovers from any previous session */
+function reallyStartCamera(readerEl, deviceId) {
   try { readerEl.innerHTML = ""; } catch (e) {}
 
-  /* Build a fresh instance */
-  let instance;
   try {
     const opts = { verbose: false };
     const formats = getScannerFormats();
     if (formats && formats.length) opts.formatsToSupport = formats;
-    instance = new Html5Qrcode("scanner-reader", opts);
+    scannerInstance = new Html5Qrcode("scanner-reader", opts);
   } catch (e) {
     console.error("[Scanner] init failed:", e);
-    scannerOpening = false;
     setScannerStatus("Scanner init failed. Type the barcode below.", "error");
+    scannerOpening = false;
+    scannerState = SCANNER_STATE.IDLE;
     return;
   }
 
-  scannerInstance = instance;
   scannerState = SCANNER_STATE.STARTING;
 
   const startConfig = {
     fps: 15,
     qrbox: (vw, vh) => {
       const min = Math.min(vw, vh);
-      const size = Math.max(120, Math.floor(min * 0.75));
+      const size = Math.max(150, Math.floor(min * 0.75));
       return { width: size, height: size };
-    }
+    },
+    aspectRatio: 1.0
   };
 
-  const cameraConfigs = [
-    { facingMode: { ideal: "environment" } },
+  const configs = [
+    { deviceId: { exact: deviceId } },
+    { deviceId: deviceId },
     { facingMode: "environment" },
-    { facingMode: { ideal: "user" } },
-    {}
+    { facingMode: "user" }
   ];
 
   let attempt = 0;
   const tryNext = () => {
-    /* If user closed while we were trying, abort */
     if (scannerState === SCANNER_STATE.IDLE) return;
-
-    if (attempt >= cameraConfigs.length) {
+    if (attempt >= configs.length) {
       scannerOpening = false;
       scannerState = SCANNER_STATE.IDLE;
       scannerInstance = null;
-      setScannerStatus("Could not access camera. Type the barcode below.", "error");
+      setScannerStatus("Could not start any camera. Type the barcode below.", "error");
       return;
     }
-    const cfg = cameraConfigs[attempt++];
-    console.log("[Scanner] trying camera config:", cfg);
+    const cfg = configs[attempt++];
+    console.log("[Scanner] trying config:", cfg);
 
     let promise;
     try {
-      promise = instance.start(
+      promise = scannerInstance.start(
         cfg,
         startConfig,
         (decodedText) => onScanSuccess(decodedText),
@@ -946,12 +955,9 @@ function reallyStartCamera(readerEl) {
       return;
     }
 
-    scannerStartPromise = promise;
-
     promise.then(() => {
-      /* User may have closed before the camera finished starting */
       if (scannerState === SCANNER_STATE.IDLE) {
-        try { instance.stop().catch(() => {}); } catch (e) {}
+        try { scannerInstance.stop().catch(() => {}); } catch (e) {}
         return;
       }
       scannerState = SCANNER_STATE.RUNNING;
@@ -965,10 +971,9 @@ function reallyStartCamera(readerEl) {
           ? `Point at a barcode. Keep scanning to add more. (${invHint})`
           : `Point the camera at a barcode… (${invHint})`
       );
-      console.log("[Scanner] started successfully with config:", cfg);
+      console.log("[Scanner] ✅ started with config:", cfg);
     }).catch(err => {
       console.warn("[Scanner] config failed:", cfg, err);
-      /* If user closed, don't keep trying */
       if (scannerState === SCANNER_STATE.IDLE) return;
       tryNext();
     });
@@ -976,62 +981,56 @@ function reallyStartCamera(readerEl) {
   tryNext();
 }
 
-/* Close scanner — click handler for X button */
+function forceCloseScanner() {
+  try { if (scannerInstance) { const s = scannerInstance.stop?.(); if (s?.catch) s.catch(() => {}); } } catch (e) {}
+  scannerInstance = null;
+  scannerState = SCANNER_STATE.IDLE;
+  scannerOpening = false;
+  lastScanCode = "";
+  lastScanTime = 0;
+  if (scannerModal) scannerModal.classList.add("hidden");
+  const readerEl = document.getElementById("scanner-reader");
+  if (readerEl) { try { readerEl.innerHTML = ""; } catch (e) {} }
+}
+
 function closeScanner() {
-  /* Hide the modal instantly so UI feels responsive */
   if (scannerModal) scannerModal.classList.add("hidden");
   scannerOpening = false;
 
   const instance = scannerInstance;
   const wasRunning = scannerState === SCANNER_STATE.RUNNING;
   const wasStarting = scannerState === SCANNER_STATE.STARTING;
-
   scannerState = SCANNER_STATE.STOPPING;
 
   const finish = () => {
-    /* Clear container so next open is clean */
     const readerEl = document.getElementById("scanner-reader");
     if (readerEl) { try { readerEl.innerHTML = ""; } catch (e) {} }
     scannerInstance = null;
-    scannerStartPromise = null;
     scannerState = SCANNER_STATE.IDLE;
     lastScanCode = "";
     lastScanTime = 0;
   };
 
-  if (!instance) {
-    finish();
-    return;
-  }
-
-  /* Case 1: camera is running → stop it */
+  if (!instance) { finish(); return; }
   if (wasRunning) {
-    try {
-      instance.stop().then(finish).catch(finish);
-    } catch (e) {
-      finish();
-    }
+    try { instance.stop().then(finish).catch(finish); } catch (e) { finish(); }
     return;
   }
-
-  /* Case 2: camera is still starting. Wait for start promise, then stop. */
-  if (wasStarting && scannerStartPromise) {
-    scannerStartPromise.then(() => {
-      try {
-        instance.stop().then(finish).catch(finish);
-      } catch (e) { finish(); }
-    }).catch(() => {
-      /* Start failed anyway → just clean up */
-      finish();
-    });
+  if (wasStarting) {
+    setTimeout(() => {
+      try { instance.stop().then(finish).catch(finish); } catch (e) { finish(); }
+    }, 400);
     return;
   }
-
-  /* Fallback: just finish */
   finish();
 }
 
-/* Debounced scan handler — forwards to the right action */
+async function retryScanner() {
+  forceCloseScanner();
+  await new Promise(r => setTimeout(r, 400));
+  openScanner(scannerTarget || "sale");
+}
+
 function onScanSuccess(decodedText) {
   const code = String(decodedText || "").trim();
   if (!code) return;
@@ -1042,13 +1041,11 @@ function onScanSuccess(decodedText) {
   handleScanResult(code);
 }
 
-/* Robust barcode/SKU matcher */
 function findItemByCode(code) {
   if (!code) return null;
   const norm  = String(code).trim().replace(/\s+/g, "");
   if (!norm) return null;
   const lower = norm.toLowerCase();
-
   let item = inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
   if (item) return item;
   item = inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
@@ -1064,13 +1061,11 @@ function findItemByCode(code) {
   return item || null;
 }
 
-/* What to do with a scanned code */
 function handleScanResult(text) {
   if (!text) return;
   const code = String(text).trim();
   if (!code) return;
 
-  /* ADD ITEM → fills Barcode field */
   if (scannerTarget === "barcode") {
     if (itemBarcode) itemBarcode.value = code;
     playSuccessSound();
@@ -1079,7 +1074,6 @@ function handleScanResult(text) {
     return;
   }
 
-  /* POS → add to cart, keep scanner open for more items */
   if (scannerTarget === "sale") {
     if (!inventory.length) {
       playErrorSound();
@@ -1102,26 +1096,20 @@ function handleScanResult(text) {
   }
 }
 
-/* Wire up scanner buttons */
 if (scanBarcodeBtn) scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
 if (scanSaleBtn)    scanSaleBtn.addEventListener("click", () => openScanner("sale"));
 if (scannerClose)   scannerClose.addEventListener("click", closeScanner);
 
-/* Also close on Escape key */
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && scannerModal && !scannerModal.classList.contains("hidden")) {
     closeScanner();
   }
 });
-
-/* Also close if user clicks the dark backdrop */
 if (scannerModal) {
   scannerModal.addEventListener("click", (e) => {
     if (e.target === scannerModal) closeScanner();
   });
 }
-
-/* Manual barcode entry fallback */
 if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
   const val = valOf(scannerManualInput).trim();
   if (val) handleScanResult(val);
@@ -1129,6 +1117,32 @@ if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
 if (scannerManualInput) scannerManualInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); scannerManualBtn && scannerManualBtn.click(); }
 });
+if (scannerRetryBtn) scannerRetryBtn.addEventListener("click", retryScanner);
+
+/* Scan from image (no camera needed) */
+if (scannerUploadBtn && scannerUploadInput) {
+  scannerUploadBtn.addEventListener("click", () => scannerUploadInput.click());
+  scannerUploadInput.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setScannerStatus("Scanning image…");
+    try {
+      forceCloseScanner();
+      await new Promise(r => setTimeout(r, 200));
+      if (scannerModal) scannerModal.classList.remove("hidden");
+      await new Promise(r => requestAnimationFrame(r));
+      const tempInstance = new Html5Qrcode("scanner-reader", { verbose: false });
+      const result = await tempInstance.scanFile(file, true);
+      try { tempInstance.clear(); } catch (err) {}
+      handleScanResult(result);
+      setTimeout(() => forceCloseScanner(), 700);
+    } catch (err) {
+      console.warn("[Scanner] image scan failed:", err);
+      setScannerStatus("❌ No barcode found in that image.", "error");
+    }
+  });
+}
 
 /* ==========================================================
    ============ END BARCODE SCANNER =========================
