@@ -12,7 +12,8 @@ import {
   signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
-  getFirestore, collection, onSnapshot, addDoc, updateDoc,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, onSnapshot, addDoc, updateDoc,
   deleteDoc, doc, getDoc, setDoc, serverTimestamp,
   query, where
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -46,7 +47,18 @@ const EXPIRY_WARNING_DAYS   = 30;
 
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db   = getFirestore(app);
+
+/* ✅ Firestore with offline persistence — works offline & multi-tab */
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+  console.log("[Firestore] offline persistence enabled");
+} catch (e) {
+  console.warn("[Firestore] offline persistence failed, using default:", e);
+  db = initializeFirestore(app, {});
+}
 
 /* ----------------------------------------------------------
    HELPERS
@@ -258,6 +270,11 @@ if (themeToggle) themeToggle.addEventListener("click", () => {
 });
 if (themeIcon) themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
+  
+  /* Optional: apply theme again on system change */
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", (ev) => {
+  if (!localStorage.getItem("theme")) applyTheme(ev.matches ? "dark" : "light");
+});
 
 /* ----------------------------------------------------------
    SOUND
@@ -288,22 +305,32 @@ function playErrorSound()   { playBeep(220, 0.35, "sawtooth"); }
 function playCashSound()    { playBeep(1320, 0.08); setTimeout(() => playBeep(1760, 0.08), 90); setTimeout(() => playBeep(2093, 0.16), 180); }
 
 /* ----------------------------------------------------------
-   AUTH TABS
+   AUTH TABS — animated slide
    ---------------------------------------------------------- */
-if (tabLogin) tabLogin.addEventListener("click", () => {
-  isSignupMode = false;
-  tabLogin.classList.add("active");
-  tabSignup && tabSignup.classList.remove("active");
-  if (authSubmit) authSubmit.textContent = "Login";
+const authTabs = $("auth-tabs");
+
+function setAuthMode(isSignup) {
+  isSignupMode = isSignup;
+  if (authTabs) authTabs.classList.toggle("signup-mode", isSignup);
+  tabLogin?.classList.toggle("active", !isSignup);
+  tabSignup?.classList.toggle("active", isSignup);
+  if (authSubmit) authSubmit.textContent = isSignup ? "Create Account" : "Login";
   if (authError) authError.textContent = "";
-});
-if (tabSignup) tabSignup.addEventListener("click", () => {
-  isSignupMode = true;
-  tabSignup.classList.add("active");
-  tabLogin && tabLogin.classList.remove("active");
-  if (authSubmit) authSubmit.textContent = "Create Account";
-  if (authError) authError.textContent = "";
-});
+  // replay form animation
+  const form = $("auth-form");
+  if (form) {
+    form.style.animation = "none";
+    void form.offsetWidth;
+    form.style.animation = "";
+  }
+  setTimeout(() => {
+    const input = isSignup ? emailInput : emailInput;
+    if (input) input.focus({ preventScroll: true });
+  }, 300);
+}
+
+if (tabLogin)  tabLogin.addEventListener("click", () => setAuthMode(false));
+if (tabSignup) tabSignup.addEventListener("click", () => setAuthMode(true));
 
 /* ----------------------------------------------------------
    SIGNUP / LOGIN
@@ -2736,7 +2763,85 @@ window.deleteUser = async (userId) => {
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 };
+/* ----------------------------------------------------------
+   PWA — Service Worker & Install Prompt
+   ---------------------------------------------------------- */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("sw.js", { scope: "./" })
+      .then((reg) => {
+        console.log("[SW] registered:", reg.scope);
+        reg.addEventListener("updatefound", () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener("statechange", () => {
+            if (nw.state === "installed" && navigator.serviceWorker.controller) {
+              showToast("New version ready — refresh to update 🔄");
+            }
+          });
+        });
+      })
+      .catch((err) => console.warn("[SW] registration failed:", err));
+  });
+}
 
+let deferredPrompt = null;
+const installBtn = $("install-btn");
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  if (installBtn) installBtn.classList.remove("hidden");
+});
+
+if (installBtn) {
+  installBtn.addEventListener("click", async () => {
+    if (!deferredPrompt) {
+      showToast("Install from browser menu → 'Add to Home Screen'");
+      return;
+    }
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice.outcome === "accepted") {
+      showToast("Kurt POS installed 🎉");
+      installBtn.classList.add("hidden");
+    }
+    deferredPrompt = null;
+  });
+}
+
+window.addEventListener("appinstalled", () => {
+  showToast("Kurt POS installed 🎉");
+  installBtn && installBtn.classList.add("hidden");
+});
+
+/* ---------- ONLINE / OFFLINE ---------- */
+const offlineBanner = $("offline-banner");
+function updateOnlineStatus() {
+  const online = navigator.onLine;
+  if (offlineBanner) offlineBanner.classList.toggle("hidden", online);
+  document.documentElement.classList.toggle("is-offline", !online);
+}
+window.addEventListener("online", () => {
+  updateOnlineStatus();
+  showToast("Back online ✅ — syncing…");
+});
+window.addEventListener("offline", () => {
+  updateOnlineStatus();
+  showToast("Offline mode 📡 — changes will sync later");
+});
+updateOnlineStatus();
+
+/* ---------- Keyboard shortcuts (special feature) ---------- */
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea, select")) return;
+  if (e.key === "/") {
+    e.preventDefault();
+    const s = $("search-input") || $("dash-search") || $("sales-search");
+    s && s.focus();
+  }
+});
 /* ----------------------------------------------------------
    UTILITIES
    ---------------------------------------------------------- */

@@ -1,5 +1,5 @@
 /* ==========================================================
-   style.css — Kurt Inventory
+   style.css — Kurt Inventory (PWA + modern animations)
    ========================================================== */
 
 :root {
@@ -57,6 +57,7 @@ body {
   -webkit-font-smoothing: antialiased;
   padding-bottom: 80px;
   min-height: 100vh;
+  overscroll-behavior-y: none;
 }
 
 img { max-width: 100%; display: block; }
@@ -148,7 +149,17 @@ a { color: var(--brand); text-decoration: none; }
   -webkit-mask-image: radial-gradient(circle at 50% 40%, #000, transparent 78%);
   mask-image: radial-gradient(circle at 50% 40%, #000, transparent 78%);
 }
-
+.auth-card .logo {
+  font-size: 1.4rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 6px;
+  background: linear-gradient(135deg, #12544F, #2FA38F, #5FC2A6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: white;
+}
 .auth-card {
   position: relative; z-index: 3;
   width: 100%; max-width: 400px;
@@ -157,7 +168,7 @@ a { color: var(--brand); text-decoration: none; }
   backdrop-filter: blur(22px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: var(--radius);
-  padding: 32px 24px 28px;
+  padding: 32px 24px 22px;
   box-shadow: 0 26px 68px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.15);
   animation: cardIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -206,16 +217,46 @@ a { color: var(--brand); text-decoration: none; }
   8%, 30% { opacity: 1; transform: none; }
   35%, 100% { opacity: 0; transform: translateY(-10px); }
 }
+.logo { font-size: 1.4rem; font-weight: 800; color: white; text-align: center; margin-bottom: 6px; }
 
+/* ---------- ANIMATED AUTH TABS ---------- */
 .auth-tabs {
-  display: flex; gap: 4px; background: var(--surface-2);
-  border-radius: var(--radius-sm); padding: 4px; margin-bottom: 20px;
+  position: relative;
+  display: flex; gap: 4px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  margin-bottom: 20px;
+  overflow: hidden;
 }
+.auth-tabs .tab-indicator {
+  position: absolute;
+  top: 4px; left: 4px;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  background: var(--surface);
+  border-radius: var(--radius-xs);
+  box-shadow: 0 2px 8px rgba(18, 84, 79, 0.15), 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 0;
+}
+.auth-tabs.signup-mode .tab-indicator { transform: translateX(100%); }
 .tab {
+  position: relative; z-index: 1;
   flex: 1; padding: 10px; border-radius: var(--radius-xs);
-  font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); transition: all 0.2s;
+  font-weight: 600; font-size: 0.9rem;
+  color: var(--text-secondary); transition: color 0.3s ease;
 }
-.tab.active { background: var(--surface); color: var(--brand); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.tab.active { color: var(--brand); }
+
+/* Form transition when switching modes */
+#auth-form {
+  animation: formSlide 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes formSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
 
 .field { position: relative; display: block; margin-bottom: 14px; }
 .field-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); font-size: 0.9rem; opacity: 0.7; pointer-events: none; }
@@ -230,6 +271,55 @@ a { color: var(--brand); text-decoration: none; }
 [data-theme="dark"] .field input:focus { background: rgba(15, 26, 31, 0.85); }
 
 .error-msg { color: var(--danger); font-size: 0.85rem; text-align: center; margin-top: 12px; min-height: 20px; }
+
+/* ---------- SOCIAL LINKS ---------- */
+.social-divider {
+  position: relative; text-align: center;
+  margin: 18px 0 14px;
+}
+.social-divider::before {
+  content: ""; position: absolute; top: 50%; left: 0; right: 0;
+  height: 1px; background: var(--border);
+}
+.social-divider span {
+  position: relative; display: inline-block;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0 12px;
+  font-size: 0.72rem; font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+[data-theme="dark"] .social-divider span { background: rgba(22, 34, 40, 0.92); }
+
+.social-links {
+  display: flex; justify-content: center; gap: 10px;
+  margin-bottom: 4px;
+}
+.social-icon {
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              color 0.25s ease,
+              border-color 0.25s ease,
+              background 0.25s ease,
+              box-shadow 0.25s ease;
+}
+.social-icon svg { width: 20px; height: 20px; }
+.social-icon:hover {
+  transform: translateY(-3px) scale(1.06);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 8px 20px rgba(18, 84, 79, 0.28);
+}
+.social-icon[aria-label="Facebook"]:hover { background: #1877F2; }
+.social-icon[aria-label="Instagram"]:hover { background: linear-gradient(135deg, #F58529, #DD2A7B, #8134AF); }
+.social-icon[aria-label="X"]:hover { background: #000; }
+.social-icon[aria-label="GitHub"]:hover { background: #24292E; }
+[data-theme="dark"] .social-icon { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.1); color: #9db3b0; }
 
 .pending-card { text-align: center; }
 .pending-icon { font-size: 48px; margin-bottom: 12px; }
@@ -272,6 +362,22 @@ a { color: var(--brand); text-decoration: none; }
 }
 .section-heading-row .section-heading { margin: 0; }
 .export-btns { display: flex; gap: 6px; }
+
+/* ---------- Offline banner ---------- */
+.offline-banner {
+  display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+  color: #78350F;
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  font-size: 0.85rem; font-weight: 600;
+  margin-bottom: 12px;
+  animation: cardIn 0.35s ease;
+  border: 1px solid #FCD34D;
+}
+[data-theme="dark"] .offline-banner {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.1));
+  color: #FDE68A; border-color: rgba(245, 158, 11, 0.4);
+}
 
 /* ---------- Expiry banner ---------- */
 .expiry-banner {
@@ -396,7 +502,9 @@ form input:focus, form select:focus {
 
 /* ---------- Inventory list & item cards ---------- */
 .inventory-list {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
 }
 .item-card {
   background: var(--surface); border-radius: var(--radius-sm);
@@ -462,41 +570,52 @@ form input:focus, form select:focus {
   border: 1px dashed var(--border);
 }
 
-/* ---------- Sale rows ---------- */
+/* ==========================================================
+   SALES LIST (auto-fit on all screens)
+   ========================================================== */
+.sales-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.sales-list .empty-state { grid-column: 1 / -1; }
+
 .sale-row {
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 10px; padding: 10px 12px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px;
   background: var(--surface);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  min-width: 0;
 }
 .sale-row:hover {
   border-color: rgba(18, 84, 79, 0.35);
   box-shadow: var(--shadow);
+  transform: translateY(-1px);
 }
 .sale-row .sale-info {
   display: flex; gap: 10px; align-items: center;
   flex: 1; min-width: 0;
 }
-.sale-row .sale-txt { min-width: 0; }
+.sale-row .sale-txt { min-width: 0; flex: 1; }
 .sale-row .sale-name {
-  font-weight: 700; font-size: 0.9rem;
+  font-weight: 700; font-size: 0.88rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sale-date { font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px; }
+.sale-date { font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sale-total {
-  font-weight: 800; color: var(--brand); font-size: 0.95rem;
-  min-width: 72px; text-align: right;
+  font-weight: 800; color: var(--brand); font-size: 0.9rem;
+  white-space: nowrap;
 }
-
 .sale-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
 .sale-action-btn {
-  width: 32px; height: 32px;
+  width: 30px; height: 30px;
   border-radius: 8px;
   background: var(--surface-2);
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   display: grid; place-items: center;
   transition: all 0.15s ease;
   cursor: pointer;
@@ -607,7 +726,7 @@ form input:focus, form select:focus {
    ========================================================== */
 .pos-layout {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 16px;
   align-items: start;
 }
@@ -621,12 +740,14 @@ form input:focus, form select:focus {
   padding: 14px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+  min-width: 0;
 }
 .pos-search-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .pos-search-row input {
   flex: 1; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--radius-xs);
   background: var(--surface-2); font-size: 0.9rem;
+  min-width: 0;
 }
 .pos-search-row input:focus {
   outline: none; border-color: var(--brand);
@@ -927,7 +1048,7 @@ form input:focus, form select:focus {
   padding: 34px 20px; text-align: center; border-radius: 20px;
   background: var(--brand-50); color: var(--text-secondary); font-size: 0.9rem;
 }
-.page-title { font-size: 1.15rem; font-weight: 700; color: white; margin-bottom: 12px; font-family: 'Poppins', sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+
 /* ==========================================================
    FAST/SLOW MOVING RANK LIST
    ========================================================== */
@@ -1014,7 +1135,6 @@ form input:focus, form select:focus {
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .modal-head h3 { font-size: 1.05rem; color: var(--brand); margin: 0; }
 
-/* Enhanced scanner */
 .scanner-reader {
   width: 100%;
   min-height: 280px;
@@ -1149,10 +1269,11 @@ form input:focus, form select:focus {
   .auth-card { padding: 26px 18px 22px; }
   .receipt { font-size: 10px; padding: 5mm 4mm; }
   .pos-mini-slide { font-size: 0.6rem; }
-  .sale-row { flex-wrap: wrap; }
-  .sale-actions { margin-left: auto; }
+  .sales-list { grid-template-columns: 1fr; }
   .history-receipt-head { flex-wrap: wrap; }
   .history-receipt-total { width: 100%; text-align: left; }
+  .social-icon { width: 38px; height: 38px; }
+  .social-icon svg { width: 18px; height: 18px; }
 }
 
 @media (min-width: 768px) {

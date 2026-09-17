@@ -1,0 +1,23 @@
+{
+  "name": "Kurt Inventory · Smart Stock & Sales",
+  "short_name": "Kurt POS",
+  "description": "Multi-tenant inventory, POS, and sales system with offline support.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#0F1A1F",
+  "theme_color": "#12544F",
+  "categories": ["business", "productivity", "shopping"],
+  "icons": [
+    { "src": "kimkurt.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "kimkurt.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "kimkurt.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Point of Sale", "short_name": "POS", "url": "./index.html#pos" },
+    { "name": "Add Item", "short_name": "Add", "url": "./index.html#add" },
+    { "name": "History", "short_name": "History", "url": "./index.html#history" }
+  ]
+}
