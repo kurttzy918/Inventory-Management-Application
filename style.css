@@ -30,6 +30,9 @@
   --danger: #EF4444;
   --info: #3B82F6;
 
+  /* ✅ Title color — minimalist, dark on light, white on dark */
+  --title-color: #0F172A;
+
   --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -44,10 +47,14 @@
   --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
   --brand-50: #0E1F1E;
   --brand-100: #163330;
+
+  /* ✅ White titles in dark mode */
+  --title-color: #FFFFFF;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
 
 body {
   font-family: var(--font);
@@ -149,17 +156,7 @@ a { color: var(--brand); text-decoration: none; }
   -webkit-mask-image: radial-gradient(circle at 50% 40%, #000, transparent 78%);
   mask-image: radial-gradient(circle at 50% 40%, #000, transparent 78%);
 }
-.auth-card .logo {
-  font-size: 1.4rem;
-  font-weight: 800;
-  text-align: center;
-  margin-bottom: 6px;
-  background: linear-gradient(135deg, #12544F, #2FA38F, #5FC2A6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: white;
-}
+
 .auth-card {
   position: relative; z-index: 3;
   width: 100%; max-width: 400px;
@@ -201,7 +198,16 @@ a { color: var(--brand); text-decoration: none; }
 @keyframes logoFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 .brand-fallback { position: relative; font-size: 40px; }
 
-.auth-card .logo { font-size: 1.4rem; font-weight: 800; color: var(--brand); text-align: center; margin-bottom: 6px; }
+/* ---------- AUTH CARD LOGO — minimalist white ---------- */
+.auth-card .logo {
+  font-size: 1.4rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 6px;
+  color: #FFFFFF;
+  letter-spacing: 0.01em;
+}
+[data-theme="light"] .auth-card .logo { color: #0F172A; }
 
 .subtitle-carousel { position: relative; height: 22px; overflow: hidden; margin: 8px 0 18px; }
 .carousel-text {
@@ -217,7 +223,6 @@ a { color: var(--brand); text-decoration: none; }
   8%, 30% { opacity: 1; transform: none; }
   35%, 100% { opacity: 0; transform: translateY(-10px); }
 }
-.logo { font-size: 1.4rem; font-weight: 800; color: white; text-align: center; margin-bottom: 6px; }
 
 /* ---------- ANIMATED AUTH TABS ---------- */
 .auth-tabs {
@@ -249,10 +254,7 @@ a { color: var(--brand); text-decoration: none; }
 }
 .tab.active { color: var(--brand); }
 
-/* Form transition when switching modes */
-#auth-form {
-  animation: formSlide 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
+#auth-form { animation: formSlide 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes formSlide {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
@@ -336,25 +338,95 @@ a { color: var(--brand); text-decoration: none; }
   padding: 14px 0; border-bottom: 1px solid var(--border);
   margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
 }
-.brand-mini { display: flex; align-items: center; gap: 10px; }
+
+/* ---------- BRAND (topbar) ---------- */
+.brand-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.brand-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .brand-mini-logo {
   width: 34px; height: 34px; object-fit: contain;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
 }
 .brand-mini-fallback { font-size: 22px; }
 .brand-mini .logo {
-  font-size: 1.05rem; color: var(--brand); font-weight: 800;
-  text-transform: capitalize; letter-spacing: 0.02em; margin: 0; text-align: left;
+  font-size: 1.15rem;
+  color: #FFFFFF;
+  font-weight: 800;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+  margin: 0;
+  text-align: left;
+}
+[data-theme="light"] .brand-mini .logo { color: #0F172A; }
+
+/* ---------- Topbar tagline carousel ---------- */
+.brand-tagline-carousel {
+  position: relative;
+  height: 14px;
+  margin-left: 44px;
+  overflow: hidden;
+  min-width: 0;
+}
+.brand-tagline {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--brand-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: brandTaglineFade 9s infinite;
+}
+.brand-tagline:nth-child(1) { animation-delay: 0s; }
+.brand-tagline:nth-child(2) { animation-delay: 3s; }
+.brand-tagline:nth-child(3) { animation-delay: 6s; }
+
+@keyframes brandTaglineFade {
+  0%, 3%   { opacity: 0; transform: translateY(8px); }
+  8%, 30%  { opacity: 1; transform: none; }
+  35%,100% { opacity: 0; transform: translateY(-8px); }
 }
 
+[data-theme="dark"] .brand-tagline { color: #8FE3C8; }
+
+/* ---------- User area ---------- */
 .user-area { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .user-email {
   font-size: 0.82rem; color: var(--text-secondary);
   max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ---------- Page titles (minimalist white) ---------- */
 .page { padding-bottom: 20px; }
-.page-title { font-size: 1.5rem; font-weight: 800; margin-bottom: 16px; color: var(--brand); }
-.section-heading { font-size: 1.1rem; font-weight: 700; margin: 24px 0 12px; color: var(--brand); }
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 16px;
+  color: var(--title-color);
+}
+.section-heading {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 24px 0 12px;
+  color: var(--title-color);
+}
+.card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--title-color);
+}
 
 .section-heading-row {
   display: flex; justify-content: space-between; align-items: center;
@@ -426,11 +498,9 @@ a { color: var(--brand); text-decoration: none; }
   background: var(--surface); border-radius: var(--radius);
   padding: 18px; box-shadow: var(--shadow); margin-bottom: 16px;
 }
-.card-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; color: var(--brand); }
 
 /* ==========================================================
-   GLOBAL FORM CONTROLS — works in ANY container
-   (fixes restock / receipt modals when in dark mode)
+   GLOBAL FORM CONTROLS
    ========================================================== */
 input[type="text"],
 input[type="number"],
@@ -448,7 +518,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   background: var(--surface);
-  color: var(--text);                 /* ✅ text always matches theme */
+  color: var(--text);
   font: inherit;
   font-size: 0.95rem;
   line-height: 1.4;
@@ -457,14 +527,12 @@ textarea {
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s, color 0.2s;
 }
 
-/* Placeholder adapts to theme too */
 input::placeholder,
 textarea::placeholder {
   color: var(--text-secondary);
   opacity: 0.85;
 }
 
-/* Native number spinners + autofill respect the theme */
 input[type="number"] { color-scheme: light; }
 [data-theme="dark"] input[type="number"] { color-scheme: dark; }
 
@@ -477,7 +545,6 @@ input:-webkit-autofill:focus {
   caret-color: var(--text);
 }
 
-/* Focus ring */
 input:focus,
 select:focus,
 textarea:focus {
@@ -487,11 +554,9 @@ textarea:focus {
   background: var(--surface);
 }
 
-/* Date picker colours in dark mode */
 [data-theme="dark"] input[type="date"],
 [data-theme="dark"] input[type="time"] { color-scheme: dark; }
 
-/* Labels */
 form label,
 .modal-card label,
 .restock-card label,
@@ -503,7 +568,6 @@ form label,
   margin-bottom: 12px;
 }
 
-/* --- Specific: Restock modal --- */
 .restock-card label {
   display: flex;
   flex-direction: column;
@@ -678,7 +742,6 @@ form label,
   overflow: hidden;
 }
 
-/* ✅ STRICT SIZE — kills any broken-image / oversized-fallback bug */
 .sale-row img.product-img,
 .sale-row .product-img,
 .sale-row .product-img.sm,
@@ -701,57 +764,29 @@ form label,
   font-size: 1rem;
 }
 
-.sale-row .sale-txt {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-}
+.sale-row .sale-txt { flex: 1 1 0; min-width: 0; overflow: hidden; }
 .sale-row .sale-name {
-  font-weight: 700;
-  font-size: 0.88rem;
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-  max-width: 100%;
+  font-weight: 700; font-size: 0.88rem; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; max-width: 100%;
 }
 .sale-row .sale-date {
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-  max-width: 100%;
+  font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; max-width: 100%;
 }
 .sale-row .sale-total {
-  font-weight: 800;
-  color: var(--brand);
-  font-size: 0.9rem;
-  white-space: nowrap;
-  flex: 0 0 auto;
+  font-weight: 800; color: var(--brand); font-size: 0.9rem;
+  white-space: nowrap; flex: 0 0 auto;
 }
-.sale-row .sale-actions {
-  display: flex;
-  gap: 4px;
-  flex: 0 0 auto;
-}
+.sale-row .sale-actions { display: flex; gap: 4px; flex: 0 0 auto; }
 
 .sale-action-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.8rem;
-  display: grid;
-  place-items: center;
-  transition: all 0.15s ease;
-  cursor: pointer;
-  border: 1px solid transparent;
-  padding: 0;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--surface-2); color: var(--text);
+  font-size: 0.8rem; display: grid; place-items: center;
+  transition: all 0.15s ease; cursor: pointer;
+  border: 1px solid transparent; padding: 0;
 }
 .sale-action-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
 .sale-action-btn.receipt:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
@@ -988,7 +1023,7 @@ form label,
   max-height: calc(100vh - 120px);
 }
 .pos-cart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.pos-cart-head h3 { font-size: 1.05rem; color: var(--brand); }
+.pos-cart-head h3 { font-size: 1.05rem; color: var(--title-color); }
 
 .pos-cart-items {
   flex: 1; overflow-y: auto;
@@ -1045,6 +1080,51 @@ form label,
 .restock-card { max-width: 380px; }
 .restock-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
 .restock-current { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 12px; }
+
+/* ==========================================================
+   MODAL (shared)
+   ========================================================== */
+.modal {
+  position: fixed; inset: 0; z-index: 1000; padding: 16px;
+  display: grid; place-items: center;
+  background: rgba(6, 26, 24, 0.74);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  width: min(480px, 100%);
+  max-width: calc(100vw - 16px);
+  background: var(--brand-50);
+  border-radius: 22px; padding: 18px;
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.38);
+  animation: cardIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  max-height: 92vh;
+  overflow: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: nowrap;
+}
+.modal-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1.05rem;
+  color: var(--title-color);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.modal-head .btn.icon-btn,
+.modal-head .scanner-close-btn { flex: 0 0 auto; }
 
 /* ==========================================================
    RECEIPT (thermal 80mm)
@@ -1289,7 +1369,7 @@ form label,
 }
 .scanner-head h3 {
   font-size: 1.05rem;
-  color: var(--brand);
+  color: var(--title-color);
   margin: 0;
 }
 .scanner-close-btn {
@@ -1307,7 +1387,6 @@ form label,
 }
 .scanner-close-btn:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
 
-/* --- Camera viewport: strict square, never overflows --- */
 .scanner-view {
   position: relative;
   width: 100%;
@@ -1329,7 +1408,6 @@ form label,
   background: #000;
 }
 
-/* Force EVERY element the html5-qrcode library injects to fill the box */
 .scanner-reader > div,
 .scanner-reader > video,
 .scanner-reader > canvas,
@@ -1353,14 +1431,12 @@ form label,
   box-sizing: border-box !important;
 }
 
-/* Override the library's own shaded overlay so it doesn't leak outside */
 .scanner-reader #qr-shaded-region {
   border-width: 0 !important;
   border-radius: 16px !important;
   box-shadow: inset 0 0 0 100vmax rgba(0, 0, 0, 0.45) !important;
 }
 
-/* Our own corner frame + laser */
 .scanner-frame {
   position: absolute;
   inset: 0;
@@ -1395,7 +1471,6 @@ form label,
   100% { top: 15%; }
 }
 
-/* --- Status pill --- */
 .scanner-status {
   flex-shrink: 0;
   font-size: 0.82rem;
@@ -1418,7 +1493,6 @@ form label,
 [data-theme="dark"] .scanner-status.success { background: rgba(34,197,94,0.15);  color: #86EFAC; border-color: rgba(34,197,94,0.35); }
 [data-theme="dark"] .scanner-status.error   { background: rgba(239,68,68,0.15);  color: #FCA5A5; border-color: rgba(239,68,68,0.35); }
 
-/* --- Manual entry row (never cut off) --- */
 .scanner-manual {
   display: flex;
   gap: 8px;
@@ -1450,7 +1524,6 @@ form label,
   font-size: 0.85rem;
 }
 
-/* --- Mobile: full-screen sheet --- */
 @media (max-width: 520px) {
   .scanner-modal { padding: 0; align-items: stretch; }
   .scanner-sheet {
@@ -1520,13 +1593,26 @@ form label,
 [data-theme="dark"] .rank-name { color: #e7f3f1; }
 [data-theme="dark"] .rank-sub { color: #9db3b0; }
 [data-theme="dark"] .modal-card { background: var(--surface); border: 1px solid var(--border); }
-[data-theme="dark"] .modal-head h3 { color: #8FE3C8; }
 [data-theme="dark"] .hint { color: #9db3b0; }
 [data-theme="dark"] .scan-btn { background: rgba(47, 163, 143, 0.16); color: #8FE3C8; border-color: rgba(47, 163, 143, 0.35); }
 [data-theme="dark"] .photo-preview { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.15); }
 [data-theme="dark"] .pos-cart-empty { color: #9db3b0; }
 [data-theme="dark"] .receipt-modal-card { background: var(--surface); border: 1px solid var(--border); }
 [data-theme="dark"] .pos-qty-btn { background: rgba(255, 255, 255, 0.08); color: #e7f3f1; }
+
+/* ==========================================================
+   LOGO CHANGE BUTTON
+   ========================================================== */
+#logo-change-btn { position: relative; }
+#logo-change-btn:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+#logo-img, #brand-logo {
+  transition: filter 0.2s, transform 0.2s;
+}
+#logo-img:hover, #brand-logo:hover {
+  filter: brightness(1.15) drop-shadow(0 4px 10px rgba(18, 84, 79, 0.4));
+  transform: scale(1.05);
+}
 
 /* ==========================================================
    RESPONSIVE
@@ -1553,6 +1639,10 @@ form label,
   .history-receipt-total { width: 100%; text-align: left; }
   .social-icon { width: 38px; height: 38px; }
   .social-icon svg { width: 18px; height: 18px; }
+
+  .brand-tagline { font-size: 0.62rem; }
+  .brand-tagline-carousel { margin-left: 42px; }
+  .brand-mini .logo { font-size: 1.02rem; }
 }
 
 @media (min-width: 768px) {
@@ -1561,35 +1651,4 @@ form label,
     max-width: 1400px; margin: 0 auto; left: 50%; transform: translateX(-50%);
     border-radius: 16px 16px 0 0; border: 1px solid var(--border); border-bottom: none;
   }
-}
-#page-dashboard .page-title,
-#page-dashboard .section-heading {
-  background: linear-gradient(135deg, #F59E0B, #E8B33A, #FDE68A);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: white;
-}
-[data-theme="dark"] #page-dashboard .page-title,
-[data-theme="dark"] #page-dashboard .section-heading {
-  background: linear-gradient(135deg, #F59E0B, #E8B33A, #FDE68A);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: transparent;
-}
-.brand-mini .logo {
-  font-size: 1.15rem;
-  font-weight: 800;
-  background: linear-gradient(135deg, #12544F, #2FA38F, #5FC2A6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: transparent;
-}
-[data-theme="dark"] .brand-mini .logo {
-  background: linear-gradient(135deg, #8FE3C8, #5FC2A6, #2FA38F);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
