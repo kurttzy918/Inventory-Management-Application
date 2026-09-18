@@ -26,7 +26,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+   
   <link rel="stylesheet" href="style.css" />
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -52,12 +53,12 @@
     <div class="auth-card">
       <div class="brand-mark">
         <span class="brand-ring"></span>
-        <img id="logo-img" class="brand-logo" src="kimkurt.png" alt="Company logo"
+        <img id="logo-img" class="brand-logo" src="kurt.png" alt="Company logo"
              onerror="this.classList.add('hidden');document.getElementById('brand-fallback').classList.remove('hidden');" />
         <div id="brand-fallback" class="brand-fallback hidden">📦</div>
       </div>
 
-      <h1 class="logo">Kurt Inventory</h1>
+      <h1 class="logo">Kurt Sari-Sari Store POS</h1>
 
       <div class="subtitle-carousel">
         <span class="carousel-text">Manage your inventory in real time</span>
@@ -136,7 +137,7 @@
 
     <header class="topbar">
       <div class="brand-mini">
-        <img id="brand-logo" class="brand-mini-logo" src="kimkurt.png" alt=""
+        <img id="brand-logo" class="brand-mini-logo" src="kurt.png" alt=""
              onerror="this.classList.add('hidden');document.getElementById('brand-mini-fallback').classList.remove('hidden');" />
         <div id="brand-mini-fallback" class="brand-mini-fallback hidden">📦</div>
         <h1 class="logo">Kurt POS</h1>
@@ -435,22 +436,33 @@
   </section>
 
   <!-- ================= BARCODE SCANNER MODAL ================= -->
-  <div id="scanner-modal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-head">
-        <h3 id="scanner-title">Scan Barcode</h3>
-        <button id="scanner-close" class="btn ghost icon-btn" aria-label="Close scanner">✕</button>
-      </div>
+<div id="scanner-modal" class="scanner-modal hidden" role="dialog" aria-modal="true">
+  <div class="scanner-sheet">
+    <div class="scanner-head">
+      <h3 id="scanner-title">Scan Barcode</h3>
+      <button id="scanner-close" class="scanner-close-btn" aria-label="Close scanner">✕</button>
+    </div>
 
+    <div class="scanner-view" id="scanner-view">
       <div id="scanner-reader" class="scanner-reader"></div>
-      <p id="scanner-status" class="scanner-status">Point the camera at a barcode…</p>
-
-      <div class="scanner-manual">
-        <input id="scanner-manual-input" type="text" inputmode="text" placeholder="Or type barcode / SKU…" />
-        <button id="scanner-manual-btn" class="btn primary">Use</button>
+      <div class="scanner-frame" aria-hidden="true">
+        <span class="scan-corner tl"></span>
+        <span class="scan-corner tr"></span>
+        <span class="scan-corner bl"></span>
+        <span class="scan-corner br"></span>
+        <span class="scan-laser"></span>
       </div>
     </div>
+
+    <p id="scanner-status" class="scanner-status">Point the camera at a barcode…</p>
+
+    <div class="scanner-manual">
+      <input id="scanner-manual-input" type="text" inputmode="text"
+             placeholder="Or type barcode / SKU…" autocomplete="off" />
+      <button id="scanner-manual-btn" class="btn primary" type="button">Use</button>
+    </div>
   </div>
+</div>
 
   <!-- ================= RESTOCK MODAL ================= -->
   <div id="restock-modal" class="modal hidden">

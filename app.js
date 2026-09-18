@@ -270,7 +270,7 @@ if (themeToggle) themeToggle.addEventListener("click", () => {
 });
 if (themeIcon) themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
-  
+
   /* Optional: apply theme again on system change */
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", (ev) => {
   if (!localStorage.getItem("theme")) applyTheme(ev.matches ? "dark" : "light");
@@ -764,130 +764,130 @@ if (itemSku) itemSku.addEventListener("input", () => {
 });
 
 /* ==========================================================
-   ============ BARCODE SCANNER — v3 (fully fixed) ==========
+   BARCODE SCANNER — v4 (full rewrite, mobile-safe)
    ========================================================== */
-
 const SCANNER_STATE = { IDLE: "idle", STARTING: "starting", RUNNING: "running", STOPPING: "stopping" };
 
 let scannerInstance = null;
-let scannerState = SCANNER_STATE.IDLE;
-let scannerOpening = false;
-let scannerTarget = null;
-let lastScanCode = "";
-let lastScanTime = 0;
+let scannerState    = SCANNER_STATE.IDLE;
+let scannerOpening  = false;
+let scannerTarget   = null;
+let lastScanCode    = "";
+let lastScanTime    = 0;
 const SCAN_COOLDOWN_MS = 1200;
 
 let cameraList = [];
 let selectedCameraId = localStorage.getItem("preferredCameraId") || "";
 
+/* ---------- Helpers ---------- */
 function getScannerFormats() {
   const F = window.Html5QrcodeSupportedFormats;
   if (!F) return null;
-  const list = [
+  return [
     F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
     F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR,
     F.DATA_MATRIX, F.PDF_417
-  ];
-  return list.filter(v => v !== undefined && v !== null);
+  ].filter(v => v !== undefined && v !== null);
 }
 
-function setScannerStatus(text, type = "") {
+function setScannerStatus(html, type = "") {
   if (!scannerStatus) return;
-  scannerStatus.innerHTML = text;
+  scannerStatus.innerHTML = html;
   scannerStatus.classList.remove("success", "error");
   if (type) scannerStatus.classList.add(type);
 }
 
 function checkCameraEnvironment() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    return { ok: false, reason: "Your browser does not support camera access. Type the barcode below." };
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return { ok: false, reason: "This browser doesn't support camera access. Type the barcode below." };
   }
   const isHttps = location.protocol === "https:";
   const isLocal = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
-  const isFile = location.protocol === "file:";
+  const isFile  = location.protocol === "file:";
   if (!isHttps && !isLocal && !isFile) {
     return {
       ok: false,
-      reason: `Camera requires <b>HTTPS</b> or <b>localhost</b>. Currently on <code>${location.protocol}//${location.host}</code>.`
+      reason: `Camera needs <b>HTTPS</b> or <b>localhost</b>.<br>Type the barcode below.`
     };
   }
   return { ok: true };
 }
 
 async function enumerateCameras() {
-  try {
-    const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    tempStream.getTracks().forEach(t => t.stop());
-  } catch (permErr) {
-    throw permErr;
-  }
+  const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+  tempStream.getTracks().forEach(t => t.stop());
   const devices = await navigator.mediaDevices.enumerateDevices();
   return devices.filter(d => d.kind === "videoinput");
 }
 
 function cameraErrorMessage(err) {
   const name = err?.name || "";
-  const msg = err?.message || String(err);
-
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-    return "🚫 Camera permission <b>denied</b>. Click the 🔒 icon in the address bar → allow Camera → reload.";
-  }
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "📷 <b>No camera found</b>. Type the barcode below instead.";
-  }
-  if (name === "NotReadableError" || name === "TrackStartError") {
-    return "⚠️ Camera is <b>busy</b> — another app or tab is using it. Close it and tap Retry.";
-  }
-  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
-    return "⚠️ Camera doesn't support the requested settings. Tap Retry.";
-  }
-  if (name === "SecurityError") {
-    return "🔒 Browser blocked camera for security. Use HTTPS or localhost.";
-  }
+  const msg  = err?.message || String(err);
+  if (name === "NotAllowedError" || name === "PermissionDeniedError")
+    return "🚫 Camera permission <b>denied</b>. Allow camera in your browser settings and try again.";
+  if (name === "NotFoundError" || name === "DevicesNotFoundError")
+    return "📷 <b>No camera found</b>. Type the barcode below.";
+  if (name === "NotReadableError" || name === "TrackStartError")
+    return "⚠️ Camera is <b>busy</b> — another app is using it. Close it and try again.";
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError")
+    return "⚠️ Camera doesn't support the requested settings. Try again.";
+  if (name === "SecurityError")
+    return "🔒 Browser blocked camera access. Use HTTPS or localhost.";
   return "❌ Camera error: <code>" + esc(msg.slice(0, 80)) + "</code>";
 }
 
+/* ---------- Open / Close ---------- */
 function openScanner(target) {
   if (scannerOpening) return;
   if (scannerState === SCANNER_STATE.STARTING || scannerState === SCANNER_STATE.RUNNING) return;
   scannerOpening = true;
-  scannerTarget = target;
+  scannerTarget  = target;
 
   if (scannerTitle) {
     scannerTitle.textContent =
       target === "barcode" ? "Scan Product Barcode" :
-      target === "sale"    ? "Scan Items for POS" :
+      target === "sale"    ? "Scan Items for POS"  :
       "Scan Barcode";
-  }
-
-  const env = checkCameraEnvironment();
-  if (!env.ok) {
-    setScannerStatus(env.reason, "error");
-  } else {
-    setScannerStatus("Requesting camera permission…");
   }
 
   if (scannerManualInput) scannerManualInput.value = "";
   if (scannerModal) scannerModal.classList.remove("hidden");
-  setTimeout(() => { if (scannerManualInput) scannerManualInput.focus(); }, 300);
+  document.body.style.overflow = "hidden";
 
-  if (!env.ok) { scannerOpening = false; return; }
-  if (typeof Html5Qrcode === "undefined") {
-    setScannerStatus("Scanner library not loaded. Type the barcode below.", "error");
+  const env = checkCameraEnvironment();
+  if (!env.ok) {
+    setScannerStatus(env.reason, "error");
+    setTimeout(() => scannerManualInput?.focus(), 250);
     scannerOpening = false;
     return;
   }
 
-  requestAnimationFrame(() => requestAnimationFrame(() => startCameraNow()));
+  if (typeof Html5Qrcode === "undefined") {
+    setScannerStatus("Scanner library not loaded. Type the barcode below.", "error");
+    setTimeout(() => scannerManualInput?.focus(), 250);
+    scannerOpening = false;
+    return;
+  }
+
+  setScannerStatus("Requesting camera permission…");
+
+  /* Wait for layout to settle before measuring/starting */
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    setTimeout(startCameraNow, 50);
+  }));
 }
 
 async function startCameraNow() {
   const readerEl = document.getElementById("scanner-reader");
+  const viewEl   = document.getElementById("scanner-view");
   if (!readerEl) { scannerOpening = false; return; }
 
-  if (readerEl.clientWidth < 40 || readerEl.clientHeight < 40) {
-    await new Promise(r => setTimeout(r, 250));
-    if (readerEl.clientWidth < 40 || readerEl.clientHeight < 40) {
+  /* Ensure the viewport has real dimensions */
+  const rect = (viewEl || readerEl).getBoundingClientRect();
+  if (rect.width < 40 || rect.height < 40) {
+    await new Promise(r => setTimeout(r, 220));
+    const rect2 = (viewEl || readerEl).getBoundingClientRect();
+    if (rect2.width < 40 || rect2.height < 40) {
       setScannerStatus("Scanner viewport has no size. Type the barcode below.", "error");
       scannerOpening = false;
       return;
@@ -899,24 +899,27 @@ async function startCameraNow() {
     cameraList = await enumerateCameras();
     if (!cameraList.length) {
       setScannerStatus("📷 No camera found. Type the barcode below.", "error");
+      setTimeout(() => scannerManualInput?.focus(), 200);
       scannerOpening = false;
       return;
     }
-    console.log("[Scanner] cameras:", cameraList.map(c => ({ id: c.deviceId.slice(0,8), label: c.label })));
   } catch (permErr) {
-    console.warn("[Scanner] permission/enum error:", permErr);
+    console.warn("[Scanner] enumerate failed:", permErr);
     setScannerStatus(cameraErrorMessage(permErr), "error");
+    setTimeout(() => scannerManualInput?.focus(), 200);
     scannerOpening = false;
     return;
   }
 
-  let chosen = cameraList.find(c => /back|rear|environment/i.test(c.label));
-  if (!chosen) chosen = cameraList.find(c => c.deviceId === selectedCameraId);
-  if (!chosen) chosen = cameraList[0];
-  selectedCameraId = chosen.deviceId;
-  localStorage.setItem("preferredCameraId", selectedCameraId);
+  /* Pick a camera: prefer back/rear/environment */
+  let chosen =
+    cameraList.find(c => /back|rear|environment/i.test(c.label)) ||
+    cameraList.find(c => c.deviceId === selectedCameraId) ||
+    cameraList[0];
 
-  console.log("[Scanner] using camera:", chosen.label || chosen.deviceId);
+  selectedCameraId = chosen.deviceId;
+  try { localStorage.setItem("preferredCameraId", selectedCameraId); } catch (e) {}
+
   reallyStartCamera(readerEl, chosen.deviceId);
 }
 
@@ -926,7 +929,7 @@ function reallyStartCamera(readerEl, deviceId) {
   try {
     const opts = { verbose: false };
     const formats = getScannerFormats();
-    if (formats && formats.length) opts.formatsToSupport = formats;
+    if (formats?.length) opts.formatsToSupport = formats;
     scannerInstance = new Html5Qrcode("scanner-reader", opts);
   } catch (e) {
     console.error("[Scanner] init failed:", e);
@@ -942,7 +945,7 @@ function reallyStartCamera(readerEl, deviceId) {
     fps: 15,
     qrbox: (vw, vh) => {
       const min = Math.min(vw, vh);
-      const size = Math.max(150, Math.floor(min * 0.75));
+      const size = Math.max(140, Math.floor(min * 0.62));
       return { width: size, height: size };
     },
     aspectRatio: 1.0
@@ -963,10 +966,11 @@ function reallyStartCamera(readerEl, deviceId) {
       scannerState = SCANNER_STATE.IDLE;
       scannerInstance = null;
       setScannerStatus("Could not start any camera. Type the barcode below.", "error");
+      setTimeout(() => scannerManualInput?.focus(), 200);
       return;
     }
+
     const cfg = configs[attempt++];
-    console.log("[Scanner] trying config:", cfg);
 
     let promise;
     try {
@@ -977,7 +981,6 @@ function reallyStartCamera(readerEl, deviceId) {
         () => {}
       );
     } catch (e) {
-      console.warn("[Scanner] sync start error:", e);
       tryNext();
       return;
     }
@@ -990,17 +993,15 @@ function reallyStartCamera(readerEl, deviceId) {
       scannerState = SCANNER_STATE.RUNNING;
       scannerOpening = false;
       const invCount = inventory.length;
-      const invHint = invCount
+      const hint = invCount
         ? `${invCount} item${invCount !== 1 ? "s" : ""} loaded`
         : "⚠️ inventory still loading…";
       setScannerStatus(
         scannerTarget === "sale"
-          ? `Point at a barcode. Keep scanning to add more. (${invHint})`
-          : `Point the camera at a barcode… (${invHint})`
+          ? `Point at a barcode. Keep scanning to add more. (${hint})`
+          : `Point the camera at a barcode… (${hint})`
       );
-      console.log("[Scanner] ✅ started with config:", cfg);
-    }).catch(err => {
-      console.warn("[Scanner] config failed:", cfg, err);
+    }).catch(() => {
       if (scannerState === SCANNER_STATE.IDLE) return;
       tryNext();
     });
@@ -1009,24 +1010,31 @@ function reallyStartCamera(readerEl, deviceId) {
 }
 
 function forceCloseScanner() {
-  try { if (scannerInstance) { const s = scannerInstance.stop?.(); if (s?.catch) s.catch(() => {}); } } catch (e) {}
+  try {
+    if (scannerInstance) {
+      const p = scannerInstance.stop?.();
+      if (p?.catch) p.catch(() => {});
+    }
+  } catch (e) {}
   scannerInstance = null;
-  scannerState = SCANNER_STATE.IDLE;
-  scannerOpening = false;
-  lastScanCode = "";
-  lastScanTime = 0;
+  scannerState    = SCANNER_STATE.IDLE;
+  scannerOpening  = false;
+  lastScanCode    = "";
+  lastScanTime    = 0;
   if (scannerModal) scannerModal.classList.add("hidden");
+  document.body.style.overflow = "";
   const readerEl = document.getElementById("scanner-reader");
   if (readerEl) { try { readerEl.innerHTML = ""; } catch (e) {} }
 }
 
 function closeScanner() {
   if (scannerModal) scannerModal.classList.add("hidden");
+  document.body.style.overflow = "";
   scannerOpening = false;
 
-  const instance = scannerInstance;
+  const instance   = scannerInstance;
   const wasRunning = scannerState === SCANNER_STATE.RUNNING;
-  const wasStarting = scannerState === SCANNER_STATE.STARTING;
+  const wasStarting= scannerState === SCANNER_STATE.STARTING;
   scannerState = SCANNER_STATE.STOPPING;
 
   const finish = () => {
@@ -1058,6 +1066,7 @@ async function retryScanner() {
   openScanner(scannerTarget || "sale");
 }
 
+/* ---------- Scan result ---------- */
 function onScanSuccess(decodedText) {
   const code = String(decodedText || "").trim();
   if (!code) return;
@@ -1073,6 +1082,7 @@ function findItemByCode(code) {
   const norm  = String(code).trim().replace(/\s+/g, "");
   if (!norm) return null;
   const lower = norm.toLowerCase();
+
   let item = inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
   if (item) return item;
   item = inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
@@ -1089,8 +1099,7 @@ function findItemByCode(code) {
 }
 
 function handleScanResult(text) {
-  if (!text) return;
-  const code = String(text).trim();
+  const code = String(text || "").trim();
   if (!code) return;
 
   if (scannerTarget === "barcode") {
@@ -1116,13 +1125,11 @@ function handleScanResult(text) {
     addToCart(item.id);
     playSuccessSound();
     const cartCount = posCart.reduce((s, c) => s + c.qty, 0);
-    setScannerStatus(
-      `✅ Added: ${item.name}  ·  Cart: ${cartCount} item${cartCount !== 1 ? "s" : ""}`,
-      "success"
-    );
+    setScannerStatus(`✅ Added: ${item.name}  ·  Cart: ${cartCount} item${cartCount !== 1 ? "s" : ""}`, "success");
   }
 }
 
+/* ---------- Wire up buttons ---------- */
 if (scanBarcodeBtn) scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
 if (scanSaleBtn)    scanSaleBtn.addEventListener("click", () => openScanner("sale"));
 if (scannerClose)   scannerClose.addEventListener("click", closeScanner);
@@ -1142,11 +1149,11 @@ if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
   if (val) handleScanResult(val);
 });
 if (scannerManualInput) scannerManualInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); scannerManualBtn && scannerManualBtn.click(); }
+  if (e.key === "Enter") { e.preventDefault(); scannerManualBtn?.click(); }
 });
 if (scannerRetryBtn) scannerRetryBtn.addEventListener("click", retryScanner);
 
-/* Scan from image (no camera needed) */
+/* ---------- Scan from image file ---------- */
 if (scannerUploadBtn && scannerUploadInput) {
   scannerUploadBtn.addEventListener("click", () => scannerUploadInput.click());
   scannerUploadInput.addEventListener("change", async (e) => {
@@ -1159,9 +1166,9 @@ if (scannerUploadBtn && scannerUploadInput) {
       await new Promise(r => setTimeout(r, 200));
       if (scannerModal) scannerModal.classList.remove("hidden");
       await new Promise(r => requestAnimationFrame(r));
-      const tempInstance = new Html5Qrcode("scanner-reader", { verbose: false });
-      const result = await tempInstance.scanFile(file, true);
-      try { tempInstance.clear(); } catch (err) {}
+      const temp = new Html5Qrcode("scanner-reader", { verbose: false });
+      const result = await temp.scanFile(file, true);
+      try { temp.clear(); } catch (err) {}
       handleScanResult(result);
       setTimeout(() => forceCloseScanner(), 700);
     } catch (err) {
@@ -1170,9 +1177,8 @@ if (scannerUploadBtn && scannerUploadInput) {
     }
   });
 }
-
 /* ==========================================================
-   ============ END BARCODE SCANNER =========================
+   END BARCODE SCANNER
    ========================================================== */
 
 /* ----------------------------------------------------------
