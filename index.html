@@ -12,8 +12,11 @@
   <title>Kurt Inventory · Smart Stock &amp; Sales</title>
 
   <link rel="manifest" href="manifest.json" />
-  <link rel="icon" href="kimkurt.png" />
-  <link rel="apple-touch-icon" href="kimkurt.png" />
+  <!-- 🔁 To change the logo, just replace these two files with your own:
+       kurt.png  (used on the login/pending card)
+       kurt.png  (also used in the topbar brand — same file) -->
+  <link rel="icon" href="kurt.png" />
+  <link rel="apple-touch-icon" href="kurt.png" />
 
   <script>
     (function () {
@@ -27,7 +30,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
-   
+
   <link rel="stylesheet" href="style.css" />
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -53,9 +56,10 @@
     <div class="auth-card">
       <div class="brand-mark">
         <span class="brand-ring"></span>
+        <!-- 🔁 Replace kurt.png anytime to change the login logo -->
         <img id="logo-img" class="brand-logo" src="kurt.png" alt="Company logo"
-             onerror="this.classList.add('hidden');document.getElementById('brand-fallback').classList.remove('hidden');" />
-        <div id="brand-fallback" class="brand-fallback hidden"></div>
+             onerror="this.style.display='none';document.getElementById('brand-fallback').style.display='grid';" />
+        <div id="brand-fallback" class="brand-fallback" style="display:none">🏪</div>
       </div>
 
       <h1 class="logo">Kurt Sari-Sari Store POS</h1>
@@ -87,7 +91,6 @@
 
       <p id="auth-error" class="error-msg"></p>
 
-      <!-- Social icons -->
       <div class="social-divider"><span>or connect with</span></div>
       <div class="social-links">
         <a href="#" class="social-icon" aria-label="Facebook" title="Facebook" rel="noopener">
@@ -136,11 +139,12 @@
     </div>
 
     <header class="topbar">
-                <div class="brand-mini">
+      <div class="brand-mini">
         <div class="brand-mini-row">
+          <!-- 🔁 Replace kurt.png anytime to change the topbar logo -->
           <img id="brand-logo" class="brand-mini-logo" src="kurt.png" alt=""
-               onerror="this.classList.add('hidden');document.getElementById('brand-mini-fallback').classList.remove('hidden');" />
-          <div id="brand-mini-fallback" class="brand-mini-fallback hidden"></div>
+               onerror="this.style.display='none';document.getElementById('brand-mini-fallback').style.display='grid';" />
+          <div id="brand-mini-fallback" class="brand-mini-fallback" style="display:none">🏪</div>
           <h1 class="logo">Kurt POS</h1>
         </div>
         <div class="brand-tagline-carousel">
@@ -443,33 +447,33 @@
   </section>
 
   <!-- ================= BARCODE SCANNER MODAL ================= -->
-<div id="scanner-modal" class="scanner-modal hidden" role="dialog" aria-modal="true">
-  <div class="scanner-sheet">
-    <div class="scanner-head">
-      <h3 id="scanner-title">Scan Barcode</h3>
-      <button id="scanner-close" class="scanner-close-btn" aria-label="Close scanner">✕</button>
-    </div>
+  <div id="scanner-modal" class="scanner-modal hidden" role="dialog" aria-modal="true">
+    <div class="scanner-sheet">
+      <div class="scanner-head">
+        <h3 id="scanner-title">Scan Barcode</h3>
+        <button id="scanner-close" class="scanner-close-btn" aria-label="Close scanner">✕</button>
+      </div>
 
-    <div class="scanner-view" id="scanner-view">
-      <div id="scanner-reader" class="scanner-reader"></div>
-      <div class="scanner-frame" aria-hidden="true">
-        <span class="scan-corner tl"></span>
-        <span class="scan-corner tr"></span>
-        <span class="scan-corner bl"></span>
-        <span class="scan-corner br"></span>
-        <span class="scan-laser"></span>
+      <div class="scanner-view" id="scanner-view">
+        <div id="scanner-reader" class="scanner-reader"></div>
+        <div class="scanner-frame" aria-hidden="true">
+          <span class="scan-corner tl"></span>
+          <span class="scan-corner tr"></span>
+          <span class="scan-corner bl"></span>
+          <span class="scan-corner br"></span>
+          <span class="scan-laser"></span>
+        </div>
+      </div>
+
+      <p id="scanner-status" class="scanner-status">Point the camera at a barcode…</p>
+
+      <div class="scanner-manual">
+        <input id="scanner-manual-input" type="text" inputmode="text"
+               placeholder="Or type barcode / SKU…" autocomplete="off" />
+        <button id="scanner-manual-btn" class="btn primary" type="button">Use</button>
       </div>
     </div>
-
-    <p id="scanner-status" class="scanner-status">Point the camera at a barcode…</p>
-
-    <div class="scanner-manual">
-      <input id="scanner-manual-input" type="text" inputmode="text"
-             placeholder="Or type barcode / SKU…" autocomplete="off" />
-      <button id="scanner-manual-btn" class="btn primary" type="button">Use</button>
-    </div>
   </div>
-</div>
 
   <!-- ================= RESTOCK MODAL ================= -->
   <div id="restock-modal" class="modal hidden">
@@ -490,7 +494,9 @@
   <!-- ================= RECEIPT MODAL ================= -->
   <div id="receipt-modal" class="modal hidden">
     <div class="modal-card receipt-modal-card">
-      <div class="receipt" id="receipt-content"></div>
+      <div class="receipt-scroll">
+        <div class="receipt" id="receipt-content"></div>
+      </div>
       <div class="receipt-actions">
         <button id="print-receipt-btn" class="btn primary">🖨️ Print</button>
         <button id="delete-receipt-btn" class="btn danger">🗑️ Delete</button>

@@ -3,7 +3,7 @@
    Multi-tenant + Super Admin + POS + Receipt + Exports
    + Profit + In/Out History + Slow Moving + Expiry
    + Sales History page + per-sale receipt + delete
-   + FIXED SCANNER: device enumeration, retry, image fallback
+   + FAST SCANNER (native BarcodeDetector, low-lag)
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -48,7 +48,6 @@ const EXPIRY_WARNING_DAYS   = 30;
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-/* ✅ Firestore with offline persistence — works offline & multi-tab */
 let db;
 try {
   db = initializeFirestore(app, {
@@ -162,9 +161,6 @@ const scannerModal = $("scanner-modal"), scannerTitle = $("scanner-title"),
   scannerReader = $("scanner-reader"), scannerStatus = $("scanner-status"),
   scannerClose = $("scanner-close"), scannerManualInput = $("scanner-manual-input"),
   scannerManualBtn = $("scanner-manual-btn");
-const scannerRetryBtn   = $("scanner-retry-btn");
-const scannerUploadBtn  = $("scanner-upload-btn");
-const scannerUploadInput = $("scanner-upload-input");
 
 /* Restock */
 const restockModal = $("restock-modal"), restockItemName = $("restock-item-name"),
@@ -209,11 +205,9 @@ let currentReceiptGroup = null;
     if (typeof Chart !== "undefined") {
       clearInterval(iv);
       chartJsReady = true;
-      console.log("[Charts] Chart.js ready after", tries * 150, "ms");
       safeRender(renderCharts);
     } else if (tries > 80) {
       clearInterval(iv);
-      console.warn("[Charts] Chart.js failed to load");
     }
   }, 150);
 })();
@@ -271,7 +265,6 @@ if (themeToggle) themeToggle.addEventListener("click", () => {
 if (themeIcon) themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
 
-  /* Optional: apply theme again on system change */
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", (ev) => {
   if (!localStorage.getItem("theme")) applyTheme(ev.matches ? "dark" : "light");
 });
@@ -305,7 +298,7 @@ function playErrorSound()   { playBeep(220, 0.35, "sawtooth"); }
 function playCashSound()    { playBeep(1320, 0.08); setTimeout(() => playBeep(1760, 0.08), 90); setTimeout(() => playBeep(2093, 0.16), 180); }
 
 /* ----------------------------------------------------------
-   AUTH TABS — animated slide
+   AUTH TABS
    ---------------------------------------------------------- */
 const authTabs = $("auth-tabs");
 
@@ -316,19 +309,14 @@ function setAuthMode(isSignup) {
   tabSignup?.classList.toggle("active", isSignup);
   if (authSubmit) authSubmit.textContent = isSignup ? "Create Account" : "Login";
   if (authError) authError.textContent = "";
-  // replay form animation
   const form = $("auth-form");
   if (form) {
     form.style.animation = "none";
     void form.offsetWidth;
     form.style.animation = "";
   }
-  setTimeout(() => {
-    const input = isSignup ? emailInput : emailInput;
-    if (input) input.focus({ preventScroll: true });
-  }, 300);
+  setTimeout(() => emailInput && emailInput.focus({ preventScroll: true }), 300);
 }
-
 if (tabLogin)  tabLogin.addEventListener("click", () => setAuthMode(false));
 if (tabSignup) tabSignup.addEventListener("click", () => setAuthMode(true));
 
@@ -626,12 +614,8 @@ navButtons.forEach(btn => {
       safeRender(updateChange);
       startPosMiniCarousels();
     }
-    if (btn.dataset.page === "page-history") {
-      safeRender(renderHistory);
-    }
-    if (btn.dataset.page === "page-add") {
-      safeRender(autoFillSku);
-    }
+    if (btn.dataset.page === "page-history") safeRender(renderHistory);
+    if (btn.dataset.page === "page-add") safeRender(autoFillSku);
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 });
@@ -654,8 +638,7 @@ function compressImage(file, maxSize = 420, quality = 0.72) {
         }
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = reject;
@@ -697,21 +680,15 @@ if (photoCameraBtn) photoCameraBtn.addEventListener("click", () => {
   else if (itemImage) itemImage.click();
 });
 if (itemImageCamera) itemImageCamera.addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  handlePhotoFile(file);
+  handlePhotoFile(e.target.files?.[0]);
   e.target.value = "";
 });
-if (photoPickBtn) photoPickBtn.addEventListener("click", () => {
-  if (itemImage) itemImage.click();
-});
+if (photoPickBtn) photoPickBtn.addEventListener("click", () => itemImage && itemImage.click());
 if (itemImage) itemImage.addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  handlePhotoFile(file);
+  handlePhotoFile(e.target.files?.[0]);
   e.target.value = "";
 });
-if (photoPreview) photoPreview.addEventListener("click", () => {
-  if (itemImage) itemImage.click();
-});
+if (photoPreview) photoPreview.addEventListener("click", () => itemImage && itemImage.click());
 if (photoRemoveBtn) photoRemoveBtn.addEventListener("click", () => {
   if (itemImage) itemImage.value = "";
   if (itemImageCamera) itemImageCamera.value = "";
@@ -764,23 +741,24 @@ if (itemSku) itemSku.addEventListener("input", () => {
 });
 
 /* ==========================================================
-   BARCODE SCANNER — v5 (stable, no double-fires, clean shutdown)
+   FAST BARCODE SCANNER — v6
+   Uses native BarcodeDetector when available (10× faster).
+   Removed double-rAF, heavy overlays, and redundant retries.
    ========================================================== */
 const SCANNER_STATE = { IDLE: "idle", STARTING: "starting", RUNNING: "running", STOPPING: "stopping" };
 
-let scannerInstance   = null;
-let scannerState      = SCANNER_STATE.IDLE;
-let scannerOpening    = false;
-let scannerTarget     = null;
-let lastScanCode      = "";
-let lastScanTime      = 0;
-let scanHandling      = false;      // ✅ prevents overlapping scan handlers
-const SCAN_COOLDOWN_MS = 1500;
+let scannerInstance  = null;
+let scannerState     = SCANNER_STATE.IDLE;
+let scannerOpening   = false;
+let scannerTarget    = null;
+let lastScanCode     = "";
+let lastScanTime     = 0;
+let scanHandling     = false;
+const SCAN_COOLDOWN_MS = 1400;
 
 let cameraList = [];
 let selectedCameraId = localStorage.getItem("preferredCameraId") || "";
 
-/* ---------- Helpers ---------- */
 function getScannerFormats() {
   const F = window.Html5QrcodeSupportedFormats;
   if (!F) return null;
@@ -822,21 +800,19 @@ function cameraErrorMessage(err) {
   const name = err?.name || "";
   const msg  = err?.message || String(err);
   if (name === "NotAllowedError" || name === "PermissionDeniedError")
-    return "🚫 Camera permission <b>denied</b>. Allow camera in your browser settings and try again.";
+    return "🚫 Camera permission <b>denied</b>. Allow camera in your browser settings.";
   if (name === "NotFoundError" || name === "DevicesNotFoundError")
     return "📷 <b>No camera found</b>. Type the barcode below.";
   if (name === "NotReadableError" || name === "TrackStartError")
-    return "⚠️ Camera is <b>busy</b> — another app is using it. Close it and try again.";
+    return "⚠️ Camera is <b>busy</b> — another app is using it.";
   if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError")
-    return "⚠️ Camera doesn't support the requested settings. Try again.";
+    return "⚠️ Camera doesn't support the requested settings.";
   if (name === "SecurityError")
     return "🔒 Browser blocked camera access. Use HTTPS or localhost.";
   return "❌ Camera error: <code>" + esc(msg.slice(0, 80)) + "</code>";
 }
 
-/* ---------- Open / Close ---------- */
 function openScanner(target) {
-  // ✅ Strict guards — prevent stacking
   if (scannerOpening) return;
   if (scannerState !== SCANNER_STATE.IDLE) return;
   if (scannerModal && !scannerModal.classList.contains("hidden")) return;
@@ -871,12 +847,9 @@ function openScanner(target) {
     return;
   }
 
-  setScannerStatus("Requesting camera permission…");
-
-  // Wait for layout to settle before measuring/starting
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    setTimeout(() => { startCameraNow().catch(() => {}); }, 60);
-  }));
+  setScannerStatus("Starting camera…");
+  // Single short delay — layout settles in ~1 frame
+  setTimeout(() => startCameraNow().catch(() => {}), 80);
 }
 
 async function startCameraNow() {
@@ -886,13 +859,7 @@ async function startCameraNow() {
 
   const rect = (viewEl || readerEl).getBoundingClientRect();
   if (rect.width < 40 || rect.height < 40) {
-    await new Promise(r => setTimeout(r, 220));
-    const rect2 = (viewEl || readerEl).getBoundingClientRect();
-    if (rect2.width < 40 || rect2.height < 40) {
-      setScannerStatus("Scanner viewport has no size. Type the barcode below.", "error");
-      scannerOpening = false;
-      return;
-    }
+    await new Promise(r => setTimeout(r, 180));
   }
 
   try {
@@ -905,14 +872,13 @@ async function startCameraNow() {
       return;
     }
   } catch (permErr) {
-    console.warn("[Scanner] enumerate failed:", permErr);
     setScannerStatus(cameraErrorMessage(permErr), "error");
     setTimeout(() => scannerManualInput?.focus(), 200);
     scannerOpening = false;
     return;
   }
 
-  let chosen =
+  const chosen =
     cameraList.find(c => /back|rear|environment/i.test(c.label)) ||
     cameraList.find(c => c.deviceId === selectedCameraId) ||
     cameraList[0];
@@ -927,7 +893,11 @@ function reallyStartCamera(readerEl, deviceId) {
   try { readerEl.innerHTML = ""; } catch (e) {}
 
   try {
-    const opts = { verbose: false };
+    const opts = {
+      verbose: false,
+      // 🔥 Native BarcodeDetector = huge speed boost when available
+      useBarCodeDetectorIfSupported: true
+    };
     const formats = getScannerFormats();
     if (formats?.length) opts.formatsToSupport = formats;
     scannerInstance = new Html5Qrcode("scanner-reader", opts);
@@ -941,14 +911,16 @@ function reallyStartCamera(readerEl, deviceId) {
 
   scannerState = SCANNER_STATE.STARTING;
 
+  // Lower FPS = less CPU. disableFlip = skip unused processing.
   const startConfig = {
-    fps: 12,
+    fps: 10,
     qrbox: (vw, vh) => {
       const min = Math.min(vw, vh);
-      const size = Math.max(140, Math.floor(min * 0.62));
+      const size = Math.max(150, Math.floor(min * 0.68));
       return { width: size, height: size };
     },
-    aspectRatio: 1.0
+    aspectRatio: 1.0,
+    disableFlip: true
   };
 
   const configs = [
@@ -971,7 +943,6 @@ function reallyStartCamera(readerEl, deviceId) {
     }
 
     const cfg = configs[attempt++];
-
     let promise;
     try {
       promise = scannerInstance.start(
@@ -980,10 +951,7 @@ function reallyStartCamera(readerEl, deviceId) {
         (decodedText) => onScanSuccess(decodedText),
         () => {}
       );
-    } catch (e) {
-      tryNext();
-      return;
-    }
+    } catch (e) { tryNext(); return; }
 
     promise.then(() => {
       if (scannerState === SCANNER_STATE.IDLE || scannerState === SCANNER_STATE.STOPPING) {
@@ -1009,22 +977,18 @@ function reallyStartCamera(readerEl, deviceId) {
   tryNext();
 }
 
-/* ✅ Clean, awaited shutdown — releases camera hardware */
 async function shutdownScanner() {
   const inst = scannerInstance;
   scannerInstance = null;
-  const stateAtCall = scannerState;
   scannerState = SCANNER_STATE.STOPPING;
 
   const readerEl = document.getElementById("scanner-reader");
 
   if (inst) {
-    // Try to stop the stream; also force-clear any <video> element still attached
     try { await inst.stop(); } catch (e) {}
     try { inst.clear?.(); } catch (e) {}
   }
 
-  // Kill any orphaned video tracks
   if (readerEl) {
     try {
       readerEl.querySelectorAll("video").forEach(v => {
@@ -1048,25 +1012,16 @@ async function shutdownScanner() {
 function forceCloseScanner() {
   if (scannerModal) scannerModal.classList.add("hidden");
   document.body.style.overflow = "";
-  // fire-and-forget cleanup
   shutdownScanner().catch(() => {});
 }
-
 function closeScanner() {
   if (scannerModal) scannerModal.classList.add("hidden");
   document.body.style.overflow = "";
   shutdownScanner().catch(() => {});
 }
 
-async function retryScanner() {
-  await shutdownScanner();
-  await new Promise(r => setTimeout(r, 350));
-  openScanner(scannerTarget || "sale");
-}
-
-/* ---------- Scan result ---------- */
 function onScanSuccess(decodedText) {
-  if (scanHandling) return;                            // ✅ no overlapping
+  if (scanHandling) return;
   if (!scannerModal || scannerModal.classList.contains("hidden")) return;
 
   const code = String(decodedText || "").trim();
@@ -1082,9 +1037,7 @@ function onScanSuccess(decodedText) {
   try {
     handleScanResult(code);
   } finally {
-    // Unlock after a short window so a rapid accidental refire of the SAME
-    // barcode doesn't double-count, but a DIFFERENT barcode can still be scanned.
-    setTimeout(() => { scanHandling = false; }, 350);
+    setTimeout(() => { scanHandling = false; }, 300);
   }
 }
 
@@ -1117,15 +1070,14 @@ function handleScanResult(text) {
     if (itemBarcode) itemBarcode.value = code;
     playSuccessSound();
     setScannerStatus("✅ Barcode set: " + code, "success");
-    // Stop scanning immediately so it can't fire again
-    setTimeout(() => forceCloseScanner(), 500);
+    setTimeout(() => forceCloseScanner(), 450);
     return;
   }
 
   if (scannerTarget === "sale") {
     if (!inventory.length) {
       playErrorSound();
-      setScannerStatus("⚠️ Inventory still loading. Wait a moment and scan again.", "error");
+      setScannerStatus("⚠️ Inventory still loading. Wait a moment.", "error");
       return;
     }
     const item = findItemByCode(code);
@@ -1144,7 +1096,6 @@ function handleScanResult(text) {
   }
 }
 
-/* ---------- Wire up buttons ---------- */
 if (scanBarcodeBtn) scanBarcodeBtn.addEventListener("click", () => openScanner("barcode"));
 if (scanSaleBtn)    scanSaleBtn.addEventListener("click", () => openScanner("sale"));
 if (scannerClose)   scannerClose.addEventListener("click", closeScanner);
@@ -1166,32 +1117,6 @@ if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
 if (scannerManualInput) scannerManualInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); scannerManualBtn?.click(); }
 });
-if (scannerRetryBtn) scannerRetryBtn.addEventListener("click", retryScanner);
-
-/* ---------- Scan from image file ---------- */
-if (scannerUploadBtn && scannerUploadInput) {
-  scannerUploadBtn.addEventListener("click", () => scannerUploadInput.click());
-  scannerUploadInput.addEventListener("change", async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-    setScannerStatus("Scanning image…");
-    try {
-      await shutdownScanner();
-      await new Promise(r => setTimeout(r, 200));
-      if (scannerModal) scannerModal.classList.remove("hidden");
-      await new Promise(r => requestAnimationFrame(r));
-      const temp = new Html5Qrcode("scanner-reader", { verbose: false });
-      const result = await temp.scanFile(file, true);
-      try { temp.clear(); } catch (err) {}
-      handleScanResult(result);
-      setTimeout(() => forceCloseScanner(), 700);
-    } catch (err) {
-      console.warn("[Scanner] image scan failed:", err);
-      setScannerStatus("❌ No barcode found in that image.", "error");
-    }
-  });
-}
 /* ==========================================================
    END BARCODE SCANNER
    ========================================================== */
@@ -1512,9 +1437,7 @@ function showReceipt(data, groupInfo) {
   `;
 
   currentReceiptGroup = groupInfo || null;
-  if (deleteReceiptBtn) {
-    deleteReceiptBtn.classList.toggle("hidden", !currentReceiptGroup);
-  }
+  if (deleteReceiptBtn) deleteReceiptBtn.classList.toggle("hidden", !currentReceiptGroup);
   receiptModal && receiptModal.classList.remove("hidden");
 }
 if (printReceiptBtn) printReceiptBtn.addEventListener("click", () => window.print());
@@ -1887,10 +1810,8 @@ function renderHistory() {
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
     let cutoff = 0;
-    if (range === "today") {
-      const t = new Date(); t.setHours(0,0,0,0);
-      cutoff = t.getTime();
-    } else if (range === "7") cutoff = now - 7 * dayMs;
+    if (range === "today") { const t = new Date(); t.setHours(0,0,0,0); cutoff = t.getTime(); }
+    else if (range === "7") cutoff = now - 7 * dayMs;
     else if (range === "30") cutoff = now - 30 * dayMs;
     groups = groups.filter(g => g.date.getTime() >= cutoff);
   }
@@ -2784,15 +2705,15 @@ window.deleteUser = async (userId) => {
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 };
+
 /* ----------------------------------------------------------
-   PWA — Service Worker & Install Prompt
+   PWA
    ---------------------------------------------------------- */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("sw.js", { scope: "./" })
       .then((reg) => {
-        console.log("[SW] registered:", reg.scope);
         reg.addEventListener("updatefound", () => {
           const nw = reg.installing;
           if (!nw) return;
@@ -2854,7 +2775,7 @@ window.addEventListener("offline", () => {
 });
 updateOnlineStatus();
 
-/* ---------- Keyboard shortcuts (special feature) ---------- */
+/* ---------- Keyboard shortcuts ---------- */
 document.addEventListener("keydown", (e) => {
   if (e.target.matches("input, textarea, select")) return;
   if (e.key === "/") {
@@ -2863,6 +2784,7 @@ document.addEventListener("keydown", (e) => {
     s && s.focus();
   }
 });
+
 /* ----------------------------------------------------------
    UTILITIES
    ---------------------------------------------------------- */
