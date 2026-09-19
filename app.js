@@ -1,9 +1,11 @@
 /* ==========================================================
    app.js — Kurt Inventory
    Multi-tenant + Super Admin + POS + Receipt + Exports
-   + Profit + In/Out History + Slow Moving + Expiry
-   + Sales History page + per-sale receipt + delete
-   + SCANNER v6: fast start (single camera open), clean shutdown
+   + Profit + In/Out History (with view/delete)
+   + Slow Moving + Expiry + Sales History
+   + Sales per Category
+   + Mobile direct-download exports
+   + SCANNER v6
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -48,7 +50,6 @@ const EXPIRY_WARNING_DAYS   = 30;
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-/* ✅ Firestore with offline persistence — works offline & multi-tab */
 let db;
 try {
   db = initializeFirestore(app, {
@@ -115,6 +116,8 @@ const salesList         = $("sales-list");
 const scanSaleBtn       = $("scan-sale-btn");
 const salesProductsGrid = $("sales-products-grid");
 const salesSearchEl     = $("sales-search");
+const salesCatFilterEl  = $("sales-cat-filter");
+const salesCatSummaryEl = $("sales-category-summary");
 const posCartItems      = $("pos-cart-items");
 const posTotalEl        = $("pos-total");
 const posCashInput      = $("pos-cash");
@@ -125,6 +128,8 @@ const posClearBtn       = $("pos-clear-btn");
 const historyList        = $("history-list");
 const historySearchEl    = $("history-search");
 const historyFilterEl    = $("history-filter");
+const historyCatFilterEl = $("history-cat-filter");
+const historyCatSummaryEl= $("history-category-summary");
 const exportHistoryExcel = $("export-history-excel");
 const exportHistoryPdf   = $("export-history-pdf");
 
@@ -180,6 +185,13 @@ const receiptModal    = $("receipt-modal"), receiptContent = $("receipt-content"
   printReceiptBtn     = $("print-receipt-btn"), closeReceiptBtn = $("close-receipt-btn"),
   deleteReceiptBtn    = $("delete-receipt-btn");
 
+/* Movement modal (NEW) */
+const movementModal       = $("movement-modal");
+const movementDetailEl    = $("movement-detail-content");
+const movementClose       = $("movement-close");
+const movementCloseBtn    = $("movement-close-btn");
+const movementDeleteBtn   = $("movement-delete-btn");
+
 /* ----------------------------------------------------------
    STATE
    ---------------------------------------------------------- */
@@ -201,6 +213,9 @@ let manualSku = false, skuInitialized = false;
 let posCart = [];
 let restockItemId = null;
 let currentReceiptGroup = null;
+
+/* Movement modal state */
+let currentMovementId = null;
 
 /* ----------------------------------------------------------
    CHART.JS LOADER
@@ -232,6 +247,53 @@ function queueChartRender() {
 }
 
 /* ----------------------------------------------------------
+   MOBILE-FRIENDLY DOWNLOAD HELPER (NEW)
+   - Uses Blob + <a download> so that mobile browsers
+     download the file directly instead of opening a new tab.
+   ---------------------------------------------------------- */
+function downloadBlob(blob, filename) {
+  try {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      try { document.body.removeChild(a); } catch (e) {}
+    }, 1500);
+  } catch (e) {
+    console.error("[download]", e);
+    showToast("Download failed ❌");
+  }
+}
+function downloadXLSX(wb, filename) {
+  if (typeof XLSX === "undefined") { showToast("Excel library not loaded ❌"); return; }
+  try {
+    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    downloadBlob(blob, filename);
+  } catch (e) {
+    console.error("[xlsx]", e);
+    showToast("Excel export failed ❌");
+  }
+}
+function downloadPDF(doc, filename) {
+  try {
+    const blob = doc.output("blob");
+    downloadBlob(blob, filename);
+  } catch (e) {
+    console.error("[pdf]", e);
+    showToast("PDF export failed ❌");
+  }
+}
+
+/* ----------------------------------------------------------
    AUTH BACKGROUND CAROUSEL
    ---------------------------------------------------------- */
 function buildAuthBackground(containerId) {
@@ -259,11 +321,7 @@ buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
 /* ----------------------------------------------------------
-   TEXT CAROUSELS — auth subtitle + topbar brand tagline
-   (Previously used CSS @keyframes + :nth-child delays, which
-    are fragile: "Reduce Motion" OS setting disables them and
-    some browsers don't repaint stacked grid items. This uses
-    a JS class toggle + CSS transition instead — bulletproof.)
+   TEXT CAROUSELS
    ---------------------------------------------------------- */
 function startTextCarousel(containerSelector, itemSelector, intervalMs = 3000) {
   const container = document.querySelector(containerSelector);
@@ -276,7 +334,7 @@ function startTextCarousel(containerSelector, itemSelector, intervalMs = 3000) {
   items.forEach((el, i) => el.classList.toggle("active", i === 0));
 
   setInterval(() => {
-    if (!items[idx].isConnected) return;   // safety: element was removed
+    if (!items[idx].isConnected) return;
     items[idx].classList.remove("active");
     idx = (idx + 1) % items.length;
     items[idx].classList.add("active");
@@ -303,7 +361,6 @@ if (themeToggle) themeToggle.addEventListener("click", () => {
 if (themeIcon) themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
 
-/* Optional: apply theme again on system change */
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", (ev) => {
   if (!localStorage.getItem("theme")) applyTheme(ev.matches ? "dark" : "light");
 });
@@ -351,7 +408,7 @@ function playErrorSound()   { playBeep(220, 0.35, "sawtooth"); }
 function playCashSound()    { playBeep(1320, 0.08); setTimeout(() => playBeep(1760, 0.08), 90); setTimeout(() => playBeep(2093, 0.16), 180); }
 
 /* ----------------------------------------------------------
-   AUTH TABS — animated slide
+   AUTH TABS
    ---------------------------------------------------------- */
 const authTabs = $("auth-tabs");
 
@@ -531,6 +588,8 @@ function startAllListeners() {
       safeRender(updateStats);
       safeRender(populateCategoryFilter);
       safeRender(populateCategoryDatalist);
+      safeRender(populateSalesCatFilter);
+      safeRender(populateHistoryCatFilter);
       safeRender(renderCarousel);
       safeRender(renderPosProducts);
       safeRender(renderFastMoving);
@@ -562,6 +621,10 @@ function startAllListeners() {
       safeRender(renderCarousel);
       safeRender(renderFastMoving);
       safeRender(renderSlowMoving);
+      safeRender(renderSalesCategorySummary);
+      safeRender(renderHistoryCategorySummary);
+      safeRender(populateSalesCatFilter);
+      safeRender(populateHistoryCatFilter);
       queueChartRender();
     },
     (err) => console.error("[Sales listener]", err.code, err.message)
@@ -678,10 +741,14 @@ navButtons.forEach(btn => {
       safeRender(renderPosProducts);
       safeRender(renderPosCart);
       safeRender(updateChange);
+      safeRender(renderSalesCategorySummary);
+      safeRender(populateSalesCatFilter);
       startPosMiniCarousels();
     }
     if (btn.dataset.page === "page-history") {
       safeRender(renderHistory);
+      safeRender(renderHistoryCategorySummary);
+      safeRender(populateHistoryCatFilter);
     }
     if (btn.dataset.page === "page-add") {
       safeRender(autoFillSku);
@@ -1252,6 +1319,19 @@ function getLastSoldMs(itemId) {
   return last;
 }
 
+/* NEW: aggregate sales by category */
+function getSalesByCategory(list = sales) {
+  const map = {};
+  list.forEach(s => {
+    const cat = (s.category || "Uncategorized").trim() || "Uncategorized";
+    if (!map[cat]) map[cat] = { total: 0, count: 0, qty: 0 };
+    map[cat].total += Number(s.total) || 0;
+    map[cat].count += 1;
+    map[cat].qty   += Number(s.quantity) || 0;
+  });
+  return map;
+}
+
 /* ----------------------------------------------------------
    EXPIRY HELPERS
    ---------------------------------------------------------- */
@@ -1380,7 +1460,9 @@ function buildPosMiniSlides(item, sold) {
 function renderPosProducts() {
   if (!salesProductsGrid) return;
   const term = valOf(salesSearchEl).toLowerCase().trim();
+  const catFilter = valOf(salesCatFilterEl);
   const filtered = inventory.filter(i => {
+    if (catFilter && i.category !== catFilter) return false;
     if (!term) return true;
     return (i.name || "").toLowerCase().includes(term) ||
            (i.sku || "").toLowerCase().includes(term) ||
@@ -1444,6 +1526,7 @@ function startPosMiniCarousels() {
 }
 function stopPosMiniCarousels() { if (posMiniTimer) { clearInterval(posMiniTimer); posMiniTimer = null; } }
 if (salesSearchEl) salesSearchEl.addEventListener("input", debounce(renderPosProducts, 150));
+if (salesCatFilterEl) salesCatFilterEl.addEventListener("change", renderPosProducts);
 
 /* ----------------------------------------------------------
    POS — Complete sale
@@ -1706,7 +1789,7 @@ if (restockConfirm) restockConfirm.addEventListener("click", async () => {
 });
 
 /* ----------------------------------------------------------
-   EXPORTS
+   EXPORTS  (mobile-friendly direct download)
    ---------------------------------------------------------- */
 function exportInventoryToExcel() {
   if (!inventory.length) { showToast("No inventory to export ❌"); return; }
@@ -1722,7 +1805,7 @@ function exportInventoryToExcel() {
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Inventory");
-  XLSX.writeFile(wb, `inventory_${new Date().toISOString().slice(0,10)}.xlsx`);
+  downloadXLSX(wb, `inventory_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("Inventory exported ✅");
 }
 function exportInventoryToPDF() {
@@ -1738,7 +1821,7 @@ function exportInventoryToPDF() {
     body: inventory.map(i => [i.name, i.sku, i.barcode || "-", i.category, i.quantity, (i.cost||0).toFixed(2), (i.price||0).toFixed(2), i.expiry || "-"]),
     styles: { fontSize: 8 }, headStyles: { fillColor: [18, 84, 79] }
   });
-  doc.save(`inventory_${new Date().toISOString().slice(0,10)}.pdf`);
+  downloadPDF(doc, `inventory_${new Date().toISOString().slice(0,10)}.pdf`);
   showToast("Inventory PDF exported ✅");
 }
 function exportSalesToExcel() {
@@ -1758,7 +1841,7 @@ function exportSalesToExcel() {
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Sales");
-  XLSX.writeFile(wb, `sales_${new Date().toISOString().slice(0,10)}.xlsx`);
+  downloadXLSX(wb, `sales_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("Sales exported ✅");
 }
 function exportSalesToPDF() {
@@ -1780,7 +1863,7 @@ function exportSalesToPDF() {
     ]),
     styles: { fontSize: 8 }, headStyles: { fillColor: [18, 84, 79] }
   });
-  doc.save(`sales_${new Date().toISOString().slice(0,10)}.pdf`);
+  downloadPDF(doc, `sales_${new Date().toISOString().slice(0,10)}.pdf`);
   showToast("Sales PDF exported ✅");
 }
 function exportMovementsToExcel() {
@@ -1795,7 +1878,7 @@ function exportMovementsToExcel() {
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Movements");
-  XLSX.writeFile(wb, `movements_${new Date().toISOString().slice(0,10)}.xlsx`);
+  downloadXLSX(wb, `movements_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("Movements exported ✅");
 }
 function exportHistoryToExcel() {
@@ -1809,6 +1892,7 @@ function exportHistoryToExcel() {
         Receipt: g.receiptNum,
         Date: g.date?.toLocaleString() || "",
         Item: it.itemName,
+        Category: it.category || "",
         Qty: it.quantity,
         "Unit (₱)": Number((it.unitPrice || 0).toFixed(2)),
         "Total (₱)": Number((it.total || 0).toFixed(2)),
@@ -1819,7 +1903,7 @@ function exportHistoryToExcel() {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "SalesHistory");
-  XLSX.writeFile(wb, `sales_history_${new Date().toISOString().slice(0,10)}.xlsx`);
+  downloadXLSX(wb, `sales_history_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast("History exported ✅");
 }
 function exportHistoryToPDF() {
@@ -1848,7 +1932,7 @@ function exportHistoryToPDF() {
     body,
     styles: { fontSize: 8 }, headStyles: { fillColor: [18, 84, 79] }
   });
-  doc.save(`sales_history_${new Date().toISOString().slice(0,10)}.pdf`);
+  downloadPDF(doc, `sales_history_${new Date().toISOString().slice(0,10)}.pdf`);
   showToast("History PDF exported ✅");
 }
 
@@ -1936,6 +2020,18 @@ function renderHistory() {
     } else if (range === "7") cutoff = now - 7 * dayMs;
     else if (range === "30") cutoff = now - 30 * dayMs;
     groups = groups.filter(g => g.date.getTime() >= cutoff);
+  }
+
+  const catFilter = valOf(historyCatFilterEl);
+  if (catFilter) {
+    groups = groups
+      .map(g => {
+        const items = g.items.filter(it => (it.category || "Uncategorized") === catFilter);
+        if (!items.length) return null;
+        const total = items.reduce((s, it) => s + (it.total || 0), 0);
+        return { ...g, items, total, saleIds: items.map(it => it.id) };
+      })
+      .filter(Boolean);
   }
 
   const term = valOf(historySearchEl).toLowerCase().trim();
@@ -2029,7 +2125,58 @@ window.deleteReceiptGroupFromHistory = (receiptNum) => {
 };
 
 if (historySearchEl) historySearchEl.addEventListener("input", debounce(renderHistory, 150));
-if (historyFilterEl) historyFilterEl.addEventListener("change", renderHistory);
+if (historyFilterEl) historyFilterEl.addEventListener("change", () => {
+  safeRender(renderHistory);
+  safeRender(renderHistoryCategorySummary);
+});
+if (historyCatFilterEl) historyCatFilterEl.addEventListener("change", () => {
+  safeRender(renderHistory);
+  safeRender(renderHistoryCategorySummary);
+});
+
+/* ----------------------------------------------------------
+   RENDER — Sales per Category summary (NEW)
+   ---------------------------------------------------------- */
+function renderCategorySummaryInto(container, list, emptyText) {
+  if (!container) return;
+  const map = getSalesByCategory(list);
+  const entries = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+  if (!entries.length) {
+    container.innerHTML = `<div class="cat-sum-card empty">${esc(emptyText)}</div>`;
+    return;
+  }
+  container.innerHTML = entries.map(([cat, v]) => `
+    <div class="cat-sum-card">
+      <div class="cat-sum-name" title="${esc(cat)}">${esc(cat)}</div>
+      <div class="cat-sum-total">₱${v.total.toFixed(2)}</div>
+      <div class="cat-sum-meta">${v.count} sale${v.count !== 1 ? "s" : ""} · ${v.qty} unit${v.qty !== 1 ? "s" : ""}</div>
+    </div>
+  `).join("");
+}
+
+function renderSalesCategorySummary() {
+  renderCategorySummaryInto(salesCatSummaryEl, sales, "No sales yet — make a sale to see category totals.");
+}
+
+function renderHistoryCategorySummary() {
+  // Respect time + category filters so it mirrors the visible history list
+  let list = sales;
+  const range = valOf(historyFilterEl) || "all";
+  if (range !== "all") {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    let cutoff = 0;
+    if (range === "today") {
+      const t = new Date(); t.setHours(0,0,0,0);
+      cutoff = t.getTime();
+    } else if (range === "7") cutoff = now - 7 * dayMs;
+    else if (range === "30") cutoff = now - 30 * dayMs;
+    list = list.filter(s => (s.createdAt?.toMillis?.() ?? 0) >= cutoff);
+  }
+  const catFilter = valOf(historyCatFilterEl);
+  if (catFilter) list = list.filter(s => (s.category || "Uncategorized") === catFilter);
+  renderCategorySummaryInto(historyCatSummaryEl, list, "No sales in this range.");
+}
 
 /* ----------------------------------------------------------
    DASHBOARD SPOTLIGHT CAROUSEL
@@ -2423,7 +2570,7 @@ if (expiryBannerBtn) expiryBannerBtn.addEventListener("click", () => {
 });
 
 /* ----------------------------------------------------------
-   RENDER — In/Out movements history
+   RENDER — In/Out movements history (with view + delete)
    ---------------------------------------------------------- */
 function renderMovements() {
   if (!movementsList) return;
@@ -2443,10 +2590,117 @@ function renderMovements() {
           <div class="movement-meta">${date} · ${esc(reasonLabel)}${m.note ? " · " + esc(m.note) : ""}</div>
         </div>
         <div class="movement-qty ${isIn ? "in" : "out"}">${isIn ? "+" : "−"}${m.quantity}</div>
+        <div class="movement-actions">
+          <button type="button" class="sale-action-btn receipt" onclick="viewMovement('${m.id}')" title="View details">👁️</button>
+          <button type="button" class="sale-action-btn delete" onclick="deleteMovement('${m.id}')" title="Delete record">🗑️</button>
+        </div>
       </div>
     `;
   }).join("");
 }
+
+/* ----------------------------------------------------------
+   MOVEMENT view / delete  (NEW)
+   ---------------------------------------------------------- */
+window.viewMovement = (id) => {
+  const m = movements.find(x => x.id === id);
+  if (!m) { showToast("Movement not found ❌"); return; }
+  currentMovementId = id;
+
+  const isIn = m.type === "in";
+  const date = m.createdAt?.toDate?.().toLocaleString() ?? "Just now";
+  const reasonLabel = { initial: "Initial stock", restock: "Restock", sale: "Sale", adjustment: "Adjustment" }[m.reason] || m.reason || "—";
+
+  if (movementDetailEl) {
+    movementDetailEl.innerHTML = `
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Item</span>
+        <span class="mv-detail-value">${esc(m.itemName || "—")}</span>
+      </div>
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Type</span>
+        <span class="mv-detail-value ${isIn ? "in" : "out"}">${isIn ? "IN (+)" : "OUT (−)"}</span>
+      </div>
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Quantity</span>
+        <span class="mv-detail-value ${isIn ? "in" : "out"}">${isIn ? "+" : "−"}${m.quantity}</span>
+      </div>
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Reason</span>
+        <span class="mv-detail-value">${esc(reasonLabel)}</span>
+      </div>
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Note</span>
+        <span class="mv-detail-value">${esc(m.note || "—")}</span>
+      </div>
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Date</span>
+        <span class="mv-detail-value">${esc(date)}</span>
+      </div>
+      <div class="mv-detail-row">
+        <span class="mv-detail-label">Record ID</span>
+        <span class="mv-detail-value"><code>${esc(m.id.slice(0, 12))}…</code></span>
+      </div>
+    `;
+  }
+  movementModal && movementModal.classList.remove("hidden");
+};
+
+function closeMovementModal() {
+  movementModal && movementModal.classList.add("hidden");
+  currentMovementId = null;
+}
+
+if (movementClose)    movementClose.addEventListener("click", closeMovementModal);
+if (movementCloseBtn) movementCloseBtn.addEventListener("click", closeMovementModal);
+if (movementModal) movementModal.addEventListener("click", (e) => {
+  if (e.target === movementModal) closeMovementModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && movementModal && !movementModal.classList.contains("hidden")) {
+    closeMovementModal();
+  }
+});
+
+if (movementDeleteBtn) movementDeleteBtn.addEventListener("click", async () => {
+  if (!currentMovementId) return;
+  const m = movements.find(x => x.id === currentMovementId);
+  if (!m) { closeMovementModal(); return; }
+  const isIn = m.type === "in";
+  const msg =
+    `Delete this movement record?\n\n` +
+    `${m.itemName}  ·  ${isIn ? "+" : "−"}${m.quantity}  ·  ${m.reason || ""}\n\n` +
+    `⚠️ Note: the stock quantity will NOT be reverted. This only removes the log entry.`;
+  if (!confirm(msg)) return;
+  try {
+    await deleteDoc(doc(db, "movements", m.id));
+    playSuccessSound();
+    showToast("Movement deleted 🗑️");
+    closeMovementModal();
+  } catch (err) {
+    console.error("[delete movement] FAILED:", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+});
+
+window.deleteMovement = async (id) => {
+  const m = movements.find(x => x.id === id);
+  if (!m) { showToast("Movement not found ❌"); return; }
+  const isIn = m.type === "in";
+  const msg =
+    `Delete this movement record?\n\n` +
+    `${m.itemName}  ·  ${isIn ? "+" : "−"}${m.quantity}  ·  ${m.reason || ""}\n\n` +
+    `⚠️ Note: the stock quantity will NOT be reverted. This only removes the log entry.`;
+  if (!confirm(msg)) return;
+  try {
+    await deleteDoc(doc(db, "movements", id));
+    playSuccessSound();
+    showToast("Movement deleted 🗑️");
+  } catch (err) {
+    console.error("[delete movement] FAILED:", err.code, err.message);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+};
 
 /* ----------------------------------------------------------
    RENDER — Categories
@@ -2636,6 +2890,32 @@ function populateCategoryDatalist() {
   const names = [...new Set([...categories.map(c => c.name), ...inventory.map(i => i.category)].filter(Boolean))].sort();
   categoryList.innerHTML = names.map(c => `<option value="${esc(c)}">`).join("");
 }
+
+/* NEW: category filter dropdowns sourced from inventory + sales */
+function buildCategoryOptions() {
+  const set = new Set();
+  inventory.forEach(i => { if (i.category) set.add(i.category); });
+  sales.forEach(s => { if (s.category) set.add(s.category); });
+  categories.forEach(c => { if (c.name) set.add(c.name); });
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+function populateSalesCatFilter() {
+  if (!salesCatFilterEl) return;
+  const cur = salesCatFilterEl.value;
+  const names = buildCategoryOptions();
+  salesCatFilterEl.innerHTML = `<option value="">All Categories</option>` +
+    names.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  salesCatFilterEl.value = names.includes(cur) ? cur : "";
+}
+function populateHistoryCatFilter() {
+  if (!historyCatFilterEl) return;
+  const cur = historyCatFilterEl.value;
+  const names = buildCategoryOptions();
+  historyCatFilterEl.innerHTML = `<option value="">All Categories</option>` +
+    names.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  historyCatFilterEl.value = names.includes(cur) ? cur : "";
+}
+
 if (searchInput) searchInput.addEventListener("input", debounce(renderInventory, 150));
 if (filterCat)   filterCat.addEventListener("change", renderInventory);
 const dashSearchEl = $("dash-search");
@@ -2899,12 +3179,9 @@ function esc(str) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 /* ==========================================================
-   PWA INSTALL — Mobile-friendly install experience
-   • Topbar button always visible
-   • Auto-banner appears on mobile
-   • iOS / Android / Desktop instructions built dynamically
-   • Uses native beforeinstallprompt when available
+   PWA INSTALL — works on mobile, handles in-app browsers
    ========================================================== */
 const installBtn         = $("install-btn");
 const installModal       = $("install-modal");
@@ -2921,27 +3198,29 @@ const installBannerClose = $("install-banner-close");
 
 let deferredPrompt = null;
 
-/* --- Platform detection --- */
-const UA = navigator.userAgent || "";
-const IS_IOS =
-  /iPhone|iPad|iPod/i.test(UA) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const IS_ANDROID = /Android/i.test(UA);
-const IS_MOBILE  = IS_IOS || IS_ANDROID || /Mobile/i.test(UA);
+const UA          = navigator.userAgent || "";
+const IS_IOS      = /iPhone|iPad|iPod/i.test(UA) ||
+                    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const IS_ANDROID  = /Android/i.test(UA);
+const IS_MOBILE   = IS_IOS || IS_ANDROID || /Mobile/i.test(UA);
+
+const IS_IN_APP_BROWSER =
+  /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger|TikTok|BytedanceWebview|Line\/|WhatsApp|Snapchat|Twitter/i.test(UA) ||
+  (IS_ANDROID && /; wv\)/i.test(UA) && !/Chrome\/[0-9]+/i.test(UA)) ||
+  (IS_IOS && !/Safari/i.test(UA) && !/CriOS|FxiOS|EdgiOS/i.test(UA));
 
 function isStandalone() {
-  return window.matchMedia("(display-mode: standalone)").matches
-      || window.matchMedia("(display-mode: fullscreen)").matches
-      || navigator.standalone === true;
+  return window.matchMedia("(display-mode: standalone)").matches ||
+         window.matchMedia("(display-mode: fullscreen)").matches ||
+         navigator.standalone === true;
 }
-function isDismissed()  { return localStorage.getItem("installDismissed") === "1"; }
+function isDismissed()   { return localStorage.getItem("installDismissed") === "1"; }
 function markDismissed() { localStorage.setItem("installDismissed", "1"); }
 
-/* --- Chromium native install prompt --- */
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  if (!isStandalone() && !isDismissed() && IS_MOBILE) {
+  if (!isStandalone() && !isDismissed() && IS_MOBILE && !IS_IN_APP_BROWSER) {
     setTimeout(() => installBanner?.classList.remove("hidden"), 2500);
   }
 });
@@ -2954,36 +3233,58 @@ window.addEventListener("appinstalled", () => {
   markDismissed();
 });
 
-/* --- Platform-specific instructions --- */
 function buildInstructions() {
+  if (IS_IN_APP_BROWSER) {
+    return {
+      icon: "🌐",
+      title: "Open in your browser first",
+      subtitle: "You are viewing this page inside an app. To install Kurt POS, open it in Chrome or Safari.",
+      html: IS_IOS
+        ? `<ol>
+             <li>Tap the <span class="step-icon">⋯</span> or <span class="step-icon">⤴</span> button at the top-right.</li>
+             <li>Choose <span class="step-icon">Open in Safari</span>.</li>
+             <li>Then in Safari, tap the <span class="step-icon">⬆️ Share</span> button.</li>
+             <li>Tap <span class="step-icon">➕ Add to Home Screen</span>.</li>
+           </ol>`
+        : `<ol>
+             <li>Tap the <span class="step-icon">⋮</span> menu at the top-right.</li>
+             <li>Choose <span class="step-icon">Open in Chrome</span>.</li>
+             <li>Then in Chrome, tap the <span class="step-icon">⋮</span> menu again.</li>
+             <li>Tap <span class="step-icon">Install app</span> or <span class="step-icon">Add to Home screen</span>.</li>
+           </ol>`,
+    };
+  }
+
   if (IS_IOS) {
     return {
       icon: "🍎",
       title: "Install on iPhone / iPad",
       subtitle: "Add Kurt POS to your home screen for one-tap access.",
-      html: `
-        <ol>
-          <li>Tap the <span class="step-icon">⬆️ Share</span> button at the bottom of Safari.</li>
-          <li>Scroll and tap <span class="step-icon">➕ Add to Home Screen</span>.</li>
-          <li>Tap <span class="step-icon">Add</span> in the top-right corner.</li>
-        </ol>
-      `
+      html: `<ol>
+               <li>Tap the <span class="step-icon">⬆️ Share</span> button at the bottom of Safari.</li>
+               <li>Scroll down and tap <span class="step-icon">➕ Add to Home Screen</span>.</li>
+               <li>Tap <span class="step-icon">Add</span> in the top-right corner.</li>
+             </ol>`,
     };
   }
+
   if (IS_ANDROID) {
     return {
       icon: "🤖",
       title: "Install on Android",
-      subtitle: "Install Kurt POS to your home screen for fast, offline access.",
+      subtitle: deferredPrompt
+        ? "Tap Install Now to add Kurt POS to your home screen."
+        : "Add Kurt POS to your home screen for fast offline access.",
       html: deferredPrompt
-        ? `<p>Tap <b>Install Now</b> below to add Kurt POS to your home screen.</p>`
+        ? `<p>Tap <b>Install Now</b> below to add Kurt POS.</p>`
         : `<ol>
-             <li>Open the <span class="step-icon">⋮</span> menu in Chrome (top-right).</li>
+             <li>Tap the <span class="step-icon">⋮</span> menu in Chrome (top-right).</li>
              <li>Tap <span class="step-icon">Install app</span> or <span class="step-icon">Add to Home screen</span>.</li>
-             <li>Tap <span class="step-icon">Install</span>.</li>
-           </ol>`
+             <li>Tap <span class="step-icon">Install</span> to confirm.</li>
+           </ol>`,
     };
   }
+
   return {
     icon: "💻",
     title: "Install Kurt POS",
@@ -2994,20 +3295,18 @@ function buildInstructions() {
            <li><b>Chrome / Edge:</b> click the <span class="step-icon">⊕</span> icon in the address bar.</li>
            <li><b>Safari (macOS 14+):</b> File menu → <span class="step-icon">Add to Dock</span>.</li>
            <li><b>Firefox:</b> PWA install not supported — use Chrome or Edge.</li>
-         </ol>`
+         </ol>`,
   };
 }
 
-/* --- Open / close modal --- */
 function openInstallModal() {
   if (isStandalone()) { showToast("App is already installed ✅"); return; }
   const info = buildInstructions();
   if (installTitle)    installTitle.textContent    = info.title;
   if (installSubtitle) installSubtitle.textContent = info.subtitle;
   if (installInstr)    installInstr.innerHTML      = info.html;
-
   if (installNativeWrap) {
-    installNativeWrap.classList.toggle("hidden", !deferredPrompt);
+    installNativeWrap.classList.toggle("hidden", !deferredPrompt || IS_IN_APP_BROWSER);
   }
   installModal?.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -3017,20 +3316,14 @@ function closeInstallModal() {
   document.body.style.overflow = "";
 }
 
-/* --- Trigger native install if we have one, otherwise show manual steps --- */
 async function triggerInstall() {
   if (deferredPrompt) {
     try {
       deferredPrompt.prompt();
       const choice = await deferredPrompt.userChoice;
-      if (choice.outcome === "accepted") {
-        showToast("Installing… 🎉");
-        markDismissed();
-      }
+      if (choice.outcome === "accepted") { showToast("Installing… 🎉"); markDismissed(); }
       deferredPrompt = null;
-    } catch (e) {
-      console.warn("[PWA] install prompt error:", e);
-    }
+    } catch (e) { console.warn("[PWA] install prompt error:", e); }
     closeInstallModal();
     installBanner?.classList.add("hidden");
   } else {
@@ -3038,57 +3331,37 @@ async function triggerInstall() {
   }
 }
 
-/* --- Wire up --- */
-if (installBtn) {
-  installBtn.addEventListener("click", () => {
-    if (isStandalone()) { showToast("App is already installed ✅"); return; }
-    if (deferredPrompt) triggerInstall();
-    else openInstallModal();
-  });
-}
+if (installBtn) installBtn.addEventListener("click", () => {
+  if (isStandalone()) { showToast("App is already installed ✅"); return; }
+  if (deferredPrompt && !IS_IN_APP_BROWSER) triggerInstall();
+  else openInstallModal();
+});
 if (installNativeBtn) installNativeBtn.addEventListener("click", triggerInstall);
 if (installClose)     installClose.addEventListener("click", closeInstallModal);
-if (installLater) installLater.addEventListener("click", () => {
-  closeInstallModal();
-  markDismissed();
-  installBanner?.classList.add("hidden");
+if (installLater)     installLater.addEventListener("click", () => {
+  closeInstallModal(); markDismissed(); installBanner?.classList.add("hidden");
 });
-if (installModal) {
-  installModal.addEventListener("click", (e) => {
-    if (e.target === installModal) closeInstallModal();
-  });
-}
+if (installModal) installModal.addEventListener("click", (e) => {
+  if (e.target === installModal) closeInstallModal();
+});
 if (installBannerBtn) installBannerBtn.addEventListener("click", () => {
-  if (deferredPrompt) triggerInstall();
-  else {
-    installBanner?.classList.add("hidden");
-    openInstallModal();
-  }
+  if (deferredPrompt && !IS_IN_APP_BROWSER) triggerInstall();
+  else { installBanner?.classList.add("hidden"); openInstallModal(); }
 });
 if (installBannerClose) installBannerClose.addEventListener("click", () => {
-  installBanner?.classList.add("hidden");
-  markDismissed();
+  installBanner?.classList.add("hidden"); markDismissed();
 });
 
-/* --- iOS Safari: no beforeinstallprompt event — auto-show the banner after login --- */
-if (IS_IOS && !isStandalone() && !isDismissed()) {
-  const tryShowBanner = () => {
+if (IS_MOBILE && !isStandalone() && !isDismissed() && !IS_IN_APP_BROWSER) {
+  const iv = setInterval(() => {
     if (appShell && !appShell.classList.contains("hidden")) {
       installBanner?.classList.remove("hidden");
-    }
-  };
-  setTimeout(tryShowBanner, 6000);
-  // Re-check whenever the auth state changes (user logs in)
-  const bannerInterval = setInterval(() => {
-    if (appShell && !appShell.classList.contains("hidden")) {
-      tryShowBanner();
-      clearInterval(bannerInterval);
+      clearInterval(iv);
     }
   }, 2000);
-  setTimeout(() => clearInterval(bannerInterval), 60000); // safety: stop after 1 min
+  setTimeout(() => clearInterval(iv), 60000);
 }
 
-/* --- ESC closes the modal --- */
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && installModal && !installModal.classList.contains("hidden")) {
     closeInstallModal();

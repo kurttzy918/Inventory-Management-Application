@@ -53,21 +53,17 @@
     <div class="auth-card">
       <div class="brand-mark">
         <span class="brand-ring"></span>
-        <!-- ▼ LOGO SLOT (login card) — replace the src below with your own image. -->
-        <img id="logo-img" class="brand-logo" alt="Company logo"
-             src="Kurt.png" />
+        <img id="logo-img" class="brand-logo" alt="Company logo" src="Kurt.png" />
       </div>
 
       <h1 class="logo">Kurt Sari-Sari Store POS</h1>
 
-      <!-- ▼ SUBTITLE CAROUSEL — rotate the text between the <span> tags below. -->
       <div class="subtitle-carousel">
         <span class="carousel-text">Manage your inventory in real time</span>
         <span class="carousel-text">Be Systematic</span>
         <span class="carousel-text">Scan · Sell · Restock</span>
       </div>
 
-      <!-- Animated sliding tabs -->
       <div class="auth-tabs" id="auth-tabs">
         <span class="tab-indicator" aria-hidden="true"></span>
         <button id="tab-login"  class="tab active" type="button">Login</button>
@@ -88,7 +84,6 @@
 
       <p id="auth-error" class="error-msg"></p>
 
-      <!-- Social icons -->
       <div class="social-divider"><span>or connect with</span></div>
       <div class="social-links">
         <a href="#" class="social-icon" aria-label="Facebook" title="Facebook" rel="noopener">
@@ -138,12 +133,9 @@
 
     <header class="topbar">
       <div class="brand-mini">
-        <!-- ▼ LOGO SLOT (top bar) — replace the src below with your own image. -->
-        <img id="brand-logo" class="brand-mini-logo" alt="Kurt POS logo"
-             src="Kurt.png" />
+        <img id="brand-logo" class="brand-mini-logo" alt="Kurt POS logo" src="Kurt.png" />
         <div class="brand-mini-text">
           <h1 class="logo">Kurt POS</h1>
-          <!-- ▼ BRAND TAGLINE CAROUSEL — rotate the text between the <span> tags below. -->
           <div class="brand-tagline-carousel" aria-label="Smart Stock &amp; Sales">
             <span class="brand-tagline">Smart Stock &amp; Sales</span>
             <span class="brand-tagline">Be Systematic</span>
@@ -177,11 +169,6 @@
         <button id="expiry-banner-btn" class="btn sm">View</button>
       </div>
 
-      <!-- =====================================================
-           ▼▼▼  STATS CARDS — EDIT LABELS HERE  ▼▼▼
-           Change ONLY the text inside <span class="stat-label">…</span>.
-           Do NOT touch the id="stat-*" attributes — app.js writes into those.
-           ===================================================== -->
       <div class="stats-grid">
         <div class="stat-card">
           <span class="stat-label">Total Items</span>
@@ -208,8 +195,6 @@
           <span id="stat-cats" class="stat-value">0</span>
         </div>
       </div>
-      <!-- ▲▲▲  END STATS CARDS  ▲▲▲
-           ===================================================== -->
 
       <div class="spotlight-head">
         <h3 class="section-heading">Live Spotlight</h3>
@@ -272,6 +257,9 @@
         <div class="pos-products">
           <div class="pos-search-row">
             <input type="search" id="sales-search" placeholder="Search by name, SKU, or barcode…" />
+            <select id="sales-cat-filter" class="pos-cat-filter" title="Filter by category">
+              <option value="">All Categories</option>
+            </select>
             <button type="button" class="btn scan-btn" id="scan-sale-btn" title="Scan barcode">📷 Scan</button>
           </div>
           <div id="sales-products-grid" class="pos-grid"></div>
@@ -304,6 +292,10 @@
           </div>
         </aside>
       </div>
+
+      <!-- NEW: Sales per Category summary -->
+      <h3 class="section-heading">📊 Sales per Category</h3>
+      <div id="sales-category-summary" class="category-summary"></div>
 
       <div class="section-heading-row">
         <h3 class="section-heading">Recent Sales</h3>
@@ -428,10 +420,14 @@
           <option value="7">Last 7 Days</option>
           <option value="30">Last 30 Days</option>
         </select>
+        <select id="history-cat-filter">
+          <option value="">All Categories</option>
+        </select>
         <button type="button" class="btn ghost sm" id="export-history-excel">📊 Excel</button>
         <button type="button" class="btn ghost sm" id="export-history-pdf">📄 PDF</button>
       </div>
 
+      <div id="history-category-summary" class="category-summary"></div>
       <div id="history-list" class="history-list"></div>
     </main>
 
@@ -524,6 +520,21 @@
         <button id="print-receipt-btn" class="btn primary">🖨️ Print</button>
         <button id="delete-receipt-btn" class="btn danger">🗑️ Delete</button>
         <button id="close-receipt-btn" class="btn ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MOVEMENT DETAIL MODAL (NEW) ================= -->
+  <div id="movement-modal" class="modal hidden">
+    <div class="modal-card movement-modal-card">
+      <div class="modal-head">
+        <h3>Stock Movement Details</h3>
+        <button id="movement-close" class="btn ghost icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div id="movement-detail-content" class="movement-detail"></div>
+      <div class="receipt-actions">
+        <button id="movement-delete-btn" class="btn danger">🗑️ Delete Record</button>
+        <button id="movement-close-btn" class="btn ghost">Close</button>
       </div>
     </div>
   </div>
