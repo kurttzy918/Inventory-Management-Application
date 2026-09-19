@@ -2855,36 +2855,6 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-let deferredPrompt = null;
-const installBtn = $("install-btn");
-
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  if (installBtn) installBtn.classList.remove("hidden");
-});
-
-if (installBtn) {
-  installBtn.addEventListener("click", async () => {
-    if (!deferredPrompt) {
-      showToast("Install from browser menu → 'Add to Home Screen'");
-      return;
-    }
-    deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === "accepted") {
-      showToast("Kurt POS installed 🎉");
-      installBtn.classList.add("hidden");
-    }
-    deferredPrompt = null;
-  });
-}
-
-window.addEventListener("appinstalled", () => {
-  showToast("Kurt POS installed 🎉");
-  installBtn && installBtn.classList.add("hidden");
-});
-
 /* ---------- ONLINE / OFFLINE ---------- */
 const offlineBanner = $("offline-banner");
 function updateOnlineStatus() {
@@ -2929,3 +2899,198 @@ function esc(str) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+/* ==========================================================
+   PWA INSTALL — Mobile-friendly install experience
+   • Topbar button always visible
+   • Auto-banner appears on mobile
+   • iOS / Android / Desktop instructions built dynamically
+   • Uses native beforeinstallprompt when available
+   ========================================================== */
+const installBtn         = $("install-btn");
+const installModal       = $("install-modal");
+const installClose       = $("install-close");
+const installLater       = $("install-later");
+const installTitle       = $("install-title");
+const installSubtitle    = $("install-subtitle");
+const installInstr       = $("install-instructions");
+const installNativeWrap  = $("install-native-wrap");
+const installNativeBtn   = $("install-native-btn");
+const installBanner      = $("install-banner");
+const installBannerBtn   = $("install-banner-btn");
+const installBannerClose = $("install-banner-close");
+
+let deferredPrompt = null;
+
+/* --- Platform detection --- */
+const UA = navigator.userAgent || "";
+const IS_IOS =
+  /iPhone|iPad|iPod/i.test(UA) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const IS_ANDROID = /Android/i.test(UA);
+const IS_MOBILE  = IS_IOS || IS_ANDROID || /Mobile/i.test(UA);
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches
+      || window.matchMedia("(display-mode: fullscreen)").matches
+      || navigator.standalone === true;
+}
+function isDismissed()  { return localStorage.getItem("installDismissed") === "1"; }
+function markDismissed() { localStorage.setItem("installDismissed", "1"); }
+
+/* --- Chromium native install prompt --- */
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  if (!isStandalone() && !isDismissed() && IS_MOBILE) {
+    setTimeout(() => installBanner?.classList.remove("hidden"), 2500);
+  }
+});
+
+window.addEventListener("appinstalled", () => {
+  showToast("Kurt POS installed 🎉");
+  deferredPrompt = null;
+  installModal?.classList.add("hidden");
+  installBanner?.classList.add("hidden");
+  markDismissed();
+});
+
+/* --- Platform-specific instructions --- */
+function buildInstructions() {
+  if (IS_IOS) {
+    return {
+      icon: "🍎",
+      title: "Install on iPhone / iPad",
+      subtitle: "Add Kurt POS to your home screen for one-tap access.",
+      html: `
+        <ol>
+          <li>Tap the <span class="step-icon">⬆️ Share</span> button at the bottom of Safari.</li>
+          <li>Scroll and tap <span class="step-icon">➕ Add to Home Screen</span>.</li>
+          <li>Tap <span class="step-icon">Add</span> in the top-right corner.</li>
+        </ol>
+      `
+    };
+  }
+  if (IS_ANDROID) {
+    return {
+      icon: "🤖",
+      title: "Install on Android",
+      subtitle: "Install Kurt POS to your home screen for fast, offline access.",
+      html: deferredPrompt
+        ? `<p>Tap <b>Install Now</b> below to add Kurt POS to your home screen.</p>`
+        : `<ol>
+             <li>Open the <span class="step-icon">⋮</span> menu in Chrome (top-right).</li>
+             <li>Tap <span class="step-icon">Install app</span> or <span class="step-icon">Add to Home screen</span>.</li>
+             <li>Tap <span class="step-icon">Install</span>.</li>
+           </ol>`
+    };
+  }
+  return {
+    icon: "💻",
+    title: "Install Kurt POS",
+    subtitle: "Open the app in its own window for a native-like experience.",
+    html: deferredPrompt
+      ? `<p>Tap <b>Install Now</b> below, or use the ⊕ icon in your address bar.</p>`
+      : `<ol>
+           <li><b>Chrome / Edge:</b> click the <span class="step-icon">⊕</span> icon in the address bar.</li>
+           <li><b>Safari (macOS 14+):</b> File menu → <span class="step-icon">Add to Dock</span>.</li>
+           <li><b>Firefox:</b> PWA install not supported — use Chrome or Edge.</li>
+         </ol>`
+  };
+}
+
+/* --- Open / close modal --- */
+function openInstallModal() {
+  if (isStandalone()) { showToast("App is already installed ✅"); return; }
+  const info = buildInstructions();
+  if (installTitle)    installTitle.textContent    = info.title;
+  if (installSubtitle) installSubtitle.textContent = info.subtitle;
+  if (installInstr)    installInstr.innerHTML      = info.html;
+
+  if (installNativeWrap) {
+    installNativeWrap.classList.toggle("hidden", !deferredPrompt);
+  }
+  installModal?.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+function closeInstallModal() {
+  installModal?.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+/* --- Trigger native install if we have one, otherwise show manual steps --- */
+async function triggerInstall() {
+  if (deferredPrompt) {
+    try {
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        showToast("Installing… 🎉");
+        markDismissed();
+      }
+      deferredPrompt = null;
+    } catch (e) {
+      console.warn("[PWA] install prompt error:", e);
+    }
+    closeInstallModal();
+    installBanner?.classList.add("hidden");
+  } else {
+    openInstallModal();
+  }
+}
+
+/* --- Wire up --- */
+if (installBtn) {
+  installBtn.addEventListener("click", () => {
+    if (isStandalone()) { showToast("App is already installed ✅"); return; }
+    if (deferredPrompt) triggerInstall();
+    else openInstallModal();
+  });
+}
+if (installNativeBtn) installNativeBtn.addEventListener("click", triggerInstall);
+if (installClose)     installClose.addEventListener("click", closeInstallModal);
+if (installLater) installLater.addEventListener("click", () => {
+  closeInstallModal();
+  markDismissed();
+  installBanner?.classList.add("hidden");
+});
+if (installModal) {
+  installModal.addEventListener("click", (e) => {
+    if (e.target === installModal) closeInstallModal();
+  });
+}
+if (installBannerBtn) installBannerBtn.addEventListener("click", () => {
+  if (deferredPrompt) triggerInstall();
+  else {
+    installBanner?.classList.add("hidden");
+    openInstallModal();
+  }
+});
+if (installBannerClose) installBannerClose.addEventListener("click", () => {
+  installBanner?.classList.add("hidden");
+  markDismissed();
+});
+
+/* --- iOS Safari: no beforeinstallprompt event — auto-show the banner after login --- */
+if (IS_IOS && !isStandalone() && !isDismissed()) {
+  const tryShowBanner = () => {
+    if (appShell && !appShell.classList.contains("hidden")) {
+      installBanner?.classList.remove("hidden");
+    }
+  };
+  setTimeout(tryShowBanner, 6000);
+  // Re-check whenever the auth state changes (user logs in)
+  const bannerInterval = setInterval(() => {
+    if (appShell && !appShell.classList.contains("hidden")) {
+      tryShowBanner();
+      clearInterval(bannerInterval);
+    }
+  }, 2000);
+  setTimeout(() => clearInterval(bannerInterval), 60000); // safety: stop after 1 min
+}
+
+/* --- ESC closes the modal --- */
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && installModal && !installModal.classList.contains("hidden")) {
+    closeInstallModal();
+  }
+});

@@ -1667,3 +1667,169 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast {
   .brand-tagline, .carousel-text { transition: none; }
   .scan-laser, .blob, .brand-ring, .brand-logo { animation: none; }
 }
+/* ==========================================================
+   INSTALL MODAL
+   ========================================================== */
+.install-modal {
+  position: fixed; inset: 0; z-index: 2000;
+  display: grid; place-items: center;
+  background: rgba(6, 26, 24, 0.78);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  padding: 16px;
+  animation: fadeIn 0.25s ease;
+}
+.install-sheet {
+  position: relative;
+  width: min(400px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 22px;
+  padding: 28px 22px 20px;
+  text-align: center;
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.4);
+  animation: cardIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.install-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  display: grid; place-items: center;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.install-close:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+.install-icon {
+  width: 72px; height: 72px;
+  margin: 0 auto 14px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-400));
+  display: grid; place-items: center;
+  font-size: 2rem;
+  box-shadow: 0 10px 24px rgba(18, 84, 79, 0.35);
+}
+.install-sheet h3 {
+  font-size: 1.2rem;
+  color: var(--title-color);
+  margin-bottom: 6px;
+}
+.install-sheet > p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+.install-instructions {
+  text-align: left;
+  background: var(--surface-2);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+.install-instructions p { margin: 0; }
+.install-instructions ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.install-instructions li { padding: 4px 0; }
+.install-instructions .step-icon {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 2px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#install-native-wrap { margin-bottom: 8px; }
+.install-sheet .btn.ghost.block { margin-top: 4px; }
+
+/* ==========================================================
+   INSTALL BANNER (mobile)
+   ========================================================== */
+.install-banner {
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-700));
+  color: #fff;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(18, 84, 79, 0.4);
+  animation: bannerSlideUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  max-width: 480px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+@keyframes bannerSlideUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.install-banner-icon {
+  width: 42px; height: 42px;
+  flex: 0 0 42px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.16);
+  display: grid; place-items: center;
+  font-size: 1.4rem;
+}
+.install-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+.install-banner-text strong {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.install-banner-text small {
+  font-size: 0.72rem;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.install-banner .btn.primary {
+  background: #fff;
+  color: var(--brand);
+  border-color: #fff;
+  font-size: 0.78rem;
+  padding: 8px 14px;
+  flex-shrink: 0;
+}
+.install-banner .btn.primary:hover { background: rgba(255, 255, 255, 0.9); }
+.install-banner-close {
+  width: 26px; height: 26px;
+  flex: 0 0 26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 0.7rem;
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.install-banner-close:hover { background: rgba(255, 255, 255, 0.32); }
+
+@media (max-width: 520px) {
+  .install-banner { bottom: calc(74px + env(safe-area-inset-bottom)); }
+  .install-sheet { padding: 24px 18px 18px; }
+  .install-icon { width: 64px; height: 64px; font-size: 1.7rem; }
+  .install-sheet h3 { font-size: 1.1rem; }
+  .install-instructions { font-size: 0.82rem; padding: 12px 14px; }
+}

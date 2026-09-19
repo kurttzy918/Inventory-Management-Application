@@ -530,5 +530,35 @@
 
   <div id="toast" class="toast hidden"></div>
 
+ <!-- ============ INSTALL APP MODAL ============ -->
+<div id="install-modal" class="install-modal hidden" role="dialog" aria-modal="true">
+  <div class="install-sheet">
+    <button id="install-close" class="install-close" aria-label="Close">✕</button>
+
+    <div class="install-icon">📱</div>
+    <h3 id="install-title">Install Kurt POS</h3>
+    <p id="install-subtitle">Add the app to your home screen for fast, offline access.</p>
+
+    <div id="install-instructions" class="install-instructions"></div>
+
+    <div id="install-native-wrap" class="hidden">
+      <button id="install-native-btn" class="btn primary block">⬇️ Install Now</button>
+    </div>
+
+    <button id="install-later" class="btn ghost block">Maybe Later</button>
+  </div>
+</div>
+
+<!-- ============ INSTALL BANNER (mobile) ============ -->
+<div id="install-banner" class="install-banner hidden" role="alert">
+  <span class="install-banner-icon">⬇️</span>
+  <div class="install-banner-text">
+    <strong>Install Kurt POS</strong>
+    <small>Faster launch · Works offline</small>
+  </div>
+  <button id="install-banner-btn" class="btn primary sm">Install</button>
+  <button id="install-banner-close" class="install-banner-close" aria-label="Dismiss">✕</button>
+</div>
+
 </body>
 </html>
