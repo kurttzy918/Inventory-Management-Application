@@ -12,11 +12,8 @@
   <title>Kurt Inventory · Smart Stock &amp; Sales</title>
 
   <link rel="manifest" href="manifest.json" />
-  <!-- 🔁 To change the logo, just replace these two files with your own:
-       kurt.png  (used on the login/pending card)
-       kurt.png  (also used in the topbar brand — same file) -->
-  <link rel="icon" href="kurt.png" />
-  <link rel="apple-touch-icon" href="kurt.png" />
+  <link rel="icon" href="Kurt.png" />
+  <link rel="apple-touch-icon" href="Kurt.png" />
 
   <script>
     (function () {
@@ -33,8 +30,8 @@
 
   <link rel="stylesheet" href="style.css" />
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js" defer></script>
@@ -56,14 +53,14 @@
     <div class="auth-card">
       <div class="brand-mark">
         <span class="brand-ring"></span>
-        <!-- 🔁 Replace kurt.png anytime to change the login logo -->
-        <img id="logo-img" class="brand-logo" src="kurt.png" alt="Company logo"
-             onerror="this.style.display='none';document.getElementById('brand-fallback').style.display='grid';" />
-        <div id="brand-fallback" class="brand-fallback" style="display:none">🏪</div>
+        <!-- ▼ LOGO SLOT (login card) — replace the src below with your own image. -->
+        <img id="logo-img" class="brand-logo" alt="Company logo"
+             src="Kurt.png" />
       </div>
 
       <h1 class="logo">Kurt Sari-Sari Store POS</h1>
 
+      <!-- ▼ SUBTITLE CAROUSEL — rotate the text between the <span> tags below. -->
       <div class="subtitle-carousel">
         <span class="carousel-text">Manage your inventory in real time</span>
         <span class="carousel-text">Be Systematic</span>
@@ -91,6 +88,7 @@
 
       <p id="auth-error" class="error-msg"></p>
 
+      <!-- Social icons -->
       <div class="social-divider"><span>or connect with</span></div>
       <div class="social-links">
         <a href="#" class="social-icon" aria-label="Facebook" title="Facebook" rel="noopener">
@@ -123,7 +121,7 @@
       <div class="pending-icon">⏳</div>
       <h1 class="logo">Awaiting Approval</h1>
       <p class="subtitle static">
-        Your workspace has been created but is pending approval from the super admin.
+        Your workspace has been created but is pending approval from the Kurt super admin.
         You'll be notified once your account is activated.
       </p>
       <p class="pending-email" id="pending-email"></p>
@@ -140,17 +138,17 @@
 
     <header class="topbar">
       <div class="brand-mini">
-        <div class="brand-mini-row">
-          <!-- 🔁 Replace kurt.png anytime to change the topbar logo -->
-          <img id="brand-logo" class="brand-mini-logo" src="kurt.png" alt=""
-               onerror="this.style.display='none';document.getElementById('brand-mini-fallback').style.display='grid';" />
-          <div id="brand-mini-fallback" class="brand-mini-fallback" style="display:none">🏪</div>
+        <!-- ▼ LOGO SLOT (top bar) — replace the src below with your own image. -->
+        <img id="brand-logo" class="brand-mini-logo" alt="Kurt POS logo"
+             src="Kurt.png" />
+        <div class="brand-mini-text">
           <h1 class="logo">Kurt POS</h1>
-        </div>
-        <div class="brand-tagline-carousel">
-          <span class="brand-tagline">Smart Stock &amp; Sales</span>
-          <span class="brand-tagline">Be Systematic</span>
-          <span class="brand-tagline">Scan · Sell · Restock</span>
+          <!-- ▼ BRAND TAGLINE CAROUSEL — rotate the text between the <span> tags below. -->
+          <div class="brand-tagline-carousel" aria-label="Smart Stock &amp; Sales">
+            <span class="brand-tagline">Smart Stock &amp; Sales</span>
+            <span class="brand-tagline">Be Systematic</span>
+            <span class="brand-tagline">Scan · Sell · Restock</span>
+          </div>
         </div>
       </div>
 
@@ -179,14 +177,39 @@
         <button id="expiry-banner-btn" class="btn sm">View</button>
       </div>
 
+      <!-- =====================================================
+           ▼▼▼  STATS CARDS — EDIT LABELS HERE  ▼▼▼
+           Change ONLY the text inside <span class="stat-label">…</span>.
+           Do NOT touch the id="stat-*" attributes — app.js writes into those.
+           ===================================================== -->
       <div class="stats-grid">
-        <div class="stat-card"><span class="stat-label">Total Items</span><span id="stat-total" class="stat-value">0</span></div>
-        <div class="stat-card warning"><span class="stat-label">Low Stock</span><span id="stat-low" class="stat-value">0</span></div>
-        <div class="stat-card"><span class="stat-label">Inventory Value</span><span id="stat-value" class="stat-value">₱0</span></div>
-        <div class="stat-card success"><span class="stat-label">Today's Sales</span><span id="stat-sales" class="stat-value">₱0</span></div>
-        <div class="stat-card profit"><span class="stat-label">Profit (Tubo)</span><span id="stat-profit" class="stat-value">₱0</span></div>
-        <div class="stat-card"><span class="stat-label">Categories</span><span id="stat-cats" class="stat-value">0</span></div>
+        <div class="stat-card">
+          <span class="stat-label">Total Items</span>
+          <span id="stat-total" class="stat-value">0</span>
+        </div>
+        <div class="stat-card warning">
+          <span class="stat-label">Low Stock</span>
+          <span id="stat-low" class="stat-value">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Cost (Puhunan)</span>
+          <span id="stat-value" class="stat-value">₱0</span>
+        </div>
+        <div class="stat-card success">
+          <span class="stat-label">Sales (Benta)</span>
+          <span id="stat-sales" class="stat-value">₱0</span>
+        </div>
+        <div class="stat-card profit">
+          <span class="stat-label">Profit (Tubo)</span>
+          <span id="stat-profit" class="stat-value">₱0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Categories</span>
+          <span id="stat-cats" class="stat-value">0</span>
+        </div>
       </div>
+      <!-- ▲▲▲  END STATS CARDS  ▲▲▲
+           ===================================================== -->
 
       <div class="spotlight-head">
         <h3 class="section-heading">Live Spotlight</h3>
@@ -457,11 +480,13 @@
       <div class="scanner-view" id="scanner-view">
         <div id="scanner-reader" class="scanner-reader"></div>
         <div class="scanner-frame" aria-hidden="true">
-          <span class="scan-corner tl"></span>
-          <span class="scan-corner tr"></span>
-          <span class="scan-corner bl"></span>
-          <span class="scan-corner br"></span>
-          <span class="scan-laser"></span>
+          <div class="scan-box">
+            <span class="scan-corner tl"></span>
+            <span class="scan-corner tr"></span>
+            <span class="scan-corner bl"></span>
+            <span class="scan-corner br"></span>
+            <span class="scan-laser"></span>
+          </div>
         </div>
       </div>
 
@@ -494,9 +519,7 @@
   <!-- ================= RECEIPT MODAL ================= -->
   <div id="receipt-modal" class="modal hidden">
     <div class="modal-card receipt-modal-card">
-      <div class="receipt-scroll">
-        <div class="receipt" id="receipt-content"></div>
-      </div>
+      <div class="receipt" id="receipt-content"></div>
       <div class="receipt-actions">
         <button id="print-receipt-btn" class="btn primary">🖨️ Print</button>
         <button id="delete-receipt-btn" class="btn danger">🗑️ Delete</button>

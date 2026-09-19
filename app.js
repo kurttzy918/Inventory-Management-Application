@@ -3,7 +3,7 @@
    Multi-tenant + Super Admin + POS + Receipt + Exports
    + Profit + In/Out History + Slow Moving + Expiry
    + Sales History page + per-sale receipt + delete
-   + FAST SCANNER (native BarcodeDetector, low-lag)
+   + SCANNER v6: fast start (single camera open), clean shutdown
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -15,7 +15,7 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, onSnapshot, addDoc, updateDoc,
   deleteDoc, doc, getDoc, setDoc, serverTimestamp,
-  query, where
+  query, where, writeBatch, increment
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 /* ----------------------------------------------------------
@@ -48,6 +48,7 @@ const EXPIRY_WARNING_DAYS   = 30;
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
+/* ✅ Firestore with offline persistence — works offline & multi-tab */
 let db;
 try {
   db = initializeFirestore(app, {
@@ -66,6 +67,10 @@ const $ = (id) => document.getElementById(id);
 const valOf  = (el) => (el ? String(el.value || "") : "");
 const numOf  = (el) => (el ? (Number(el.value) || 0) : 0);
 const setVal = (el, v) => { if (el) el.value = v; };
+function debounce(fn, ms = 150) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
 function safeRender(fn) {
   try { if (typeof fn === "function") fn(); }
   catch (e) { console.error("[render] " + (fn.name || "anon") + " failed:", e); }
@@ -161,6 +166,9 @@ const scannerModal = $("scanner-modal"), scannerTitle = $("scanner-title"),
   scannerReader = $("scanner-reader"), scannerStatus = $("scanner-status"),
   scannerClose = $("scanner-close"), scannerManualInput = $("scanner-manual-input"),
   scannerManualBtn = $("scanner-manual-btn");
+const scannerRetryBtn   = $("scanner-retry-btn");
+const scannerUploadBtn  = $("scanner-upload-btn");
+const scannerUploadInput = $("scanner-upload-input");
 
 /* Restock */
 const restockModal = $("restock-modal"), restockItemName = $("restock-item-name"),
@@ -205,9 +213,11 @@ let currentReceiptGroup = null;
     if (typeof Chart !== "undefined") {
       clearInterval(iv);
       chartJsReady = true;
+      console.log("[Charts] Chart.js ready after", tries * 150, "ms");
       safeRender(renderCharts);
     } else if (tries > 80) {
       clearInterval(iv);
+      console.warn("[Charts] Chart.js failed to load");
     }
   }, 150);
 })();
@@ -249,6 +259,34 @@ buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
 /* ----------------------------------------------------------
+   TEXT CAROUSELS — auth subtitle + topbar brand tagline
+   (Previously used CSS @keyframes + :nth-child delays, which
+    are fragile: "Reduce Motion" OS setting disables them and
+    some browsers don't repaint stacked grid items. This uses
+    a JS class toggle + CSS transition instead — bulletproof.)
+   ---------------------------------------------------------- */
+function startTextCarousel(containerSelector, itemSelector, intervalMs = 3000) {
+  const container = document.querySelector(containerSelector);
+  if (!container) return;
+  const items = container.querySelectorAll(itemSelector);
+  if (!items.length) return;
+  if (items.length === 1) { items[0].classList.add("active"); return; }
+
+  let idx = 0;
+  items.forEach((el, i) => el.classList.toggle("active", i === 0));
+
+  setInterval(() => {
+    if (!items[idx].isConnected) return;   // safety: element was removed
+    items[idx].classList.remove("active");
+    idx = (idx + 1) % items.length;
+    items[idx].classList.add("active");
+  }, intervalMs);
+}
+
+startTextCarousel(".subtitle-carousel",      ".carousel-text", 3000);
+startTextCarousel(".brand-tagline-carousel", ".brand-tagline", 3000);
+
+/* ----------------------------------------------------------
    THEME
    ---------------------------------------------------------- */
 function applyTheme(theme) {
@@ -265,6 +303,7 @@ if (themeToggle) themeToggle.addEventListener("click", () => {
 if (themeIcon) themeIcon.textContent =
   document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
 
+/* Optional: apply theme again on system change */
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", (ev) => {
   if (!localStorage.getItem("theme")) applyTheme(ev.matches ? "dark" : "light");
 });
@@ -280,17 +319,31 @@ if (soundToggle) soundToggle.addEventListener("click", () => {
 });
 updateSoundIcon();
 
+let audioCtx = null;
+function getAudioCtx() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtx || audioCtx.state === "closed") audioCtx = new AC();
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    return audioCtx;
+  } catch (e) { return null; }
+}
+document.addEventListener("pointerdown", getAudioCtx, { once: true });
+
 function playBeep(freq, dur, type = "sine") {
   if (!soundEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    const t = ctx.currentTime;
     osc.type = type; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    gain.gain.setValueAtTime(0.15, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
     osc.connect(gain); gain.connect(ctx.destination);
-    osc.start(); osc.stop(ctx.currentTime + dur);
-    setTimeout(() => ctx.close(), dur * 1000 + 100);
+    osc.start(t); osc.stop(t + dur);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (e) {} };
   } catch (e) {}
 }
 function playSuccessSound() { playBeep(880, 0.12); setTimeout(() => playBeep(1100, 0.12), 120); }
@@ -298,7 +351,7 @@ function playErrorSound()   { playBeep(220, 0.35, "sawtooth"); }
 function playCashSound()    { playBeep(1320, 0.08); setTimeout(() => playBeep(1760, 0.08), 90); setTimeout(() => playBeep(2093, 0.16), 180); }
 
 /* ----------------------------------------------------------
-   AUTH TABS
+   AUTH TABS — animated slide
    ---------------------------------------------------------- */
 const authTabs = $("auth-tabs");
 
@@ -315,8 +368,11 @@ function setAuthMode(isSignup) {
     void form.offsetWidth;
     form.style.animation = "";
   }
-  setTimeout(() => emailInput && emailInput.focus({ preventScroll: true }), 300);
+  setTimeout(() => {
+    if (emailInput) emailInput.focus({ preventScroll: true });
+  }, 300);
 }
+
 if (tabLogin)  tabLogin.addEventListener("click", () => setAuthMode(false));
 if (tabSignup) tabSignup.addEventListener("click", () => setAuthMode(true));
 
@@ -465,7 +521,7 @@ function startAllListeners() {
     query(collection(db, "inventory"), where("workspaceId", "==", wsId)),
     (snap) => {
       inventory = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+        .map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
       safeRender(renderInventory);
@@ -492,7 +548,7 @@ function startAllListeners() {
     query(collection(db, "sales"), where("workspaceId", "==", wsId)),
     (snap) => {
       sales = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+        .map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => {
           const ta = a.createdAt?.toMillis?.() ?? 0;
           const tb = b.createdAt?.toMillis?.() ?? 0;
@@ -515,7 +571,7 @@ function startAllListeners() {
     query(collection(db, "categories"), where("workspaceId", "==", wsId)),
     (snap) => {
       categories = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+        .map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       safeRender(renderCategories);
       safeRender(updateStats);
@@ -528,7 +584,7 @@ function startAllListeners() {
     query(collection(db, "movements"), where("workspaceId", "==", wsId)),
     (snap) => {
       movements = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+        .map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => {
           const ta = a.createdAt?.toMillis?.() ?? 0;
           const tb = b.createdAt?.toMillis?.() ?? 0;
@@ -546,7 +602,7 @@ function startUserAdminListener() {
     query(collection(db, "users")),
     (snap) => {
       allUsers = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+        .map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => {
           const ta = a.createdAt?.toMillis?.() ?? 0;
           const tb = b.createdAt?.toMillis?.() ?? 0;
@@ -569,21 +625,31 @@ function stopAllListeners() {
 /* ----------------------------------------------------------
    MOVEMENT LOGGING
    ---------------------------------------------------------- */
-async function logMovement({ itemId, itemName, type, quantity, reason, note }) {
-  const wsId = myWorkspace();
-  if (!wsId) return;
-  try {
-    await addDoc(collection(db, "movements"), {
-      workspaceId: wsId, itemId, itemName, type,
-      quantity: Number(quantity),
-      reason: reason || "other",
-      note: note || "",
-      userId: currentUser?.uid || null,
-      createdAt: serverTimestamp()
-    });
-  } catch (err) {
-    console.warn("[movement log] failed:", err.code, err.message);
-  }
+function movementDoc({ itemId, itemName, type, quantity, reason, note }) {
+  return {
+    workspaceId: myWorkspace(), itemId, itemName, type,
+    quantity: Number(quantity),
+    reason: reason || "other",
+    note: note || "",
+    userId: currentUser?.uid || null,
+    createdAt: serverTimestamp()
+  };
+}
+
+function settleWrite(promise, label = "Save") {
+  const graceMs = navigator.onLine ? 3500 : 0;
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve({ pending: true }); } }, graceMs);
+    promise.then(
+      () => { if (!done) { done = true; clearTimeout(timer); resolve({ pending: false }); } },
+      (err) => {
+        console.error(`[${label}] write failed:`, err?.code, err?.message);
+        if (!done) { done = true; clearTimeout(timer); reject(err); }
+        else showToast(`${label} failed to sync: ${err?.code || err?.message} ❌`);
+      }
+    );
+  });
 }
 
 /* ----------------------------------------------------------
@@ -614,8 +680,12 @@ navButtons.forEach(btn => {
       safeRender(updateChange);
       startPosMiniCarousels();
     }
-    if (btn.dataset.page === "page-history") safeRender(renderHistory);
-    if (btn.dataset.page === "page-add") safeRender(autoFillSku);
+    if (btn.dataset.page === "page-history") {
+      safeRender(renderHistory);
+    }
+    if (btn.dataset.page === "page-add") {
+      safeRender(autoFillSku);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 });
@@ -638,7 +708,8 @@ function compressImage(file, maxSize = 420, quality = 0.72) {
         }
         canvas.width = width;
         canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = reject;
@@ -680,15 +751,21 @@ if (photoCameraBtn) photoCameraBtn.addEventListener("click", () => {
   else if (itemImage) itemImage.click();
 });
 if (itemImageCamera) itemImageCamera.addEventListener("change", (e) => {
-  handlePhotoFile(e.target.files?.[0]);
+  const file = e.target.files?.[0];
+  handlePhotoFile(file);
   e.target.value = "";
 });
-if (photoPickBtn) photoPickBtn.addEventListener("click", () => itemImage && itemImage.click());
+if (photoPickBtn) photoPickBtn.addEventListener("click", () => {
+  if (itemImage) itemImage.click();
+});
 if (itemImage) itemImage.addEventListener("change", (e) => {
-  handlePhotoFile(e.target.files?.[0]);
+  const file = e.target.files?.[0];
+  handlePhotoFile(file);
   e.target.value = "";
 });
-if (photoPreview) photoPreview.addEventListener("click", () => itemImage && itemImage.click());
+if (photoPreview) photoPreview.addEventListener("click", () => {
+  if (itemImage) itemImage.click();
+});
 if (photoRemoveBtn) photoRemoveBtn.addEventListener("click", () => {
   if (itemImage) itemImage.value = "";
   if (itemImageCamera) itemImageCamera.value = "";
@@ -741,31 +818,35 @@ if (itemSku) itemSku.addEventListener("input", () => {
 });
 
 /* ==========================================================
-   FAST BARCODE SCANNER — v6
-   Uses native BarcodeDetector when available (10× faster).
-   Removed double-rAF, heavy overlays, and redundant retries.
+   BARCODE SCANNER — v6
    ========================================================== */
 const SCANNER_STATE = { IDLE: "idle", STARTING: "starting", RUNNING: "running", STOPPING: "stopping" };
 
-let scannerInstance  = null;
-let scannerState     = SCANNER_STATE.IDLE;
-let scannerOpening   = false;
-let scannerTarget    = null;
-let lastScanCode     = "";
-let lastScanTime     = 0;
-let scanHandling     = false;
-const SCAN_COOLDOWN_MS = 1400;
+let scannerInstance   = null;
+let scannerState      = SCANNER_STATE.IDLE;
+let scannerOpening    = false;
+let scannerTarget     = null;
+let scannerSession    = 0;
+let lastScanCode      = "";
+let lastScanTime      = 0;
+let scanHandling      = false;
+const SCAN_COOLDOWN_MS = 1500;
 
-let cameraList = [];
-let selectedCameraId = localStorage.getItem("preferredCameraId") || "";
+const SCAN_FPS = 10;
+const SCAN_BOX = { w: 0.88, h: 0.56 };
+const SCAN_VIDEO = {
+  facingMode: "environment",
+  width:  { ideal: 1280 },
+  height: { ideal: 720 }
+};
+
+const scannerViewEl = $("scanner-view");
 
 function getScannerFormats() {
   const F = window.Html5QrcodeSupportedFormats;
   if (!F) return null;
   return [
-    F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
-    F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR,
-    F.DATA_MATRIX, F.PDF_417
+    F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39
   ].filter(v => v !== undefined && v !== null);
 }
 
@@ -789,27 +870,35 @@ function checkCameraEnvironment() {
   return { ok: true };
 }
 
-async function enumerateCameras() {
-  const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-  tempStream.getTracks().forEach(t => t.stop());
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices.filter(d => d.kind === "videoinput");
+function scannerErrorText(err) {
+  if (!err) return "";
+  if (typeof err === "string") return err;
+  return `${err.name || ""} ${err.message || ""}`.trim();
+}
+function isPermissionError(err) {
+  return /NotAllowed|PermissionDenied|Permission denied/i.test(scannerErrorText(err));
+}
+function cameraErrorMessage(err) {
+  const t = scannerErrorText(err);
+  if (/NotAllowed|PermissionDenied|Permission denied/i.test(t))
+    return "🚫 Camera permission <b>denied</b>. Allow camera in your browser settings and try again.";
+  if (/NotFound|DevicesNotFound|no camera/i.test(t))
+    return "📷 <b>No camera found</b>. Type the barcode below.";
+  if (/NotReadable|TrackStart/i.test(t))
+    return "⚠️ Camera is <b>busy</b> — another app is using it. Close it and try again.";
+  if (/Overconstrained|ConstraintNotSatisfied/i.test(t))
+    return "⚠️ Camera doesn't support the requested settings. Try again.";
+  if (/SecurityError/i.test(t))
+    return "🔒 Browser blocked camera access. Use HTTPS or localhost.";
+  return "❌ Camera error: <code>" + esc(t.slice(0, 80)) + "</code>";
 }
 
-function cameraErrorMessage(err) {
-  const name = err?.name || "";
-  const msg  = err?.message || String(err);
-  if (name === "NotAllowedError" || name === "PermissionDeniedError")
-    return "🚫 Camera permission <b>denied</b>. Allow camera in your browser settings.";
-  if (name === "NotFoundError" || name === "DevicesNotFoundError")
-    return "📷 <b>No camera found</b>. Type the barcode below.";
-  if (name === "NotReadableError" || name === "TrackStartError")
-    return "⚠️ Camera is <b>busy</b> — another app is using it.";
-  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError")
-    return "⚠️ Camera doesn't support the requested settings.";
-  if (name === "SecurityError")
-    return "🔒 Browser blocked camera access. Use HTTPS or localhost.";
-  return "❌ Camera error: <code>" + esc(msg.slice(0, 80)) + "</code>";
+let matchFlashTimer = null;
+function flashScanFrame() {
+  if (!scannerViewEl) return;
+  scannerViewEl.classList.add("matched");
+  clearTimeout(matchFlashTimer);
+  matchFlashTimer = setTimeout(() => scannerViewEl.classList.remove("matched"), 600);
 }
 
 function openScanner(target) {
@@ -820,6 +909,7 @@ function openScanner(target) {
   scannerOpening = true;
   scannerTarget  = target;
   scanHandling   = false;
+  const session  = ++scannerSession;
 
   if (scannerTitle) {
     scannerTitle.textContent =
@@ -829,6 +919,11 @@ function openScanner(target) {
   }
 
   if (scannerManualInput) scannerManualInput.value = "";
+  if (scannerViewEl) {
+    scannerViewEl.style.setProperty("--scan-w", (SCAN_BOX.w * 100) + "%");
+    scannerViewEl.style.setProperty("--scan-h", (SCAN_BOX.h * 100) + "%");
+    scannerViewEl.classList.remove("matched");
+  }
   if (scannerModal) scannerModal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 
@@ -848,59 +943,37 @@ function openScanner(target) {
   }
 
   setScannerStatus("Starting camera…");
-  // Single short delay — layout settles in ~1 frame
-  setTimeout(() => startCameraNow().catch(() => {}), 80);
+  requestAnimationFrame(() => { startCameraNow(session).catch((e) => console.warn("[Scanner] start:", e)); });
 }
 
-async function startCameraNow() {
+async function startCameraNow(session) {
   const readerEl = document.getElementById("scanner-reader");
   const viewEl   = document.getElementById("scanner-view");
   if (!readerEl) { scannerOpening = false; return; }
 
-  const rect = (viewEl || readerEl).getBoundingClientRect();
+  let rect = (viewEl || readerEl).getBoundingClientRect();
   if (rect.width < 40 || rect.height < 40) {
-    await new Promise(r => setTimeout(r, 180));
-  }
-
-  try {
-    setScannerStatus("Looking for cameras…");
-    cameraList = await enumerateCameras();
-    if (!cameraList.length) {
-      setScannerStatus("📷 No camera found. Type the barcode below.", "error");
-      setTimeout(() => scannerManualInput?.focus(), 200);
+    await new Promise(r => setTimeout(r, 200));
+    if (session !== scannerSession) return;
+    rect = (viewEl || readerEl).getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 40) {
+      setScannerStatus("Scanner viewport has no size. Type the barcode below.", "error");
       scannerOpening = false;
       return;
     }
-  } catch (permErr) {
-    setScannerStatus(cameraErrorMessage(permErr), "error");
-    setTimeout(() => scannerManualInput?.focus(), 200);
-    scannerOpening = false;
-    return;
   }
-
-  const chosen =
-    cameraList.find(c => /back|rear|environment/i.test(c.label)) ||
-    cameraList.find(c => c.deviceId === selectedCameraId) ||
-    cameraList[0];
-
-  selectedCameraId = chosen.deviceId;
-  try { localStorage.setItem("preferredCameraId", selectedCameraId); } catch (e) {}
-
-  reallyStartCamera(readerEl, chosen.deviceId);
+  await startScanning(readerEl, session);
 }
 
-function reallyStartCamera(readerEl, deviceId) {
+async function startScanning(readerEl, session) {
   try { readerEl.innerHTML = ""; } catch (e) {}
 
+  let inst;
   try {
-    const opts = {
-      verbose: false,
-      // 🔥 Native BarcodeDetector = huge speed boost when available
-      useBarCodeDetectorIfSupported: true
-    };
+    const opts = { verbose: false, useBarCodeDetectorIfSupported: true };
     const formats = getScannerFormats();
     if (formats?.length) opts.formatsToSupport = formats;
-    scannerInstance = new Html5Qrcode("scanner-reader", opts);
+    inst = new Html5Qrcode("scanner-reader", opts);
   } catch (e) {
     console.error("[Scanner] init failed:", e);
     setScannerStatus("Scanner init failed. Type the barcode below.", "error");
@@ -908,54 +981,42 @@ function reallyStartCamera(readerEl, deviceId) {
     scannerState = SCANNER_STATE.IDLE;
     return;
   }
-
+  scannerInstance = inst;
   scannerState = SCANNER_STATE.STARTING;
 
-  // Lower FPS = less CPU. disableFlip = skip unused processing.
-  const startConfig = {
-    fps: 10,
-    qrbox: (vw, vh) => {
-      const min = Math.min(vw, vh);
-      const size = Math.max(150, Math.floor(min * 0.68));
-      return { width: size, height: size };
-    },
-    aspectRatio: 1.0,
-    disableFlip: true
+  const baseCfg = {
+    fps: SCAN_FPS,
+    disableFlip: true,
+    qrbox: (vw, vh) => ({
+      width:  Math.max(120, Math.floor(vw * SCAN_BOX.w)),
+      height: Math.max(80,  Math.floor(vh * SCAN_BOX.h))
+    })
   };
+  const onDecode = (text) => onScanSuccess(text);
+  const onMiss = () => {};
 
-  const configs = [
-    { deviceId: { exact: deviceId } },
-    { deviceId: deviceId },
-    { facingMode: "environment" },
-    { facingMode: "user" }
+  const attempts = [
+    () => inst.start({ facingMode: "environment" }, { ...baseCfg, videoConstraints: SCAN_VIDEO }, onDecode, onMiss),
+    async () => {
+      const cams = await Html5Qrcode.getCameras();
+      if (!cams?.length) throw "NotFoundError: no camera";
+      const saved = localStorage.getItem("preferredCameraId") || "";
+      const cam = cams.find(c => /back|rear|environment/i.test(c.label || "")) ||
+                  cams.find(c => c.id === saved) || cams[0];
+      await inst.start(cam.id, baseCfg, onDecode, onMiss);
+      try { localStorage.setItem("preferredCameraId", cam.id); } catch (e) {}
+    },
+    () => inst.start({ facingMode: "user" }, baseCfg, onDecode, onMiss)
   ];
 
-  let attempt = 0;
-  const tryNext = () => {
-    if (scannerState === SCANNER_STATE.IDLE || scannerState === SCANNER_STATE.STOPPING) return;
-    if (attempt >= configs.length) {
-      scannerOpening = false;
-      scannerState = SCANNER_STATE.IDLE;
-      scannerInstance = null;
-      setScannerStatus("Could not start any camera. Type the barcode below.", "error");
-      setTimeout(() => scannerManualInput?.focus(), 200);
-      return;
-    }
-
-    const cfg = configs[attempt++];
-    let promise;
+  let lastErr = null;
+  for (const attempt of attempts) {
+    if (session !== scannerSession) return;
     try {
-      promise = scannerInstance.start(
-        cfg,
-        startConfig,
-        (decodedText) => onScanSuccess(decodedText),
-        () => {}
-      );
-    } catch (e) { tryNext(); return; }
-
-    promise.then(() => {
-      if (scannerState === SCANNER_STATE.IDLE || scannerState === SCANNER_STATE.STOPPING) {
-        try { scannerInstance?.stop().catch(() => {}); } catch (e) {}
+      await attempt();
+      if (session !== scannerSession) {
+        try { await inst.stop(); } catch (e) {}
+        try { inst.clear(); } catch (e) {}
         return;
       }
       scannerState = SCANNER_STATE.RUNNING;
@@ -969,15 +1030,24 @@ function reallyStartCamera(readerEl, deviceId) {
           ? `Point at a barcode. Keep scanning to add more. (${hint})`
           : `Point the camera at a barcode… (${hint})`
       );
-    }).catch(() => {
-      if (scannerState === SCANNER_STATE.IDLE) return;
-      tryNext();
-    });
-  };
-  tryNext();
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.warn("[Scanner] start attempt failed:", scannerErrorText(err));
+      if (isPermissionError(err)) break;
+    }
+  }
+
+  if (session !== scannerSession) return;
+  scannerOpening = false;
+  scannerState = SCANNER_STATE.IDLE;
+  scannerInstance = null;
+  setScannerStatus(cameraErrorMessage(lastErr), "error");
+  setTimeout(() => scannerManualInput?.focus(), 200);
 }
 
 async function shutdownScanner() {
+  scannerSession++;
   const inst = scannerInstance;
   scannerInstance = null;
   scannerState = SCANNER_STATE.STOPPING;
@@ -1014,10 +1084,17 @@ function forceCloseScanner() {
   document.body.style.overflow = "";
   shutdownScanner().catch(() => {});
 }
+
 function closeScanner() {
   if (scannerModal) scannerModal.classList.add("hidden");
   document.body.style.overflow = "";
   shutdownScanner().catch(() => {});
+}
+
+async function retryScanner() {
+  await shutdownScanner();
+  await new Promise(r => setTimeout(r, 350));
+  openScanner(scannerTarget || "sale");
 }
 
 function onScanSuccess(decodedText) {
@@ -1033,11 +1110,12 @@ function onScanSuccess(decodedText) {
   lastScanCode  = code;
   lastScanTime  = now;
   scanHandling  = true;
+  flashScanFrame();
 
   try {
     handleScanResult(code);
   } finally {
-    setTimeout(() => { scanHandling = false; }, 300);
+    setTimeout(() => { scanHandling = false; }, 350);
   }
 }
 
@@ -1070,14 +1148,14 @@ function handleScanResult(text) {
     if (itemBarcode) itemBarcode.value = code;
     playSuccessSound();
     setScannerStatus("✅ Barcode set: " + code, "success");
-    setTimeout(() => forceCloseScanner(), 450);
+    setTimeout(() => forceCloseScanner(), 500);
     return;
   }
 
   if (scannerTarget === "sale") {
     if (!inventory.length) {
       playErrorSound();
-      setScannerStatus("⚠️ Inventory still loading. Wait a moment.", "error");
+      setScannerStatus("⚠️ Inventory still loading. Wait a moment and scan again.", "error");
       return;
     }
     const item = findItemByCode(code);
@@ -1117,6 +1195,31 @@ if (scannerManualBtn) scannerManualBtn.addEventListener("click", () => {
 if (scannerManualInput) scannerManualInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); scannerManualBtn?.click(); }
 });
+if (scannerRetryBtn) scannerRetryBtn.addEventListener("click", retryScanner);
+
+if (scannerUploadBtn && scannerUploadInput) {
+  scannerUploadBtn.addEventListener("click", () => scannerUploadInput.click());
+  scannerUploadInput.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setScannerStatus("Scanning image…");
+    try {
+      await shutdownScanner();
+      await new Promise(r => setTimeout(r, 200));
+      if (scannerModal) scannerModal.classList.remove("hidden");
+      await new Promise(r => requestAnimationFrame(r));
+      const temp = new Html5Qrcode("scanner-reader", { verbose: false });
+      const result = await temp.scanFile(file, true);
+      try { temp.clear(); } catch (err) {}
+      handleScanResult(result);
+      setTimeout(() => forceCloseScanner(), 700);
+    } catch (err) {
+      console.warn("[Scanner] image scan failed:", err);
+      setScannerStatus("❌ No barcode found in that image.", "error");
+    }
+  });
+}
 /* ==========================================================
    END BARCODE SCANNER
    ========================================================== */
@@ -1231,14 +1334,6 @@ function renderPosCart() {
       </div>
     `).join("");
   }
-  posCartItems.querySelectorAll("[data-act]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id, act = btn.dataset.act;
-      if (act === "inc") updateCartQty(id, 1);
-      else if (act === "dec") updateCartQty(id, -1);
-      else if (act === "rm") removeFromCart(id);
-    });
-  });
   if (posTotalEl) posTotalEl.textContent = "₱" + getCartTotal().toFixed(2);
 }
 function updateChange() {
@@ -1250,6 +1345,14 @@ function updateChange() {
   else if (change < 0) { posChangeEl.textContent = "−₱" + Math.abs(change).toFixed(2); posChangeEl.classList.add("insufficient"); }
   else { posChangeEl.textContent = "₱" + change.toFixed(2); posChangeEl.classList.remove("insufficient"); }
 }
+if (posCartItems) posCartItems.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.id, act = btn.dataset.act;
+  if (act === "inc") updateCartQty(id, 1);
+  else if (act === "dec") updateCartQty(id, -1);
+  else if (act === "rm") removeFromCart(id);
+});
 if (posCashInput) posCashInput.addEventListener("input", updateChange);
 if (posClearBtn) posClearBtn.addEventListener("click", () => { clearCart(); showToast("Cart cleared 🧹"); });
 
@@ -1279,7 +1382,7 @@ function renderPosProducts() {
   const term = valOf(salesSearchEl).toLowerCase().trim();
   const filtered = inventory.filter(i => {
     if (!term) return true;
-    return i.name.toLowerCase().includes(term) ||
+    return (i.name || "").toLowerCase().includes(term) ||
            (i.sku || "").toLowerCase().includes(term) ||
            (i.barcode || "").toLowerCase().includes(term);
   });
@@ -1326,6 +1429,9 @@ function startPosMiniCarousels() {
   stopPosMiniCarousels();
   posMiniIndex = 0;
   posMiniTimer = setInterval(() => {
+    const salesPage = $("page-sales");
+    if (salesPage && salesPage.classList.contains("hidden")) return;
+    if (scannerModal && !scannerModal.classList.contains("hidden")) return;
     posMiniIndex++;
     document.querySelectorAll(".pos-mini").forEach(carousel => {
       const count = parseInt(carousel.dataset.count || "1");
@@ -1337,45 +1443,65 @@ function startPosMiniCarousels() {
   }, 2600);
 }
 function stopPosMiniCarousels() { if (posMiniTimer) { clearInterval(posMiniTimer); posMiniTimer = null; } }
-if (salesSearchEl) salesSearchEl.addEventListener("input", renderPosProducts);
+if (salesSearchEl) salesSearchEl.addEventListener("input", debounce(renderPosProducts, 150));
 
 /* ----------------------------------------------------------
    POS — Complete sale
    ---------------------------------------------------------- */
+function newReceiptNum() {
+  const d = new Date();
+  const ymd = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+  const sod = (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()).toString(36).toUpperCase().padStart(4, "0");
+  const rnd = Math.floor(Math.random() * 36).toString(36).toUpperCase();
+  return `INV-${ymd}-${sod}${rnd}`;
+}
+
+let checkoutBusy = false;
 if (posCheckoutBtn) posCheckoutBtn.addEventListener("click", async () => {
+  if (checkoutBusy) return;
   if (!posCart.length) { showToast("Cart is empty ❌"); return; }
-  const total = getCartTotal();
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+
+  const lines = [];
+  for (const ci of posCart) {
+    const item = inventory.find(i => i.id === ci.itemId);
+    if (!item) { playErrorSound(); showToast(`"${ci.name}" no longer exists — remove it from the cart ❌`); return; }
+    if (ci.qty > item.quantity) { playErrorSound(); showToast(`Not enough stock for ${item.name} ❌`); return; }
+    lines.push({ item, qty: ci.qty, price: Number(item.price) || 0 });
+  }
+  const total = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
   const cash = Number(valOf(posCashInput)) || 0;
   if (cash < total) { playErrorSound(); showToast("Insufficient cash ❌"); return; }
   const change = cash - total;
-  const wsId = myWorkspace();
-  if (!wsId) { showToast("Workspace not ready ❌"); return; }
-  const receiptNum = "INV-" + Date.now().toString().slice(-6);
+  const receiptNum = newReceiptNum();
   const now = new Date();
+
+  checkoutBusy = true;
+  posCheckoutBtn.disabled = true;
   try {
-    for (const ci of posCart) {
-      const item = inventory.find(i => i.id === ci.itemId);
-      if (!item) continue;
-      if (ci.qty > item.quantity) { showToast(`Not enough stock for ${item.name} ❌`); return; }
-      await addDoc(collection(db, "sales"), {
+    const batch = writeBatch(db);
+    lines.forEach(({ item, qty, price }) => {
+      batch.set(doc(collection(db, "sales")), {
         itemId: item.id, itemName: item.name, category: item.category,
-        quantity: ci.qty, unitPrice: item.price, total: ci.qty * item.price,
+        quantity: qty, unitPrice: price, total: qty * price,
         cost: item.cost || 0,
-        profit: ((item.price || 0) - (item.cost || 0)) * ci.qty,
+        profit: (price - (item.cost || 0)) * qty,
         workspaceId: wsId, receiptNum, cash, change,
         createdAt: serverTimestamp(), userId: currentUser.uid
       });
-      await updateDoc(doc(db, "inventory", item.id), {
-        quantity: item.quantity - ci.qty, updatedAt: serverTimestamp()
+      batch.update(doc(db, "inventory", item.id), {
+        quantity: increment(-qty), updatedAt: serverTimestamp()
       });
-      await logMovement({
+      batch.set(doc(collection(db, "movements")), movementDoc({
         itemId: item.id, itemName: item.name,
-        type: "out", quantity: ci.qty,
-        reason: "sale", note: `Receipt ${receiptNum}`
-      });
-    }
+        type: "out", quantity: qty, reason: "sale", note: `Receipt ${receiptNum}`
+      }));
+    });
+    await settleWrite(batch.commit(), "Sale");
+
     showReceipt({
-      items: posCart.map(c => ({ name: c.name, qty: c.qty, price: c.price })),
+      items: lines.map(l => ({ name: l.item.name, qty: l.qty, price: l.price })),
       total, cash, change, receiptNum, date: now,
       cashier: currentUser.email
     });
@@ -1385,6 +1511,9 @@ if (posCheckoutBtn) posCheckoutBtn.addEventListener("click", async () => {
   } catch (err) {
     console.error("[POS sale]", err.code, err.message);
     showToast(`Failed: ${err.code || err.message} ❌`);
+  } finally {
+    checkoutBusy = false;
+    posCheckoutBtn.disabled = false;
   }
 });
 
@@ -1398,14 +1527,15 @@ function showReceipt(data, groupInfo) {
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit"
   });
+  const money = (n) => "₱" + (Number(n) || 0).toFixed(2);
   const itemsHTML = data.items.map(it => `
     <div class="receipt-item">
       <div class="receipt-item-row1">
         <span>${esc(it.name)}</span>
-        <span>₱${(it.qty * it.price).toFixed(2)}</span>
+        <span>${money((Number(it.qty) || 0) * (Number(it.price) || 0))}</span>
       </div>
       <div class="receipt-item-row2">
-        <span>${it.qty} × ₱${it.price.toFixed(2)}</span>
+        <span>${Number(it.qty) || 0} × ${money(it.price)}</span>
         <span></span>
       </div>
     </div>
@@ -1418,7 +1548,7 @@ function showReceipt(data, groupInfo) {
     </div>
     <div class="receipt-sep"></div>
     <div class="receipt-meta">
-      <div>Date: ${dateStr}</div>
+      <div>Date: ${esc(dateStr)}</div>
       <div>Receipt #: ${esc(data.receiptNum)}</div>
       <div>Cashier: ${esc(data.cashier || "-")}</div>
     </div>
@@ -1426,9 +1556,9 @@ function showReceipt(data, groupInfo) {
     <div class="receipt-items">${itemsHTML}</div>
     <div class="receipt-sep"></div>
     <div class="receipt-totals">
-      <div class="rt-line big"><span>TOTAL</span><span>₱${data.total.toFixed(2)}</span></div>
-      <div class="rt-line"><span>Cash</span><span>₱${data.cash.toFixed(2)}</span></div>
-      <div class="rt-line"><span>Change</span><span>₱${data.change.toFixed(2)}</span></div>
+      <div class="rt-line big"><span>TOTAL</span><span>${money(data.total)}</span></div>
+      <div class="rt-line"><span>Cash</span><span>${money(data.cash)}</span></div>
+      <div class="rt-line"><span>Change</span><span>${money(data.change)}</span></div>
     </div>
     <div class="receipt-footer">
       <strong>Thank you for your purchase!</strong>
@@ -1437,7 +1567,9 @@ function showReceipt(data, groupInfo) {
   `;
 
   currentReceiptGroup = groupInfo || null;
-  if (deleteReceiptBtn) deleteReceiptBtn.classList.toggle("hidden", !currentReceiptGroup);
+  if (deleteReceiptBtn) {
+    deleteReceiptBtn.classList.toggle("hidden", !currentReceiptGroup);
+  }
   receiptModal && receiptModal.classList.remove("hidden");
 }
 if (printReceiptBtn) printReceiptBtn.addEventListener("click", () => window.print());
@@ -1488,22 +1620,9 @@ window.deleteSale = async (id) => {
   const msg = `Delete this sale?\n\n${sale.itemName} × ${sale.quantity} — ₱${Number(sale.total || 0).toFixed(2)}\n\n⚠️ Quantity will be restored to inventory.`;
   if (!confirm(msg)) return;
   try {
-    if (sale.itemId) {
-      const item = inventory.find(i => i.id === sale.itemId);
-      if (item) {
-        await updateDoc(doc(db, "inventory", sale.itemId), {
-          quantity: (item.quantity || 0) + (sale.quantity || 0),
-          updatedAt: serverTimestamp()
-        });
-        await logMovement({
-          itemId: sale.itemId, itemName: sale.itemName,
-          type: "in", quantity: sale.quantity || 0,
-          reason: "adjustment",
-          note: `Sale ${sale.receiptNum || id} deleted`
-        });
-      }
-    }
-    await deleteDoc(doc(db, "sales", id));
+    const batch = writeBatch(db);
+    queueSaleRemoval(batch, sale, `Sale ${sale.receiptNum || id} deleted`);
+    await settleWrite(batch.commit(), "Delete sale");
     playSuccessSound();
     showToast("Sale deleted & stock restored ✅");
   } catch (err) {
@@ -1511,6 +1630,19 @@ window.deleteSale = async (id) => {
     showToast(`Failed: ${err.code || err.message} ❌`);
   }
 };
+
+function queueSaleRemoval(batch, sale, note) {
+  if (sale.itemId && inventory.some(i => i.id === sale.itemId)) {
+    batch.update(doc(db, "inventory", sale.itemId), {
+      quantity: increment(sale.quantity || 0), updatedAt: serverTimestamp()
+    });
+    batch.set(doc(collection(db, "movements")), movementDoc({
+      itemId: sale.itemId, itemName: sale.itemName,
+      type: "in", quantity: sale.quantity || 0, reason: "adjustment", note
+    }));
+  }
+  batch.delete(doc(db, "sales", sale.id));
+}
 
 /* ----------------------------------------------------------
    DELETE A RECEIPT GROUP
@@ -1521,26 +1653,12 @@ async function deleteReceiptGroup(saleIds, receiptNum) {
   const msg = `Delete this entire receipt?\n\n${itemCount} item${itemCount !== 1 ? "s" : ""} will be removed.\n\n⚠️ All quantities will be restored to inventory.`;
   if (!confirm(msg)) return;
   try {
-    for (const id of saleIds) {
+    const batch = writeBatch(db);
+    saleIds.forEach(id => {
       const sale = sales.find(s => s.id === id);
-      if (!sale) continue;
-      if (sale.itemId) {
-        const item = inventory.find(i => i.id === sale.itemId);
-        if (item) {
-          await updateDoc(doc(db, "inventory", sale.itemId), {
-            quantity: (item.quantity || 0) + (sale.quantity || 0),
-            updatedAt: serverTimestamp()
-          });
-          await logMovement({
-            itemId: sale.itemId, itemName: sale.itemName,
-            type: "in", quantity: sale.quantity || 0,
-            reason: "adjustment",
-            note: `Receipt ${receiptNum || id} deleted`
-          });
-        }
-      }
-      await deleteDoc(doc(db, "sales", id));
-    }
+      if (sale) queueSaleRemoval(batch, sale, `Receipt ${receiptNum || id} deleted`);
+    });
+    await settleWrite(batch.commit(), "Delete receipt");
     playSuccessSound();
     showToast(`Receipt deleted · ${itemCount} item${itemCount !== 1 ? "s" : ""} restored ✅`);
   } catch (err) {
@@ -1569,13 +1687,15 @@ if (restockConfirm) restockConfirm.addEventListener("click", async () => {
   const item = inventory.find(i => i.id === restockItemId);
   if (!item) return;
   try {
-    await updateDoc(doc(db, "inventory", restockItemId), {
-      quantity: item.quantity + qty, updatedAt: serverTimestamp()
+    const batch = writeBatch(db);
+    batch.update(doc(db, "inventory", restockItemId), {
+      quantity: increment(qty), updatedAt: serverTimestamp()
     });
-    await logMovement({
+    batch.set(doc(collection(db, "movements")), movementDoc({
       itemId: item.id, itemName: item.name,
       type: "in", quantity: qty, reason: "restock", note: ""
-    });
+    }));
+    await settleWrite(batch.commit(), "Restock");
     playSuccessSound();
     showToast(`Restocked +${qty} ✅`);
     restockModal && restockModal.classList.add("hidden");
@@ -1751,7 +1871,7 @@ function groupSalesByReceipt() {
       map.set(key, {
         receiptNum: key,
         date: s.createdAt?.toDate?.() || new Date(),
-        cashier: s.userId || "",
+        cashier: (s.userId && s.userId === currentUser?.uid ? currentUser.email : s.userId) || "",
         cash: s.cash || 0,
         change: s.change || 0,
         items: [],
@@ -1810,8 +1930,10 @@ function renderHistory() {
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
     let cutoff = 0;
-    if (range === "today") { const t = new Date(); t.setHours(0,0,0,0); cutoff = t.getTime(); }
-    else if (range === "7") cutoff = now - 7 * dayMs;
+    if (range === "today") {
+      const t = new Date(); t.setHours(0,0,0,0);
+      cutoff = t.getTime();
+    } else if (range === "7") cutoff = now - 7 * dayMs;
     else if (range === "30") cutoff = now - 30 * dayMs;
     groups = groups.filter(g => g.date.getTime() >= cutoff);
   }
@@ -1906,7 +2028,7 @@ window.deleteReceiptGroupFromHistory = (receiptNum) => {
   deleteReceiptGroup(g.saleIds, g.receiptNum);
 };
 
-if (historySearchEl) historySearchEl.addEventListener("input", renderHistory);
+if (historySearchEl) historySearchEl.addEventListener("input", debounce(renderHistory, 150));
 if (historyFilterEl) historyFilterEl.addEventListener("change", renderHistory);
 
 /* ----------------------------------------------------------
@@ -2128,7 +2250,7 @@ function renderInventory() {
   const s = valOf(searchInput).toLowerCase();
   const f = valOf(filterCat);
   const filtered = inventory.filter(i => {
-    const mS = !s || i.name.toLowerCase().includes(s) || (i.sku || "").toLowerCase().includes(s) || (i.barcode || "").toLowerCase().includes(s);
+    const mS = !s || (i.name || "").toLowerCase().includes(s) || (i.sku || "").toLowerCase().includes(s) || (i.barcode || "").toLowerCase().includes(s);
     const mC = !f || i.category === f;
     return mS && mC;
   });
@@ -2186,7 +2308,7 @@ function renderDashboardInventory() {
   const term = valOf($("dash-search")).toLowerCase();
   const filtered = inventory.filter(i => {
     if (!term) return true;
-    return i.name.toLowerCase().includes(term) || (i.sku || "").toLowerCase().includes(term) || (i.barcode || "").toLowerCase().includes(term);
+    return (i.name || "").toLowerCase().includes(term) || (i.sku || "").toLowerCase().includes(term) || (i.barcode || "").toLowerCase().includes(term);
   });
   if (!filtered.length) {
     container.innerHTML = `<div class="empty-state"><p>📭 No items yet — add one to get started.</p></div>`;
@@ -2506,18 +2628,18 @@ function populateCategoryFilter() {
   if (!filterCat) return;
   const names = [...new Set(inventory.map(i => i.category).filter(Boolean))].sort();
   const cur = filterCat.value;
-  filterCat.innerHTML = `<option value="">All Categories</option>` + names.map(c => `<option value="${c}">${c}</option>`).join("");
+  filterCat.innerHTML = `<option value="">All Categories</option>` + names.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
   filterCat.value = cur;
 }
 function populateCategoryDatalist() {
   if (!categoryList) return;
   const names = [...new Set([...categories.map(c => c.name), ...inventory.map(i => i.category)].filter(Boolean))].sort();
-  categoryList.innerHTML = names.map(c => `<option value="${c}">`).join("");
+  categoryList.innerHTML = names.map(c => `<option value="${esc(c)}">`).join("");
 }
-if (searchInput) searchInput.addEventListener("input", renderInventory);
+if (searchInput) searchInput.addEventListener("input", debounce(renderInventory, 150));
 if (filterCat)   filterCat.addEventListener("change", renderInventory);
 const dashSearchEl = $("dash-search");
-if (dashSearchEl) dashSearchEl.addEventListener("input", renderDashboardInventory);
+if (dashSearchEl) dashSearchEl.addEventListener("input", debounce(renderDashboardInventory, 150));
 
 /* ----------------------------------------------------------
    CRUD — Inventory items
@@ -2550,27 +2672,31 @@ if (itemForm) itemForm.addEventListener("submit", async (e) => {
   if (!data.price || data.price <= 0) { showToast("Price must be greater than 0 ❌"); return; }
 
   try {
+    const batch = writeBatch(db);
     if (wasEditing) {
-      await updateDoc(doc(db, "inventory", itemId.value), data);
+      batch.update(doc(db, "inventory", itemId.value), data);
       if (prev && data.quantity !== prev.quantity) {
         const diff = data.quantity - prev.quantity;
-        await logMovement({
+        batch.set(doc(collection(db, "movements")), movementDoc({
           itemId: itemId.value, itemName: data.name,
           type: diff > 0 ? "in" : "out",
           quantity: Math.abs(diff),
           reason: "adjustment", note: "Manual edit"
-        });
+        }));
       }
+      await settleWrite(batch.commit(), "Item");
       showToast("Item updated ✅");
     } else {
-      const newRef = await addDoc(collection(db, "inventory"), { ...data, createdAt: serverTimestamp() });
+      const newRef = doc(collection(db, "inventory"));
+      batch.set(newRef, { ...data, createdAt: serverTimestamp() });
       if (data.quantity > 0) {
-        await logMovement({
+        batch.set(doc(collection(db, "movements")), movementDoc({
           itemId: newRef.id, itemName: data.name,
           type: "in", quantity: data.quantity,
           reason: "initial", note: "Item created"
-        });
+        }));
       }
+      await settleWrite(batch.commit(), "Item");
       showToast("Item added ✅");
     }
     itemForm.reset();
@@ -2707,13 +2833,14 @@ window.deleteUser = async (userId) => {
 };
 
 /* ----------------------------------------------------------
-   PWA
+   PWA — Service Worker & Install Prompt
    ---------------------------------------------------------- */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("sw.js", { scope: "./" })
       .then((reg) => {
+        console.log("[SW] registered:", reg.scope);
         reg.addEventListener("updatefound", () => {
           const nw = reg.installing;
           if (!nw) return;
@@ -2796,7 +2923,9 @@ function showToast(msg) {
   showToast._timer = setTimeout(() => toast.classList.add("hidden"), 3000);
 }
 function esc(str) {
+  if (str === null || str === undefined) return "";
   return String(str)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
