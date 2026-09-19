@@ -5,6 +5,7 @@
    + Slow Moving + Expiry + Sales History
    + Sales per Category
    + Mobile direct-download exports
+   + Auto-redirect out of in-app browsers (Messenger/FB/IG)
    + SCANNER v6
    ========================================================== */
 
@@ -185,7 +186,7 @@ const receiptModal    = $("receipt-modal"), receiptContent = $("receipt-content"
   printReceiptBtn     = $("print-receipt-btn"), closeReceiptBtn = $("close-receipt-btn"),
   deleteReceiptBtn    = $("delete-receipt-btn");
 
-/* Movement modal (NEW) */
+/* Movement modal */
 const movementModal       = $("movement-modal");
 const movementDetailEl    = $("movement-detail-content");
 const movementClose       = $("movement-close");
@@ -247,9 +248,9 @@ function queueChartRender() {
 }
 
 /* ----------------------------------------------------------
-   MOBILE-FRIENDLY DOWNLOAD HELPER (NEW)
-   - Uses Blob + <a download> so that mobile browsers
-     download the file directly instead of opening a new tab.
+   MOBILE-FRIENDLY DOWNLOAD HELPER
+   Uses Blob + <a download> so mobile browsers download
+   directly instead of opening a new tab.
    ---------------------------------------------------------- */
 function downloadBlob(blob, filename) {
   try {
@@ -1319,7 +1320,7 @@ function getLastSoldMs(itemId) {
   return last;
 }
 
-/* NEW: aggregate sales by category */
+/* Aggregate sales by category */
 function getSalesByCategory(list = sales) {
   const map = {};
   list.forEach(s => {
@@ -2135,7 +2136,7 @@ if (historyCatFilterEl) historyCatFilterEl.addEventListener("change", () => {
 });
 
 /* ----------------------------------------------------------
-   RENDER — Sales per Category summary (NEW)
+   RENDER — Sales per Category summary
    ---------------------------------------------------------- */
 function renderCategorySummaryInto(container, list, emptyText) {
   if (!container) return;
@@ -2159,7 +2160,6 @@ function renderSalesCategorySummary() {
 }
 
 function renderHistoryCategorySummary() {
-  // Respect time + category filters so it mirrors the visible history list
   let list = sales;
   const range = valOf(historyFilterEl) || "all";
   if (range !== "all") {
@@ -2600,7 +2600,7 @@ function renderMovements() {
 }
 
 /* ----------------------------------------------------------
-   MOVEMENT view / delete  (NEW)
+   MOVEMENT view / delete
    ---------------------------------------------------------- */
 window.viewMovement = (id) => {
   const m = movements.find(x => x.id === id);
@@ -2891,7 +2891,6 @@ function populateCategoryDatalist() {
   categoryList.innerHTML = names.map(c => `<option value="${esc(c)}">`).join("");
 }
 
-/* NEW: category filter dropdowns sourced from inventory + sales */
 function buildCategoryOptions() {
   const set = new Set();
   inventory.forEach(i => { if (i.category) set.add(i.category); });
@@ -3113,7 +3112,7 @@ window.deleteUser = async (userId) => {
 };
 
 /* ----------------------------------------------------------
-   PWA — Service Worker & Install Prompt
+   PWA — Service Worker
    ---------------------------------------------------------- */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -3181,7 +3180,9 @@ function esc(str) {
 }
 
 /* ==========================================================
-   PWA INSTALL — works on mobile, handles in-app browsers
+   PWA INSTALL — works on mobile, auto-jumps out of in-app
+   browsers (Messenger / Facebook / Instagram / TikTok) to
+   Chrome or Safari so the user can install with 1 tap.
    ========================================================== */
 const installBtn         = $("install-btn");
 const installModal       = $("install-modal");
@@ -3190,8 +3191,11 @@ const installLater       = $("install-later");
 const installTitle       = $("install-title");
 const installSubtitle    = $("install-subtitle");
 const installInstr       = $("install-instructions");
+const installExternalWrap= $("install-external-wrap");
+const installExternalBtn = $("install-external-btn");
 const installNativeWrap  = $("install-native-wrap");
 const installNativeBtn   = $("install-native-btn");
+const installCopyBtn     = $("install-copy-btn");
 const installBanner      = $("install-banner");
 const installBannerBtn   = $("install-banner-btn");
 const installBannerClose = $("install-banner-close");
@@ -3204,6 +3208,7 @@ const IS_IOS      = /iPhone|iPad|iPod/i.test(UA) ||
 const IS_ANDROID  = /Android/i.test(UA);
 const IS_MOBILE   = IS_IOS || IS_ANDROID || /Mobile/i.test(UA);
 
+/* Facebook / Messenger / Instagram / TikTok / Line / WhatsApp / Snapchat / Twitter webviews */
 const IS_IN_APP_BROWSER =
   /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger|TikTok|BytedanceWebview|Line\/|WhatsApp|Snapchat|Twitter/i.test(UA) ||
   (IS_ANDROID && /; wv\)/i.test(UA) && !/Chrome\/[0-9]+/i.test(UA)) ||
@@ -3217,6 +3222,41 @@ function isStandalone() {
 function isDismissed()   { return localStorage.getItem("installDismissed") === "1"; }
 function markDismissed() { localStorage.setItem("installDismissed", "1"); }
 
+/* -------- Auto-jump out of in-app browser -------- */
+function buildExternalBrowserURL() {
+  const rawUrl = location.href;
+  try {
+    if (IS_ANDROID) {
+      // Android intent:// — directly opens Chrome.
+      const noProto = rawUrl.replace(/^https?:\/\//, "");
+      return (
+        `intent://${noProto}#Intent;scheme=https;` +
+        `package=com.android.chrome;` +
+        `S.browser_fallback_url=${encodeURIComponent(rawUrl)};end`
+      );
+    }
+    if (IS_IOS) {
+      // iOS — handoff to Safari.
+      const noProto = rawUrl.replace(/^https?:\/\//, "");
+      return `x-safari-https://${noProto}`;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function tryOpenInExternalBrowser() {
+  const target = buildExternalBrowserURL();
+  if (!target) return false;
+  try {
+    window.location.href = target;
+    return true;
+  } catch (e) {
+    console.warn("[PWA] external open failed:", e);
+    return false;
+  }
+}
+
+/* Native install prompt (Chromium) */
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -3233,24 +3273,23 @@ window.addEventListener("appinstalled", () => {
   markDismissed();
 });
 
+/* -------- Instruction content per environment -------- */
 function buildInstructions() {
   if (IS_IN_APP_BROWSER) {
     return {
       icon: "🌐",
-      title: "Open in your browser first",
-      subtitle: "You are viewing this page inside an app. To install Kurt POS, open it in Chrome or Safari.",
+      title: "Open in Chrome / Safari",
+      subtitle: "Tap the button below — we'll open Kurt POS in your real browser so you can install it.",
       html: IS_IOS
         ? `<ol>
-             <li>Tap the <span class="step-icon">⋯</span> or <span class="step-icon">⤴</span> button at the top-right.</li>
-             <li>Choose <span class="step-icon">Open in Safari</span>.</li>
-             <li>Then in Safari, tap the <span class="step-icon">⬆️ Share</span> button.</li>
-             <li>Tap <span class="step-icon">➕ Add to Home Screen</span>.</li>
+             <li>Tap <b>Open in Browser</b> below.</li>
+             <li>If nothing happens, tap <span class="step-icon">📋 Copy Link</span> and paste it into Safari.</li>
+             <li>In Safari: tap <span class="step-icon">⬆️ Share</span> → <span class="step-icon">➕ Add to Home Screen</span>.</li>
            </ol>`
         : `<ol>
-             <li>Tap the <span class="step-icon">⋮</span> menu at the top-right.</li>
-             <li>Choose <span class="step-icon">Open in Chrome</span>.</li>
-             <li>Then in Chrome, tap the <span class="step-icon">⋮</span> menu again.</li>
-             <li>Tap <span class="step-icon">Install app</span> or <span class="step-icon">Add to Home screen</span>.</li>
+             <li>Tap <b>Open in Browser</b> below.</li>
+             <li>If nothing happens, tap <span class="step-icon">📋 Copy Link</span> and paste it into Chrome.</li>
+             <li>In Chrome: <span class="step-icon">⋮</span> → <span class="step-icon">Install app</span>.</li>
            </ol>`,
     };
   }
@@ -3305,9 +3344,14 @@ function openInstallModal() {
   if (installTitle)    installTitle.textContent    = info.title;
   if (installSubtitle) installSubtitle.textContent = info.subtitle;
   if (installInstr)    installInstr.innerHTML      = info.html;
+
   if (installNativeWrap) {
     installNativeWrap.classList.toggle("hidden", !deferredPrompt || IS_IN_APP_BROWSER);
   }
+  if (installExternalWrap) {
+    installExternalWrap.classList.toggle("hidden", !IS_IN_APP_BROWSER);
+  }
+
   installModal?.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 }
@@ -3331,11 +3375,68 @@ async function triggerInstall() {
   }
 }
 
+/* -------- Install button (header) -------- */
 if (installBtn) installBtn.addEventListener("click", () => {
   if (isStandalone()) { showToast("App is already installed ✅"); return; }
-  if (deferredPrompt && !IS_IN_APP_BROWSER) triggerInstall();
+
+  // In-app browser → auto-jump to Chrome/Safari
+  if (IS_IN_APP_BROWSER) {
+    tryOpenInExternalBrowser();
+    setTimeout(() => {
+      if (document.visibilityState === "visible") openInstallModal();
+    }, 1400);
+    return;
+  }
+
+  if (deferredPrompt) triggerInstall();
   else openInstallModal();
 });
+
+/* -------- Install banner (mobile) -------- */
+if (installBannerBtn) installBannerBtn.addEventListener("click", () => {
+  if (IS_IN_APP_BROWSER) {
+    tryOpenInExternalBrowser();
+    setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        installBanner?.classList.add("hidden");
+        openInstallModal();
+      }
+    }, 1400);
+    return;
+  }
+  if (deferredPrompt) triggerInstall();
+  else { installBanner?.classList.add("hidden"); openInstallModal(); }
+});
+
+/* -------- "Open in Browser" inside modal -------- */
+if (installExternalBtn) installExternalBtn.addEventListener("click", () => {
+  const ok = tryOpenInExternalBrowser();
+  if (!ok) showToast("Couldn't open automatically — use Copy Link 🔗");
+});
+
+/* -------- Copy Link fallback -------- */
+if (installCopyBtn) installCopyBtn.addEventListener("click", async () => {
+  const url = location.href;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    showToast("Link copied — paste in Chrome / Safari 📋");
+  } catch (e) {
+    showToast("Couldn't copy — long-press the URL bar 🔗");
+  }
+});
+
 if (installNativeBtn) installNativeBtn.addEventListener("click", triggerInstall);
 if (installClose)     installClose.addEventListener("click", closeInstallModal);
 if (installLater)     installLater.addEventListener("click", () => {
@@ -3344,14 +3445,11 @@ if (installLater)     installLater.addEventListener("click", () => {
 if (installModal) installModal.addEventListener("click", (e) => {
   if (e.target === installModal) closeInstallModal();
 });
-if (installBannerBtn) installBannerBtn.addEventListener("click", () => {
-  if (deferredPrompt && !IS_IN_APP_BROWSER) triggerInstall();
-  else { installBanner?.classList.add("hidden"); openInstallModal(); }
-});
 if (installBannerClose) installBannerClose.addEventListener("click", () => {
   installBanner?.classList.add("hidden"); markDismissed();
 });
 
+/* Auto-show banner on mobile after login (only in real browsers) */
 if (IS_MOBILE && !isStandalone() && !isDismissed() && !IS_IN_APP_BROWSER) {
   const iv = setInterval(() => {
     if (appShell && !appShell.classList.contains("hidden")) {
