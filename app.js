@@ -7,6 +7,7 @@
    + Mobile direct-download exports
    + Auto-redirect out of in-app browsers (Messenger/FB/IG)
    + SCANNER v6
+   + Category images via image API
    ========================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -38,15 +39,90 @@ const SUPER_ADMIN_EMAIL = "madronerokurt04@gmail.com";
 const STORE_NAME = "Kurt Inventory";
 const STORE_TAGLINE = "Smart Stock & Sales";
 
-const AUTH_BG_IMAGES = [
-  "https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=1920&q=80",
-  "https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?auto=format&fit=crop&w=1920&q=80",
-  "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1920&q=80",
-  "https://images.unsplash.com/photo-1601598851547-4302969d0614?auto=format&fit=crop&w=1920&q=80"
+/* ==========================================================
+   AUTH BACKGROUND IMAGES — replaceable
+   ----------------------------------------------------------
+   Put your own image paths / URLs here.
+     Local file in root:  "1.jpg"
+     Subfolder:           "photos/store.jpg"
+     Full URL:            "https://..."
+
+   You can ALSO override without editing code. Open the browser
+   console ONCE and run:
+       localStorage.setItem("authBgImages", JSON.stringify([
+          "my-bg-1.jpg", "https://example.com/shop.jpg"
+       ]));
+   Then reload. Reset with:
+       localStorage.removeItem("authBgImages");
+
+   Broken / missing images are silently skipped at load time,
+   so a bad path won't break the page.
+   ========================================================== */
+const DEFAULT_AUTH_BG_IMAGES = [
+  "THUMB.png",
+  "1.jpg",
+  "4.jpg",
+  "2.jpg"
 ];
-const AUTH_BG_INTERVAL_MS   = 6000;
-const NEW_ARRIVAL_WINDOW_MS = 7  * 24 * 60 * 60 * 1000;
-const EXPIRY_WARNING_DAYS   = 30;
+
+/* Last-resort fallbacks if all of the above fail to load. */
+const FALLBACK_AUTH_BG_IMAGES = [
+  "https://picsum.photos/seed/kurt-store-1/1920/1080",
+  "https://picsum.photos/seed/kurt-store-2/1920/1080",
+  "https://picsum.photos/seed/kurt-store-3/1920/1080"
+];
+
+function getConfiguredAuthBgImages() {
+  try {
+    const raw = localStorage.getItem("authBgImages");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        return parsed.map(String).filter(Boolean);
+      }
+    }
+  } catch (e) {
+    console.warn("[auth-bg] bad localStorage value, using defaults:", e);
+  }
+  return DEFAULT_AUTH_BG_IMAGES.slice();
+}
+
+const AUTH_BG_IMAGES = getConfiguredAuthBgImages();
+const AUTH_BG_INTERVAL_MS = 6000;
+
+/* New Arrival: show only if the item was added within the last 24 hours */
+const NEW_ARRIVAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/* Fast-Selling rules (used in the POS grid):
+   • minTotalSold : total units sold (all time) must exceed this
+   • lookbackDays : how far back we measure "recent" sales
+   • minPerDay    : minimum average units sold per day in that window
+   Example with the defaults below: an item is "Fast Selling" when
+   it has sold MORE THAN 10 pcs in total, AND is averaging at
+   least 1 pcs/day over the last 7 days.
+   Feel free to tune these. */
+const FAST_SELLING = {
+  minTotalSold: 10,
+  lookbackDays: 7,
+  minPerDay: 1
+};
+
+const EXPIRY_WARNING_DAYS = 30;
+
+/* ==========================================================
+   CATEGORY IMAGE API
+   ----------------------------------------------------------
+   provider: "openverse" (no key) | "wikipedia" (no key)
+             "pexels"    (needs key)  | "unsplash"  (needs key)
+   If the chosen provider has no key, the app silently falls
+   back to openverse / wikipedia.
+   ========================================================== */
+const CATEGORY_IMAGE_API = {
+  provider: "openverse",
+  keys: { pexels: "", unsplash: "" },
+  perPage: 12,
+  timeoutMs: 8000
+};
 
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -76,6 +152,13 @@ function debounce(fn, ms = 150) {
 function safeRender(fn) {
   try { if (typeof fn === "function") fn(); }
   catch (e) { console.error("[render] " + (fn.name || "anon") + " failed:", e); }
+}
+function esc(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /* ----------------------------------------------------------
@@ -193,6 +276,17 @@ const movementClose       = $("movement-close");
 const movementCloseBtn    = $("movement-close-btn");
 const movementDeleteBtn   = $("movement-delete-btn");
 
+/* Category image picker */
+const catImageModal  = $("cat-image-modal");
+const catImageTitle  = $("cat-image-title");
+const catImageClose  = $("cat-image-close");
+const catImageForm   = $("cat-image-search-form");
+const catImageQuery  = $("cat-image-query");
+const catImageStatus = $("cat-image-status");
+const catImageGrid   = $("cat-image-grid");
+const catImageSource = $("cat-image-source");
+const catImageRemove = $("cat-image-remove");
+
 /* ----------------------------------------------------------
    STATE
    ---------------------------------------------------------- */
@@ -218,6 +312,9 @@ let currentReceiptGroup = null;
 /* Movement modal state */
 let currentMovementId = null;
 
+/* Category image picker state */
+let catImageCategoryId = null;
+
 /* ----------------------------------------------------------
    CHART.JS LOADER
    ---------------------------------------------------------- */
@@ -229,7 +326,6 @@ let currentMovementId = null;
     if (typeof Chart !== "undefined") {
       clearInterval(iv);
       chartJsReady = true;
-      console.log("[Charts] Chart.js ready after", tries * 150, "ms");
       safeRender(renderCharts);
     } else if (tries > 80) {
       clearInterval(iv);
@@ -249,8 +345,6 @@ function queueChartRender() {
 
 /* ----------------------------------------------------------
    MOBILE-FRIENDLY DOWNLOAD HELPER
-   Uses Blob + <a download> so mobile browsers download
-   directly instead of opening a new tab.
    ---------------------------------------------------------- */
 function downloadBlob(blob, filename) {
   try {
@@ -295,29 +389,70 @@ function downloadPDF(doc, filename) {
 }
 
 /* ----------------------------------------------------------
-   AUTH BACKGROUND CAROUSEL
+   AUTH BACKGROUND — simple, reliable, self-healing
+   ----------------------------------------------------------
+   • Uses <img> tags (so onerror works and we can detect failures)
+   • If a configured image fails, we silently fall back to
+     reliable online photos
+   • Check the browser Console for "[auth-bg]" logs
    ---------------------------------------------------------- */
 function buildAuthBackground(containerId) {
-  const container = $(containerId);
-  if (!container) return;
-  container.innerHTML = AUTH_BG_IMAGES.map((url, i) =>
-    `<div class="auth-bg-slide ${i === 0 ? "active" : ""}" style="background-image:url('${url}')"></div>`
-  ).join("");
+  const container = document.getElementById(containerId);
+  if (!container) {
+    console.warn("[auth-bg] container not found:", containerId);
+    return;
+  }
+
+  const urls = getConfiguredAuthBgImages();
+  console.log("[auth-bg] building", containerId, "with:", urls);
+
+  container.innerHTML = urls.map((url, i) => `
+    <div class="auth-bg-slide ${i === 0 ? "active" : ""}" data-url="${url.replace(/"/g, "&quot;")}">
+      <img src="${url}" alt="" loading="eager"
+           onerror="this.closest('.auth-bg-slide').classList.add('broken'); this.remove();" />
+    </div>
+  `).join("");
+
+  // After a short delay, if EVERY slide failed, swap in fallbacks.
+  setTimeout(() => {
+    const slides = container.querySelectorAll(".auth-bg-slide");
+    const working = [...slides].filter(s => !s.classList.contains("broken"));
+    if (working.length === 0) {
+      console.warn("[auth-bg] all configured images failed — using fallbacks");
+      container.innerHTML = FALLBACK_AUTH_BG_IMAGES.map((url, i) => `
+        <div class="auth-bg-slide ${i === 0 ? "active" : ""}">
+          <img src="${url}" alt="" loading="eager" />
+        </div>
+      `).join("");
+    } else {
+      console.log(`[auth-bg] ${working.length}/${slides.length} images loaded`);
+    }
+  }, 2500);
 }
+
 function startAuthBgCarousel(containerId) {
   stopAuthBgCarousel();
-  const container = $(containerId);
+  const container = document.getElementById(containerId);
   if (!container) return;
+
   const slides = container.querySelectorAll(".auth-bg-slide");
   if (slides.length <= 1) return;
+
   authBgIndex = 0;
   authBgTimer = setInterval(() => {
-    slides[authBgIndex].classList.remove("active");
-    authBgIndex = (authBgIndex + 1) % slides.length;
-    slides[authBgIndex].classList.add("active");
+    const current = container.querySelectorAll(".auth-bg-slide");
+    if (!current.length) return;
+    if (current[authBgIndex]) current[authBgIndex].classList.remove("active");
+    authBgIndex = (authBgIndex + 1) % current.length;
+    if (current[authBgIndex]) current[authBgIndex].classList.add("active");
   }, AUTH_BG_INTERVAL_MS);
 }
-function stopAuthBgCarousel() { if (authBgTimer) { clearInterval(authBgTimer); authBgTimer = null; } }
+
+function stopAuthBgCarousel() {
+  if (authBgTimer) { clearInterval(authBgTimer); authBgTimer = null; }
+}
+
+// Build both backgrounds at startup.
 buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
@@ -446,6 +581,7 @@ if (authForm) authForm.addEventListener("submit", async (e) => {
     if (authError) authError.textContent = "Enter email and password.";
     return;
   }
+  if (authSubmit) authSubmit.disabled = true;
   try {
     if (isSignupMode) {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -466,6 +602,8 @@ if (authForm) authForm.addEventListener("submit", async (e) => {
   } catch (err) {
     console.error("[Auth] submit error:", err);
     if (authError) authError.textContent = friendlyAuthError(err.code);
+  } finally {
+    if (authSubmit) authSubmit.disabled = false;
   }
 });
 
@@ -1310,17 +1448,26 @@ function getSoldMapLastDays(days) {
   });
   return map;
 }
-function getLastSoldMs(itemId) {
-  let last = 0;
-  sales.forEach(s => {
-    if (s.itemId !== itemId) return;
-    const ms = s.createdAt?.toMillis?.() ?? 0;
-    if (ms > last) last = ms;
-  });
-  return last;
+/* Fast-Selling check:
+   Requires BOTH:
+     – more than FAST_SELLING.minTotalSold units sold (all time)
+     – average per-day sales (over the last FAST_SELLING.lookbackDays)
+       greater than or equal to FAST_SELLING.minPerDay
+   Returns an object so callers can show the daily rate in the badge. */
+function getFastSellingInfo(itemId, totalSold) {
+  const total = Number(totalSold) || 0;
+  if (total <= FAST_SELLING.minTotalSold) {
+    return { isFast: false, total, perDay: 0, recent: 0 };
+  }
+  const recent = getSoldMapLastDays(FAST_SELLING.lookbackDays)[itemId] || 0;
+  const perDay = recent / FAST_SELLING.lookbackDays;
+  return {
+    isFast: perDay >= FAST_SELLING.minPerDay,
+    total,
+    perDay,
+    recent
+  };
 }
-
-/* Aggregate sales by category */
 function getSalesByCategory(list = sales) {
   const map = {};
   list.forEach(s => {
@@ -1444,18 +1591,39 @@ function buildPosMiniSlides(item, sold) {
   const slides = [];
   const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
   const isOut = item.quantity === 0;
+
+  /* New Arrival — only within the last 24 hours */
   const createdMs = item.createdAt?.toMillis?.() ?? 0;
   const isNew = createdMs && (Date.now() - createdMs) < NEW_ARRIVAL_WINDOW_MS;
+
+  /* Fast Selling — needs both total sales and a daily average */
+  const fast = getFastSellingInfo(item.id, sold);
+
   const revenue = sold * (item.price || 0);
   const exp = expiryStatus(item.expiry);
+
   if (exp.level === "expired") slides.push({ cls: "expiry", text: `⛔ ${exp.label.toUpperCase()}` });
   else if (exp.level === "expiring") slides.push({ cls: "expiry", text: `⏰ ${exp.label.toUpperCase()}` });
+
   if (isNew) slides.push({ cls: "new", text: "✨ NEW ARRIVAL" });
-  if (sold > 0) slides.push({ cls: "hot", text: `🔥 ${sold} SOLD` });
+
+  /* Fast-Selling badge — shows the daily rate so it's clear WHY it's fast */
+  if (fast.isFast) {
+    slides.push({
+      cls: "hot",
+      text: `🔥 FAST SELLING · ${fast.perDay.toFixed(1)}/DAY`
+    });
+  } else if (sold > 0) {
+    /* Normal "sold" slide for items that don't qualify as fast yet */
+    slides.push({ cls: "hot", text: `🔥 ${sold} SOLD` });
+  }
+
   if (isOut) slides.push({ cls: "low", text: "🚫 OUT OF STOCK" });
   else if (isLow) slides.push({ cls: "low", text: `⚠️ ONLY ${item.quantity} LEFT` });
+
   if (revenue > 0) slides.push({ cls: "ok", text: `💰 ₱${revenue.toFixed(0)} SALES` });
   slides.push({ cls: "ok", text: `📦 ${item.quantity} IN STOCK` });
+
   return slides;
 }
 function renderPosProducts() {
@@ -1790,7 +1958,7 @@ if (restockConfirm) restockConfirm.addEventListener("click", async () => {
 });
 
 /* ----------------------------------------------------------
-   EXPORTS  (mobile-friendly direct download)
+   EXPORTS
    ---------------------------------------------------------- */
 function exportInventoryToExcel() {
   if (!inventory.length) { showToast("No inventory to export ❌"); return; }
@@ -2570,7 +2738,7 @@ if (expiryBannerBtn) expiryBannerBtn.addEventListener("click", () => {
 });
 
 /* ----------------------------------------------------------
-   RENDER — In/Out movements history (with view + delete)
+   RENDER — In/Out movements
    ---------------------------------------------------------- */
 function renderMovements() {
   if (!movementsList) return;
@@ -2702,9 +2870,269 @@ window.deleteMovement = async (id) => {
   }
 };
 
+/* ==========================================================
+   CATEGORY IMAGES — powered by an image API
+   ========================================================== */
+async function fetchWithTimeout(url, opts = {}, ms = CATEGORY_IMAGE_API.timeoutMs || 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function fetchOpenverseImages(query, perPage) {
+  const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=${perPage}&mature=false`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`Openverse HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).map(r => ({
+    url: r.url,
+    thumb: r.thumbnail || r.url,
+    credit: r.creator || r.source || "Openverse",
+    creditUrl: r.foreign_landing_url || r.url,
+    source: "Openverse"
+  })).filter(x => x.url);
+}
+
+async function fetchWikipediaImages(query, perPage) {
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search` +
+    `&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${perPage}&gsrnamespace=6` +
+    `&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=600&format=json&origin=*`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`Wikipedia HTTP ${res.status}`);
+  const data = await res.json();
+  const pages = data.query?.pages || {};
+  return Object.values(pages).map(p => {
+    const info = p.imageinfo?.[0];
+    if (!info) return null;
+    const artist = (info.extmetadata?.Artist?.value || "").replace(/<[^>]*>/g, "").trim();
+    return {
+      url: info.thumburl || info.url,
+      thumb: info.thumburl || info.url,
+      credit: artist || "Wikipedia",
+      creditUrl: info.descriptionurl || info.url,
+      source: "Wikipedia"
+    };
+  }).filter(Boolean);
+}
+
+async function fetchPexelsImages(query, perPage, apiKey) {
+  if (!apiKey) throw new Error("Pexels API key missing");
+  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: apiKey } });
+  if (!res.ok) throw new Error(`Pexels HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.photos || []).map(p => ({
+    url: p.src?.large || p.src?.original,
+    thumb: p.src?.medium || p.src?.small || p.src?.large,
+    credit: p.photographer || "Pexels",
+    creditUrl: p.url,
+    source: "Pexels"
+  })).filter(x => x.url);
+}
+
+async function fetchUnsplashImages(query, perPage, apiKey) {
+  if (!apiKey) throw new Error("Unsplash access key missing");
+  const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${perPage}`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Client-ID ${apiKey}` } });
+  if (!res.ok) throw new Error(`Unsplash HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).map(p => ({
+    url: p.urls?.regular || p.urls?.full,
+    thumb: p.urls?.small || p.urls?.thumb,
+    credit: p.user?.name || "Unsplash",
+    creditUrl: p.links?.html,
+    source: "Unsplash"
+  })).filter(x => x.url);
+}
+
+async function fetchCategoryImages(query, opts = {}) {
+  const primary = (opts.provider || CATEGORY_IMAGE_API.provider || "openverse").toLowerCase();
+  const perPage = opts.perPage || CATEGORY_IMAGE_API.perPage || 12;
+  const keys    = CATEGORY_IMAGE_API.keys || {};
+
+  const chain = [primary];
+  for (const p of ["openverse", "wikipedia", "pexels", "unsplash"]) {
+    if (!chain.includes(p)) chain.push(p);
+  }
+
+  let lastErr = null;
+  for (const p of chain) {
+    try {
+      if (p === "openverse") return await fetchOpenverseImages(query, perPage);
+      if (p === "wikipedia") return await fetchWikipediaImages(query, perPage);
+      if (p === "pexels")    return await fetchPexelsImages(query, perPage, keys.pexels);
+      if (p === "unsplash")  return await fetchUnsplashImages(query, perPage, keys.unsplash);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[cat image] ${p} failed →`, e.message);
+    }
+  }
+  throw lastErr || new Error("No image provider available");
+}
+
+function setCatImageStatus(text, isError = false) {
+  if (!catImageStatus) return;
+  catImageStatus.textContent = text || "";
+  catImageStatus.classList.toggle("error", !!isError);
+}
+function renderCatImageSkeletons(n = 8) {
+  if (!catImageGrid) return;
+  catImageGrid.innerHTML = Array.from({ length: n })
+    .map(() => `<div class="cat-pick-skel"></div>`).join("");
+}
+function renderCatImageResults(results, currentUrl) {
+  if (!catImageGrid) return;
+  if (!results.length) {
+    catImageGrid.innerHTML = "";
+    setCatImageStatus("No photos found. Try a different search.");
+    return;
+  }
+  catImageGrid.innerHTML = results.map((r, i) => `
+    <button type="button"
+            class="cat-pick-btn ${r.url === currentUrl ? "is-current" : ""}"
+            data-index="${i}"
+            title="${esc(r.credit || "")}">
+      <img src="${esc(r.thumb || r.url)}" alt="" loading="lazy"
+           onerror="this.style.opacity='.25'" />
+    </button>
+  `).join("");
+  catImageGrid.querySelectorAll(".cat-pick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const r = results[parseInt(btn.dataset.index, 10)];
+      if (r) pickCategoryImage(r);
+    });
+  });
+  if (catImageSource && results[0]) {
+    catImageSource.textContent = `Photos via ${results[0].source}`;
+  }
+}
+
+async function searchCategoryImages(query) {
+  if (!query) query = "store";
+  renderCatImageSkeletons();
+  setCatImageStatus(`Searching “${query}”…`);
+  try {
+    const results = await fetchCategoryImages(query);
+    const cat = categories.find(c => c.id === catImageCategoryId);
+    renderCatImageResults(results, cat?.image);
+    setCatImageStatus(
+      `${results.length} result${results.length !== 1 ? "s" : ""} — tap a photo to use it.`
+    );
+  } catch (err) {
+    console.warn("[cat image] search failed:", err);
+    catImageGrid.innerHTML = "";
+    setCatImageStatus("Couldn't load photos. Check your connection or try another search.", true);
+  }
+}
+
+async function pickCategoryImage(result) {
+  if (!catImageCategoryId) return;
+  const cat = categories.find(c => c.id === catImageCategoryId);
+  if (!cat) return;
+  try {
+    await updateDoc(doc(db, "categories", cat.id), {
+      image: result.url,
+      imageThumb: result.thumb || result.url,
+      imageCredit: result.credit || "",
+      imageCreditUrl: result.creditUrl || "",
+      imageSource: result.source || "",
+      imageUpdatedAt: serverTimestamp()
+    });
+    playSuccessSound();
+    showToast("Category image updated ✅");
+    closeCategoryImagePicker();
+  } catch (err) {
+    console.error("[cat image] save failed:", err);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+}
+
+async function autoAssignCategoryImage(categoryId, name) {
+  if (!name) return;
+  try {
+    const results = await fetchCategoryImages(name);
+    if (!results.length) return;
+    const top = results[0];
+    await updateDoc(doc(db, "categories", categoryId), {
+      image: top.url,
+      imageThumb: top.thumb || top.url,
+      imageCredit: top.credit || "",
+      imageCreditUrl: top.creditUrl || "",
+      imageSource: top.source || "",
+      imageUpdatedAt: serverTimestamp()
+    });
+    showToast(`Image added for “${name}” 📷`);
+  } catch (e) {
+    console.warn("[cat image] auto-assign skipped:", e.message);
+  }
+}
+
+function openCategoryImagePicker(categoryId) {
+  const cat = categories.find(c => c.id === categoryId);
+  if (!cat) { showToast("Category not found ❌"); return; }
+  catImageCategoryId = categoryId;
+  if (catImageTitle) catImageTitle.textContent = `Image for “${cat.name}”`;
+  if (catImageQuery) catImageQuery.value = cat.name || "";
+  catImageModal?.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  searchCategoryImages(cat.name || "store");
+}
+
+function closeCategoryImagePicker() {
+  catImageModal?.classList.add("hidden");
+  document.body.style.overflow = "";
+  catImageCategoryId = null;
+}
+
+if (catImageClose) catImageClose.addEventListener("click", closeCategoryImagePicker);
+if (catImageModal) catImageModal.addEventListener("click", (e) => {
+  if (e.target === catImageModal) closeCategoryImagePicker();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && catImageModal && !catImageModal.classList.contains("hidden")) {
+    closeCategoryImagePicker();
+  }
+});
+if (catImageForm) catImageForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = valOf(catImageQuery).trim();
+  if (q) searchCategoryImages(q);
+});
+if (catImageRemove) catImageRemove.addEventListener("click", async () => {
+  if (!catImageCategoryId) return;
+  if (!confirm("Remove the image from this category?")) return;
+  try {
+    await updateDoc(doc(db, "categories", catImageCategoryId), {
+      image: null, imageThumb: null,
+      imageCredit: null, imageCreditUrl: null,
+      imageSource: null, imageUpdatedAt: serverTimestamp()
+    });
+    showToast("Category image removed");
+    closeCategoryImagePicker();
+  } catch (err) {
+    console.error("[cat image] remove failed:", err);
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+});
+
 /* ----------------------------------------------------------
-   RENDER — Categories
+   RENDER — Categories (with thumbnails)
    ---------------------------------------------------------- */
+function categoryThumbHTML(cat) {
+  const src = cat.imageThumb || cat.image;
+  const letter = (cat.name || "?").charAt(0).toUpperCase();
+  const bg = fallbackColorFor(cat.name);
+  return `
+    <div class="cat-thumb-fallback" style="background:${bg}">${letter}</div>
+    ${src ? `<img class="cat-thumb-img" src="${esc(src)}" alt="" loading="lazy"
+                 onerror="this.remove()" />` : ""}
+  `;
+}
+
 function renderCategories() {
   if (!categoryGrid) return;
   if (!categories.length) {
@@ -2713,11 +3141,33 @@ function renderCategories() {
   }
   categoryGrid.innerHTML = categories.map(cat => {
     const count = inventory.filter(i => i.category === cat.name).length;
+    const creditHTML = cat.imageCredit
+      ? (cat.imageCreditUrl
+          ? `<a class="cat-credit" href="${esc(cat.imageCreditUrl)}" target="_blank" rel="noopener">📷 ${esc(cat.imageCredit)}</a>`
+          : `<span class="cat-credit">📷 ${esc(cat.imageCredit)}</span>`)
+      : "";
     return `<div class="category-card">
-      <div><div class="cat-name">${esc(cat.name)}</div><div class="cat-count">${count} item${count !== 1 ? "s" : ""}</div></div>
-      <button type="button" class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
+      <button type="button" class="cat-thumb"
+              data-cat-id="${esc(cat.id)}"
+              aria-label="Change image for ${esc(cat.name)}"
+              title="Change image">
+        ${categoryThumbHTML(cat)}
+        <span class="cat-thumb-edit">✎</span>
+      </button>
+      <div class="cat-info">
+        <div class="cat-name">${esc(cat.name)}</div>
+        <div class="cat-count">${count} item${count !== 1 ? "s" : ""}</div>
+        ${creditHTML}
+      </div>
+      <div class="cat-actions">
+        <button type="button" class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
+      </div>
     </div>`;
   }).join("");
+
+  categoryGrid.querySelectorAll(".cat-thumb").forEach(btn => {
+    btn.addEventListener("click", () => openCategoryImagePicker(btn.dataset.catId));
+  });
 }
 
 /* ----------------------------------------------------------
@@ -3038,9 +3488,13 @@ if (categoryForm) categoryForm.addEventListener("submit", async (e) => {
     showToast("Category already exists ❌"); return;
   }
   try {
-    await addDoc(collection(db, "categories"), { name, workspaceId: wsId, createdAt: serverTimestamp() });
+    const ref = await addDoc(collection(db, "categories"), {
+      name, workspaceId: wsId, createdAt: serverTimestamp()
+    });
     if (newCategory) newCategory.value = "";
-    showToast("Category added ✅");
+    showToast("Category added ✅ — fetching image…");
+    // Fire and forget; realtime listener will refresh the grid.
+    autoAssignCategoryImage(ref.id, name);
   } catch (err) {
     console.error("[add category]", err.code, err.message);
     showToast(`Failed: ${err.code || err.message} ❌`);
@@ -3119,7 +3573,6 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker
       .register("sw.js", { scope: "./" })
       .then((reg) => {
-        console.log("[SW] registered:", reg.scope);
         reg.addEventListener("updatefound", () => {
           const nw = reg.installing;
           if (!nw) return;
@@ -3162,7 +3615,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ----------------------------------------------------------
-   UTILITIES
+   TOAST
    ---------------------------------------------------------- */
 function showToast(msg) {
   if (!toast) return;
@@ -3171,18 +3624,9 @@ function showToast(msg) {
   clearTimeout(showToast._timer);
   showToast._timer = setTimeout(() => toast.classList.add("hidden"), 3000);
 }
-function esc(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 /* ==========================================================
-   PWA INSTALL — works on mobile, auto-jumps out of in-app
-   browsers (Messenger / Facebook / Instagram / TikTok) to
-   Chrome or Safari so the user can install with 1 tap.
+   PWA INSTALL — auto-jump out of in-app browsers
    ========================================================== */
 const installBtn         = $("install-btn");
 const installModal       = $("install-modal");
@@ -3208,7 +3652,6 @@ const IS_IOS      = /iPhone|iPad|iPod/i.test(UA) ||
 const IS_ANDROID  = /Android/i.test(UA);
 const IS_MOBILE   = IS_IOS || IS_ANDROID || /Mobile/i.test(UA);
 
-/* Facebook / Messenger / Instagram / TikTok / Line / WhatsApp / Snapchat / Twitter webviews */
 const IS_IN_APP_BROWSER =
   /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger|TikTok|BytedanceWebview|Line\/|WhatsApp|Snapchat|Twitter/i.test(UA) ||
   (IS_ANDROID && /; wv\)/i.test(UA) && !/Chrome\/[0-9]+/i.test(UA)) ||
@@ -3222,12 +3665,10 @@ function isStandalone() {
 function isDismissed()   { return localStorage.getItem("installDismissed") === "1"; }
 function markDismissed() { localStorage.setItem("installDismissed", "1"); }
 
-/* -------- Auto-jump out of in-app browser -------- */
 function buildExternalBrowserURL() {
   const rawUrl = location.href;
   try {
     if (IS_ANDROID) {
-      // Android intent:// — directly opens Chrome.
       const noProto = rawUrl.replace(/^https?:\/\//, "");
       return (
         `intent://${noProto}#Intent;scheme=https;` +
@@ -3236,7 +3677,6 @@ function buildExternalBrowserURL() {
       );
     }
     if (IS_IOS) {
-      // iOS — handoff to Safari.
       const noProto = rawUrl.replace(/^https?:\/\//, "");
       return `x-safari-https://${noProto}`;
     }
@@ -3256,7 +3696,6 @@ function tryOpenInExternalBrowser() {
   }
 }
 
-/* Native install prompt (Chromium) */
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -3273,7 +3712,6 @@ window.addEventListener("appinstalled", () => {
   markDismissed();
 });
 
-/* -------- Instruction content per environment -------- */
 function buildInstructions() {
   if (IS_IN_APP_BROWSER) {
     return {
@@ -3293,7 +3731,6 @@ function buildInstructions() {
            </ol>`,
     };
   }
-
   if (IS_IOS) {
     return {
       icon: "🍎",
@@ -3306,7 +3743,6 @@ function buildInstructions() {
              </ol>`,
     };
   }
-
   if (IS_ANDROID) {
     return {
       icon: "🤖",
@@ -3323,7 +3759,6 @@ function buildInstructions() {
            </ol>`,
     };
   }
-
   return {
     icon: "💻",
     title: "Install Kurt POS",
@@ -3375,11 +3810,8 @@ async function triggerInstall() {
   }
 }
 
-/* -------- Install button (header) -------- */
 if (installBtn) installBtn.addEventListener("click", () => {
   if (isStandalone()) { showToast("App is already installed ✅"); return; }
-
-  // In-app browser → auto-jump to Chrome/Safari
   if (IS_IN_APP_BROWSER) {
     tryOpenInExternalBrowser();
     setTimeout(() => {
@@ -3387,12 +3819,10 @@ if (installBtn) installBtn.addEventListener("click", () => {
     }, 1400);
     return;
   }
-
   if (deferredPrompt) triggerInstall();
   else openInstallModal();
 });
 
-/* -------- Install banner (mobile) -------- */
 if (installBannerBtn) installBannerBtn.addEventListener("click", () => {
   if (IS_IN_APP_BROWSER) {
     tryOpenInExternalBrowser();
@@ -3408,13 +3838,11 @@ if (installBannerBtn) installBannerBtn.addEventListener("click", () => {
   else { installBanner?.classList.add("hidden"); openInstallModal(); }
 });
 
-/* -------- "Open in Browser" inside modal -------- */
 if (installExternalBtn) installExternalBtn.addEventListener("click", () => {
   const ok = tryOpenInExternalBrowser();
   if (!ok) showToast("Couldn't open automatically — use Copy Link 🔗");
 });
 
-/* -------- Copy Link fallback -------- */
 if (installCopyBtn) installCopyBtn.addEventListener("click", async () => {
   const url = location.href;
   try {
@@ -3449,7 +3877,6 @@ if (installBannerClose) installBannerClose.addEventListener("click", () => {
   installBanner?.classList.add("hidden"); markDismissed();
 });
 
-/* Auto-show banner on mobile after login (only in real browsers) */
 if (IS_MOBILE && !isStandalone() && !isDismissed() && !IS_IN_APP_BROWSER) {
   const iv = setInterval(() => {
     if (appShell && !appShell.classList.contains("hidden")) {

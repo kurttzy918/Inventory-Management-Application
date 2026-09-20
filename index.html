@@ -568,6 +568,26 @@
     </div>
   </div>
 
+  <!-- ================= CATEGORY IMAGE PICKER ================= -->
+  <div id="cat-image-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cat-image-title">
+    <div class="modal-card cat-image-card">
+      <div class="modal-head">
+        <h3 id="cat-image-title">Category image</h3>
+        <button id="cat-image-close" type="button" class="btn ghost icon-btn" aria-label="Close">✕</button>
+      </div>
+      <form id="cat-image-search-form" class="inline-form cat-image-search">
+        <input type="search" id="cat-image-query" placeholder="Search photos…" aria-label="Search photos" autocomplete="off" />
+        <button type="submit" class="btn primary">Search</button>
+      </form>
+      <p id="cat-image-status" class="cat-image-status" role="status" aria-live="polite"></p>
+      <div id="cat-image-grid" class="cat-pick-grid"></div>
+      <div class="cat-image-foot">
+        <span id="cat-image-source" class="cat-image-source"></span>
+        <button id="cat-image-remove" type="button" class="btn ghost sm">Remove image</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ INSTALL BANNER (mobile) ============ -->
   <div id="install-banner" class="install-banner hidden" role="alert">
     <span class="install-banner-icon">⬇️</span>
