@@ -5,6 +5,12 @@ export const state = {
   categories: [],
   allUsers: [],
   movements: [],
+
+  // customers / credit
+  customers: [],
+  customerTransactions: [],
+  currentCustomerId: null,
+
   currentUser: null,
   currentUserData: null,
   isSignupMode: false,
@@ -67,46 +73,41 @@ export const CONSTANTS = {
   FAST_SELLING: { minTotalSold: 10, lookbackDays: 7, minPerDay: 1 },
   EXPIRY_WARNING_DAYS: 30,
   CATEGORY_IMAGE_API: {
-  /* "pexels" (recommended for product photos) | "unsplash" | "openverse" | "wikipedia" */
-  provider: "pexels",
-  keys: {
-    pexels:    "LVoL2s2p3Ur7lFt1T6D5dvICH64tWmP2u4Fis5GbVGGlX1luCCuvtzcu",
-    unsplash:  ""   // optional
+    provider: "pexels",
+    keys: {
+      pexels:    "LVoL2s2p3Ur7lFt1T6D5dvICH64tWmP2u4Fis5GbVGGlX1luCCuvtzcu",
+      unsplash:  ""
+    },
+    perPage: 15,
+    timeoutMs: 10000,
+    keyword: "grocery product",
+    keywordMap: {
+      snacks:     "snack packet",
+      drinks:     "beverage bottle",
+      beverages:  "beverage bottle",
+      canned:     "canned goods",
+      noodles:    "instant noodles",
+      rice:       "rice sack",
+      soap:       "bar soap",
+      shampoo:    "shampoo bottle",
+      detergent:  "laundry detergent",
+      coffee:     "coffee sachet",
+      milk:       "milk carton",
+      bread:      "bread loaf",
+      candy:      "candy sweets",
+      cigarettes: "cigarette pack",
+      school:     "school supplies",
+      toiletries: "toiletries",
+      household:  "household cleaning"
+    }
   },
-  perPage: 15,
-  timeoutMs: 10000,
-  /* Appended to every category name. "grocery product philippines"
-     returns actual store-shelf photos on Pexels. */
-  keyword: "grocery product",
-  /* Optional: boost per-category terms. If the category name
-     contains one of these words, the mapped keyword is used. */
-  keywordMap: {
-    snacks:     "snack packet",
-    drinks:     "beverage bottle",
-    beverages:  "beverage bottle",
-    canned:     "canned goods",
-    noodles:    "instant noodles",
-    rice:       "rice sack",
-    soap:       "bar soap",
-    shampoo:    "shampoo bottle",
-    detergent:  "laundry detergent",
-    coffee:     "coffee sachet",
-    milk:       "milk carton",
-    bread:      "bread loaf",
-    candy:      "candy sweets",
-    cigarettes: "cigarette pack",
-    school:     "school supplies",
-    toiletries: "toiletries",
-    household:  "household cleaning"
-  }
-},
-  DEFAULT_AUTH_BG_IMAGES: ["THUMB.png", "1.jpg", "4.jpg", "2.jpg"],
+  DEFAULT_AUTH_BG_IMAGES: ["saristore4.png", "thumbnail.png", "saristore1.jpg", "saristore2.jpg", "saristore3.jpg"],
   FALLBACK_AUTH_BG_IMAGES: [
     "https://picsum.photos/seed/kurt-store-1/1920/1080",
     "https://picsum.photos/seed/kurt-store-2/1920/1080",
     "https://picsum.photos/seed/kurt-store-3/1920/1080"
   ],
-  AUTH_BG_INTERVAL_MS: 6000,
+  AUTH_BG_INTERVAL_MS: 4000,
   FALLBACK_COLORS: ["#12544F", "#2FA38F", "#5FC2A6", "#0C3E3A", "#16665F", "#0F4945"],
   CATEGORY_PALETTE: ["#12544F", "#2FA38F", "#5FC2A6", "#0C3E3A", "#16665F", "#0F4945", "#E8B33A", "#D79A6A"],
   SCAN_COOLDOWN_MS: 1500,

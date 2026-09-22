@@ -26,9 +26,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
 
@@ -176,7 +176,6 @@
           <span class="stat-label">Total Items</span>
           <span id="stat-total" class="stat-value">0</span>
         </div>
-        
         <div class="stat-card warning">
           <span class="stat-label">Low Stock</span>
           <span id="stat-low" class="stat-value">0</span>
@@ -199,74 +198,72 @@
         </div>
       </div>
 
-      <!-- ========== SALES OVERVIEW ========== -->
-<div class="sales-overview-card">
-  <div class="so-head">
-    <h3 class="so-title">📈 Sales Overview</h3>
-    <select id="month-filter" class="so-month-select" title="Filter by month">
-      <option value="">All Time</option>
-    </select>
-  </div>
-  <div class="so-stats">
-    <div class="so-stat">
-      <span class="so-label">Today</span>
-      <strong id="so-today" class="so-value">₱0.00</strong>
-    </div>
-    <div class="so-stat">
-      <span class="so-label">This Month</span>
-      <strong id="so-month" class="so-value">₱0.00</strong>
-    </div>
-    <div class="so-stat highlight">
-      <span class="so-label">Running Total</span>
-      <strong id="so-running" class="so-value">₱0.00</strong>
-    </div>
-  </div>
-  <div class="so-daily-wrap">
-    <div class="so-daily-head">
-      <span class="so-daily-title">📅 Sales per Day</span>
-      <span id="so-daily-total" class="so-daily-total">₱0.00</span>
-    </div>
-    <div id="so-daily-list" class="so-daily-list"></div>
-  </div>
-</div>
+      <div class="sales-overview-card">
+        <div class="so-head">
+          <h3 class="so-title">📈 Sales Overview</h3>
+          <select id="month-filter" class="so-month-select" title="Filter by month">
+            <option value="">All Time</option>
+          </select>
+        </div>
+        <div class="so-stats">
+          <div class="so-stat">
+            <span class="so-label">Today</span>
+            <strong id="so-today" class="so-value">₱0.00</strong>
+          </div>
+          <div class="so-stat">
+            <span class="so-label">This Month</span>
+            <strong id="so-month" class="so-value">₱0.00</strong>
+          </div>
+          <div class="so-stat highlight">
+            <span class="so-label">Running Total</span>
+            <strong id="so-running" class="so-value">₱0.00</strong>
+          </div>
+        </div>
+        <div class="so-daily-wrap">
+          <div class="so-daily-head">
+            <span class="so-daily-title">📅 Sales per Day</span>
+            <span id="so-daily-total" class="so-daily-total">₱0.00</span>
+          </div>
+          <div id="so-daily-list" class="so-daily-list"></div>
+        </div>
+      </div>
 
-<!-- ========== ADVANCED ANALYTICS ========== -->
-<h3 class="section-heading">📊 Advanced Analytics</h3>
-<div class="kpi-grid">
-  <div class="kpi-card">
-    <span class="kpi-label">Avg Order Value</span>
-    <strong id="kpi-aov" class="kpi-value">₱0.00</strong>
-    <small class="kpi-sub">per receipt</small>
-  </div>
-  <div class="kpi-card">
-    <span class="kpi-label">Items Sold</span>
-    <strong id="kpi-items" class="kpi-value">0</strong>
-    <small class="kpi-sub">all time</small>
-  </div>
-  <div class="kpi-card">
-    <span class="kpi-label">Peak Hour</span>
-    <strong id="kpi-peak" class="kpi-value">–</strong>
-    <small class="kpi-sub">busiest hour</small>
-  </div>
-  <div class="kpi-card profit">
-    <span class="kpi-label">Profit Margin</span>
-    <strong id="kpi-margin" class="kpi-value">0%</strong>
-    <small class="kpi-sub">overall</small>
-  </div>
-</div>
+      <h3 class="section-heading">📊 Advanced Analytics</h3>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Avg Order Value</span>
+          <strong id="kpi-aov" class="kpi-value">₱0.00</strong>
+          <small class="kpi-sub">per receipt</small>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Items Sold</span>
+          <strong id="kpi-items" class="kpi-value">0</strong>
+          <small class="kpi-sub">all time</small>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Peak Hour</span>
+          <strong id="kpi-peak" class="kpi-value">–</strong>
+          <small class="kpi-sub">busiest hour</small>
+        </div>
+        <div class="kpi-card profit">
+          <span class="kpi-label">Profit Margin</span>
+          <strong id="kpi-margin" class="kpi-value">0%</strong>
+          <small class="kpi-sub">overall</small>
+        </div>
+      </div>
 
-<div class="charts-grid">
-  <div class="chart-card">
-    <h4 class="card-title">Sales Trend · Last 30 Days</h4>
-    <div class="chart-wrapper"><canvas id="sales-trend-chart"></canvas></div>
-  </div>
-  <div class="chart-card">
-    <h4 class="card-title">Profit Trend · Last 30 Days</h4>
-    <div class="chart-wrapper"><canvas id="profit-trend-chart"></canvas></div>
-  </div>
-</div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h4 class="card-title">Sales Trend · Last 30 Days</h4>
+          <div class="chart-wrapper"><canvas id="sales-trend-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h4 class="card-title">Profit Trend · Last 30 Days</h4>
+          <div class="chart-wrapper"><canvas id="profit-trend-chart"></canvas></div>
+        </div>
+      </div>
 
-<h3 class="section-heading">Pie Chart Analytics</h3>
+      <h3 class="section-heading">Pie Chart Analytics</h3>
       <div class="charts-grid">
         <div class="chart-card">
           <h4 class="card-title">Stock Status</h4>
@@ -282,11 +279,11 @@
         </div>
       </div>
 
-<h4 class="section-subheading">💰 Top Profitable Products</h4>
-<div id="top-profit-list" class="rank-list"></div>
+      <h4 class="section-subheading">💰 Top Profitable Products</h4>
+      <div id="top-profit-list" class="rank-list"></div>
 
-<h4 class="section-subheading">🏆 Top Revenue Products</h4>
-<div id="top-revenue-list" class="rank-list"></div>
+      <h4 class="section-subheading">🏆 Top Revenue Products</h4>
+      <div id="top-revenue-list" class="rank-list"></div>
 
       <div class="spotlight-head">
         <h3 class="section-heading">Live Spotlight</h3>
@@ -319,26 +316,26 @@
       <div id="expiring-list" class="inventory-list"></div>
 
       <div class="section-heading-row">
-  <h3 class="section-heading">📥📤 In / Out History</h3>
-</div>
-<div class="movement-toolbar">
-  <input type="search" id="movement-search" placeholder="Search item, reason, note, date…" />
-  <select id="movement-filter">
-    <option value="">All Types</option>
-    <option value="in">IN only (+)</option>
-    <option value="out">OUT only (−)</option>
-  </select>
-  <select id="movement-range">
-    <option value="">All Time</option>
-    <option value="today">Today</option>
-    <option value="7">Last 7 Days</option>
-    <option value="30">Last 30 Days</option>
-  </select>
-  <button class="btn ghost sm" id="print-movements">🖨️ Print</button>
-  <button class="btn ghost sm" id="export-movements">📊 Export</button>
-</div>
-<div id="movements-list" class="movements-list"></div>
-  </main>
+        <h3 class="section-heading">📥📤 In / Out History</h3>
+      </div>
+      <div class="movement-toolbar">
+        <input type="search" id="movement-search" placeholder="Search item, reason, note, date…" />
+        <select id="movement-filter">
+          <option value="">All Types</option>
+          <option value="in">IN only (+)</option>
+          <option value="out">OUT only (−)</option>
+        </select>
+        <select id="movement-range">
+          <option value="">All Time</option>
+          <option value="today">Today</option>
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+        </select>
+        <button class="btn ghost sm" id="print-movements">🖨️ Print</button>
+        <button class="btn ghost sm" id="export-movements">📊 Export</button>
+      </div>
+      <div id="movements-list" class="movements-list"></div>
+    </main>
 
     <!-- ========== POS / SALES ========== -->
     <main id="page-sales" class="page hidden">
@@ -371,14 +368,36 @@
               <span>Total</span>
               <span id="pos-total" class="pos-total-amount">₱0.00</span>
             </div>
+
             <div class="pos-row">
+              <span>Payment</span>
+              <select id="pos-payment-mode">
+                <option value="cash">💵 Cash</option>
+                <option value="credit">📝 Credit (Utang)</option>
+              </select>
+            </div>
+
+            <div class="pos-row hidden" id="pos-customer-row">
+              <span>Customer</span>
+              <select id="pos-customer">
+                <option value="">— Walk-in —</option>
+              </select>
+            </div>
+
+            <div class="pos-row" id="pos-cash-row">
               <span>Cash</span>
               <input type="number" id="pos-cash" min="0" step="0.01" placeholder="0.00" />
             </div>
-            <div class="pos-row pos-change-row">
+
+            <div class="pos-row pos-change-row" id="pos-change-row">
               <span>Change</span>
               <span id="pos-change">₱0.00</span>
             </div>
+
+            <div class="pos-credit-note hidden" id="pos-credit-note">
+              📝 The full amount will be added to the customer's utang balance.
+            </div>
+
             <button type="button" id="pos-checkout" class="btn primary block">✓ Complete Sale</button>
           </div>
         </aside>
@@ -498,6 +517,29 @@
       <div id="category-grid" class="inventory-list"></div>
     </main>
 
+    <!-- ========== CUSTOMERS ========== -->
+    <main id="page-customers" class="page hidden">
+      <h2 class="page-title">Customers Utang History</h2>
+
+      <div class="card">
+        <h3 class="card-title" id="customer-form-title">Add Customer</h3>
+        <form id="customer-form">
+          <input type="hidden" id="customer-id" />
+          <label>Name <input type="text" id="customer-name" required /></label>
+          <label>Phone <input type="tel" id="customer-phone" placeholder="09XXXXXXXXX" /></label>
+          <label>Address <input type="text" id="customer-address" /></label>
+          <label>Notes <input type="text" id="customer-notes" placeholder="Optional" /></label>
+          <button type="submit" class="btn primary block">Save Customer</button>
+        </form>
+      </div>
+
+      <div class="toolbar">
+        <input type="search" id="customers-search" placeholder="Search by name or phone…" />
+      </div>
+
+      <div id="customers-list" class="customers-list"></div>
+    </main>
+
     <!-- ========== HISTORY ========== -->
     <main id="page-history" class="page hidden">
       <h2 class="page-title">Sales History</h2>
@@ -548,6 +590,9 @@
       </button>
       <button class="nav-btn" data-page="page-categories">
         <span class="nav-icon">🗂️</span><span>Categories</span>
+      </button>
+      <button class="nav-btn" data-page="page-customers">
+        <span class="nav-icon">👥</span><span>Customers</span>
       </button>
       <button id="nav-admin" class="nav-btn hidden" data-page="page-admin">
         <span class="nav-icon">🛡️</span><span>Admin</span>
@@ -607,10 +652,10 @@
     <div class="modal-card receipt-modal-card">
       <div class="receipt" id="receipt-content"></div>
       <div class="receipt-actions">
-    <button id="movement-print-btn" class="btn primary">🖨️ Print</button>
-    <button id="movement-delete-btn" class="btn danger">🗑️ Delete Record</button>
-    <button id="movement-close-btn" class="btn ghost">Close</button>
-  </div>
+        <button id="print-receipt-btn" class="btn primary">🖨️ Print</button>
+        <button id="delete-receipt-btn" class="btn danger hidden">🗑️ Delete Receipt</button>
+        <button id="close-receipt-btn" class="btn ghost">Close</button>
+      </div>
     </div>
   </div>
 
@@ -629,33 +674,39 @@
     </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
-
-  <!-- ============ INSTALL APP MODAL ============ -->
-  <div id="install-modal" class="install-modal hidden" role="dialog" aria-modal="true">
-    <div class="install-sheet">
-      <button id="install-close" class="install-close" aria-label="Close">✕</button>
-
-      <div class="install-icon">📱</div>
-      <h3 id="install-title">Install Kurt POS</h3>
-      <p id="install-subtitle">Add the app to your home screen for fast, offline access.</p>
-
-      <div id="install-instructions" class="install-instructions"></div>
-
-      <!-- Auto-redirect to real browser (Chrome / Safari) -->
-      <div id="install-external-wrap" class="hidden">
-        <button id="install-external-btn" class="btn primary block">🌐 Open in Browser</button>
+  <!-- ================= PAYMENT MODAL ================= -->
+  <div id="payment-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Record Payment</h3>
+        <button class="btn ghost icon-btn" onclick="document.getElementById('payment-modal').classList.add('hidden');state.currentCustomerId=null;">✕</button>
       </div>
+      <p id="payment-customer-name" class="restock-name"></p>
+      <p id="payment-current-balance" class="restock-current"></p>
+      <label>Amount Received (₱)
+        <input type="number" id="payment-amount" min="0" step="0.01" />
+      </label>
+      <label>Note (optional)
+        <input type="text" id="payment-note" placeholder="e.g. partial payment" />
+      </label>
+      <button id="payment-confirm" class="btn primary block">✓ Confirm Payment</button>
+    </div>
+  </div>
 
-      <!-- Native install (only if browser supports it) -->
-      <div id="install-native-wrap" class="hidden">
-        <button id="install-native-btn" class="btn primary block">⬇️ Install Now</button>
+  <!-- ================= CUSTOMER DETAIL MODAL ================= -->
+  <div id="customer-detail-modal" class="modal hidden">
+    <div class="modal-card customer-detail-card">
+      <div class="modal-head">
+        <h3 id="customer-detail-title">Customer</h3>
+        <button id="customer-detail-close" class="btn ghost icon-btn">✕</button>
       </div>
-
-      <!-- Fallback: copy the link -->
-      <button id="install-copy-btn" class="btn ghost block">📋 Copy Link</button>
-
-      <button id="install-later" class="btn ghost block">Maybe Later</button>
+      <div id="customer-detail-meta" class="customer-detail-meta"></div>
+      <h4 class="section-subheading">Transaction Ledger</h4>
+      <div id="customer-detail-txns" class="customer-txns"></div>
+      <div class="receipt-actions">
+        <button id="customer-detail-pay" class="btn primary">💵 Record Payment</button>
+        <button class="btn ghost" onclick="document.getElementById('customer-detail-modal').classList.add('hidden');document.body.style.overflow='';state.currentCustomerId=null;">Close</button>
+      </div>
     </div>
   </div>
 
@@ -676,6 +727,32 @@
         <span id="cat-image-source" class="cat-image-source"></span>
         <button id="cat-image-remove" type="button" class="btn ghost sm">Remove image</button>
       </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- ============ INSTALL APP MODAL ============ -->
+  <div id="install-modal" class="install-modal hidden" role="dialog" aria-modal="true">
+    <div class="install-sheet">
+      <button id="install-close" class="install-close" aria-label="Close">✕</button>
+
+      <div class="install-icon">📱</div>
+      <h3 id="install-title">Install Kurt POS</h3>
+      <p id="install-subtitle">Add the app to your home screen for fast, offline access.</p>
+
+      <div id="install-instructions" class="install-instructions"></div>
+
+      <div id="install-external-wrap" class="hidden">
+        <button id="install-external-btn" class="btn primary block">🌐 Open in Browser</button>
+      </div>
+
+      <div id="install-native-wrap" class="hidden">
+        <button id="install-native-btn" class="btn primary block">⬇️ Install Now</button>
+      </div>
+
+      <button id="install-copy-btn" class="btn ghost block">📋 Copy Link</button>
+      <button id="install-later" class="btn ghost block">Maybe Later</button>
     </div>
   </div>
 

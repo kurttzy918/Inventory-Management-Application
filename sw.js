@@ -3,13 +3,22 @@
    Strategy: cache-first for shell, network-first for others
    ========================================================== */
 
-const CACHE_VERSION = "kurt-inventory-v4";
+const CACHE_VERSION = "kurt-inventory-v6";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./state.js",
+  "./utils.js",
+  "./auth.js",
+  "./firebase.js",
+  "./inventory.js",
+  "./pos.js",
+  "./reports.js",
+  "./customers.js",
   "./manifest.json",
+  "./5.png",
   "./Kurt.png",
   "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
   "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
@@ -60,7 +69,6 @@ function isFirebaseRequest(url) {
 function isCacheable(url, request) {
   if (request.method !== "GET") return false;
   if (isFirebaseRequest(url)) return false;
-  // Same-origin or known CDN
   return (
     url.origin === self.location.origin ||
     url.hostname.includes("jsdelivr.net") ||
@@ -83,7 +91,6 @@ self.addEventListener("fetch", (event) => {
     (async () => {
       const cached = await caches.match(req);
 
-      // For navigation: try network first, fall back to cached index
       if (req.mode === "navigate") {
         try {
           const fresh = await fetch(req);
@@ -95,7 +102,6 @@ self.addEventListener("fetch", (event) => {
         }
       }
 
-      // For static assets: cache-first, update in background
       if (cached) {
         fetch(req).then((fresh) => {
           if (fresh && fresh.status === 200) {

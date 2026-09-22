@@ -221,7 +221,7 @@ a { color: var(--brand); text-decoration: none; }
   transform: translateY(8px);
   transition: opacity 0.55s ease, transform 0.55s ease;
   font-family: 'Dancing Script', 'Brush Script MT', cursive;
-  font-size: 1.3rem;              /* bigger than before — cursive reads smaller */
+  font-size: 1 rem;              /* bigger than before — cursive reads smaller */
   line-height: 1.35;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -2213,4 +2213,228 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast {
   .movement-toolbar input,
   .movement-toolbar select { flex: 1 1 100%; }
   .movement-toolbar .btn { flex: 1 1 45%; }
+}
+/* ==========================================================
+   CUSTOMERS MODULE (append at end of style.css)
+   ========================================================== */
+.customers-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+}
+.customer-card {
+  display: flex;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  box-shadow: var(--shadow);
+  align-items: flex-start;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.customer-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.customer-card.has-balance { border-left: 4px solid var(--warning); }
+.customer-avatar {
+  width: 46px; height: 46px; flex: 0 0 46px;
+  border-radius: 14px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--brand), var(--brand-400));
+  color: #fff; font-weight: 800; font-size: 1.15rem;
+}
+.customer-main { flex: 1; min-width: 0; }
+.customer-name { font-weight: 700; font-size: 0.98rem; }
+.customer-meta { font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px; }
+.customer-stats {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  font-size: 0.72rem; color: var(--text-secondary); margin-top: 6px;
+}
+.customer-balance {
+  margin-top: 8px; font-size: 0.82rem;
+  color: var(--warning); font-weight: 700;
+}
+.customer-balance.paid { color: var(--success); }
+.customer-actions { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+.customer-actions .btn { padding: 5px 10px; font-size: 0.72rem; }
+
+/* Detail modal */
+.customer-detail-card { max-width: 560px; }
+.customer-detail-meta {
+  display: flex; flex-wrap: wrap; gap: 8px 14px;
+  font-size: 0.82rem; color: var(--text-secondary);
+  padding: 10px 0 14px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+.detail-balance { font-weight: 700; }
+.detail-balance.owes { color: var(--warning); }
+.detail-balance.paid { color: var(--success); }
+
+.customer-txns {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 45vh; overflow-y: auto; padding-right: 4px;
+}
+.txn-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-xs);
+}
+.txn-icon {
+  width: 36px; height: 36px; flex: 0 0 36px;
+  border-radius: 10px; display: grid; place-items: center; font-size: 1rem;
+}
+.txn-icon.purchase { background: #FEE2E2; }
+.txn-icon.payment  { background: #DCFCE7; }
+.txn-main { flex: 1; min-width: 0; }
+.txn-title { font-weight: 700; font-size: 0.85rem; }
+.txn-meta { font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px; }
+.txn-amount { font-weight: 800; font-size: 0.9rem; white-space: nowrap; }
+.txn-amount.out { color: var(--danger); }
+.txn-amount.in  { color: var(--success); }
+.txn-balance {
+  font-size: 0.68rem; color: var(--text-secondary);
+  white-space: nowrap; padding-left: 8px;
+  border-left: 1px dashed var(--border);
+}
+
+/* POS credit note */
+.pos-credit-note {
+  font-size: 0.75rem; color: var(--text-secondary);
+  background: var(--brand-50);
+  padding: 8px 10px; border-radius: var(--radius-xs);
+  border-left: 3px solid var(--warning);
+}
+
+/* POS customer select */
+#pos-customer {
+  width: 100%;
+  margin-top: 0;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+#pos-payment-mode {
+  width: 130px;
+  margin-top: 0;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Dark mode */
+[data-theme="dark"] .customer-card { background: var(--surface); }
+[data-theme="dark"] .txn-row { background: rgba(255,255,255,0.04); }
+[data-theme="dark"] .txn-icon.purchase { background: rgba(239,68,68,0.18); }
+[data-theme="dark"] .txn-icon.payment  { background: rgba(34,197,94,0.18); }
+
+@media (max-width: 520px) {
+  .customers-list { grid-template-columns: 1fr; }
+  .customer-actions { flex-direction: row; flex-wrap: wrap; }
+}
+/* ==========================================================
+   AUTH BACKGROUND — Mobile auto-fit
+   ========================================================== */
+
+/* 1) Use dynamic viewport height so mobile browser chrome
+      doesn't clip the image or leave a gap */
+.auth-screen {
+  min-height: 100vh;               /* fallback */
+  min-height: 100dvh;              /* modern mobile */
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.auth-bg,
+.auth-bg-slides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 2) Smarter image fitting:
+      - object-fit: cover fills the screen
+      - object-position centers on the "interesting" area
+      - works for both landscape and portrait photos */
+.auth-bg-slide > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* 3) Softer overlay on small screens so the photo shows through */
+@media (max-width: 640px) {
+  .auth-bg-overlay {
+    background:
+      radial-gradient(circle at 20% 15%, rgba(47, 163, 143, 0.22), transparent 60%),
+      radial-gradient(circle at 80% 85%, rgba(18, 84, 79, 0.28), transparent 65%),
+      linear-gradient(180deg, rgba(10, 46, 43, 0.35) 0%, rgba(10, 46, 43, 0.65) 100%);
+  }
+
+  /* Portrait: keep image full but push focus to upper third
+     (most product photos have their subject in the top/middle) */
+  .auth-bg-slide > img {
+    object-position: center 35%;
+  }
+
+  /* Shrink the decorative blobs so they don't fight with the photo */
+  .blob-1 { width: 220px; height: 220px; top: -60px; left: -60px; }
+  .blob-2 { width: 200px; height: 200px; bottom: -70px; right: -50px; }
+  .blob-3 { width: 160px; height: 160px; top: 50%; left: 60%; }
+
+  /* Grid overlay: fainter on mobile */
+  .grid-overlay {
+    background-size: 32px 32px;
+    opacity: 0.6;
+  }
+
+  /* Auth card: slightly more opaque so text stays readable
+     over busy photo areas */
+  .auth-card {
+    background: rgba(255, 255, 255, 0.94);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+  [data-theme="dark"] .auth-card {
+    background: rgba(22, 34, 40, 0.94);
+  }
+}
+
+/* 4) Extra-narrow phones (iPhone SE, etc.) — reduce padding */
+@media (max-width: 380px) {
+  .auth-screen { padding: 12px; }
+  .auth-card { padding: 22px 16px 18px; }
+  .brand-logo { width: 56px; height: 56px; }
+  .brand-mark { width: 76px; height: 76px; }
+  .auth-card .logo { font-size: 1.2rem; }
+}
+
+/* 5) Landscape phones — images typically look better letterboxed
+      with contain, so switch it up */
+@media (max-height: 500px) and (orientation: landscape) {
+  .auth-bg-slide > img {
+    object-fit: cover;
+    object-position: center center;
+  }
+  .auth-card {
+    max-width: 420px;
+    padding: 20px 20px 16px;
+  }
+  .brand-mark { margin-bottom: 6px; }
+  .brand-logo { width: 46px; height: 46px; }
+  .brand-mark { width: 66px; height: 66px; }
+  .subtitle-carousel { margin: 4px 0 10px; }
+  .auth-tabs { margin-bottom: 12px; }
+  .field { margin-bottom: 10px; }
 }

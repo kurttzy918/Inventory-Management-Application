@@ -101,6 +101,21 @@ export function movementDoc({ itemId, itemName, type, quantity, reason, note }) 
   };
 }
 
+/* -------- Customer transaction doc factory -------- */
+export function customerTxDoc({ customerId, customerName, type, amount, receiptNum, saleIds, note }) {
+  return {
+    workspaceId: myWorkspace(),
+    customerId, customerName,
+    type,                             // "purchase" | "payment"
+    amount: Number(amount) || 0,
+    receiptNum: receiptNum || "",
+    saleIds: saleIds || [],
+    note: note || "",
+    userId: state.currentUser?.uid || null,
+    createdAt: serverTimestamp()
+  };
+}
+
 /* -------- Settle write (offline-aware) -------- */
 export function settleWrite(promise, label = "Save") {
   const graceMs = navigator.onLine ? 3500 : 0;

@@ -7,10 +7,11 @@ import { db } from "./firebase.js";
 import { state, CONSTANTS } from "./state.js";
 import {
   $, valOf, esc, debounce, safeRender, showToast,
-  myWorkspace, movementDoc, settleWrite, fmtMoney, fmtInt,
+  myWorkspace, movementDoc, customerTxDoc, settleWrite, fmtMoney, fmtInt,
   fallbackColorFor, productImageHTML, playSuccessSound, playErrorSound, playCashSound,
   expiryStatus, getSoldMap, getFastSellingInfo
 } from "./utils.js";
+import { renderCustomerPickerOptions } from "./customers.js";
 
 const { NEW_ARRIVAL_WINDOW_MS } = CONSTANTS;
 
@@ -87,6 +88,24 @@ export function updateChange() {
   else if (change < 0) { el.textContent = "−" + fmtMoney(Math.abs(change)); el.classList.add("insufficient"); }
   else { el.textContent = fmtMoney(change); el.classList.remove("insufficient"); }
 }
+
+/* =========================================================
+   PAYMENT MODE TOGGLE
+   ========================================================= */
+export function togglePaymentMode() {
+  const mode = $("pos-payment-mode")?.value || "cash";
+  const isCredit = mode === "credit";
+  $("pos-cash-row")?.classList.toggle("hidden", isCredit);
+  $("pos-change-row")?.classList.toggle("hidden", isCredit);
+  $("pos-customer-row")?.classList.toggle("hidden", !isCredit);
+  $("pos-credit-note")?.classList.toggle("hidden", !isCredit);
+  if (isCredit) {
+    renderCustomerPickerOptions();
+    if ($("pos-cash")) $("pos-cash").value = "";
+    updateChange();
+  }
+}
+window.togglePaymentMode = togglePaymentMode;
 
 /* =========================================================
    PRODUCT GRID
@@ -215,22 +234,43 @@ async function handleCheckout() {
     lines.push({ item, qty: ci.qty, price: ci.price });
   }
   const total = lines.reduce((s, l) => s + l.qty * l.price, 0);
-  const cash = Number(valOf($("pos-cash"))) || 0;
-  if (cash < total) { playErrorSound(); showToast("Insufficient cash ❌"); return; }
-  const change = cash - total;
+
+  const mode = $("pos-payment-mode")?.value || "cash";
+  const customerId = valOf($("pos-customer"));
+  let cash = 0, change = 0, customer = null;
+
+  if (mode === "cash") {
+    cash = Number(valOf($("pos-cash"))) || 0;
+    if (cash < total) { playErrorSound(); showToast("Insufficient cash ❌"); return; }
+    change = cash - total;
+  } else {
+    if (!customerId) { playErrorSound(); showToast("Select a customer for utang ❌"); return; }
+    customer = state.customers.find(c => c.id === customerId);
+    if (!customer) { playErrorSound(); showToast("Customer not found ❌"); return; }
+  }
+
   const receiptNum = newReceiptNum();
   const now = new Date();
+  const cashier = state.currentUser?.email || "-";
 
   state.checkoutBusy = true;
   const btn = $("pos-checkout"); if (btn) btn.disabled = true;
+
   try {
     const batch = writeBatch(db);
+    const saleIds = [];
+
     lines.forEach(({ item, qty, price }) => {
-      batch.set(doc(collection(db, "sales")), {
+      const saleRef = doc(collection(db, "sales"));
+      saleIds.push(saleRef.id);
+      batch.set(saleRef, {
         itemId: item.id, itemName: item.name, category: item.category,
         quantity: qty, unitPrice: price, total: qty * price,
         cost: item.cost || 0, profit: (price - (item.cost || 0)) * qty,
         workspaceId: wsId, receiptNum, cash, change,
+        paymentMode: mode,
+        customerId: customer?.id || null,
+        customerName: customer?.name || null,
         createdAt: serverTimestamp(), userId: state.currentUser.uid
       });
       batch.update(doc(db, "inventory", item.id), {
@@ -241,14 +281,41 @@ async function handleCheckout() {
         type: "out", quantity: qty, reason: "sale", note: `Receipt ${receiptNum}`
       }));
     });
+
+    if (mode === "credit" && customer) {
+      batch.update(doc(db, "customers", customer.id), {
+        balance: increment(total),
+        totalPurchases: increment(total),
+        lastPurchaseAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      batch.set(doc(collection(db, "customer_transactions")), customerTxDoc({
+        customerId: customer.id,
+        customerName: customer.name,
+        type: "purchase",
+        amount: total,
+        receiptNum,
+        saleIds,
+        note: "Credit sale"
+      }));
+    }
+
     await settleWrite(batch.commit(), "Sale");
+
     showReceipt({
       items: lines.map(l => ({ name: l.item.name, qty: l.qty, price: l.price })),
-      total, cash, change, receiptNum, date: now, cashier: state.currentUser.email
+      total, cash, change, receiptNum, date: now, cashier,
+      paymentMode: mode,
+      customerName: customer?.name || null
     });
     playCashSound();
     clearCart();
-    showToast(`Sale completed · ${fmtMoney(total)} ✅`);
+    if ($("pos-customer")) $("pos-customer").value = "";
+    if ($("pos-payment-mode")) $("pos-payment-mode").value = "cash";
+    togglePaymentMode();
+    showToast(mode === "credit"
+      ? `Utang recorded · ${fmtMoney(total)} for ${customer.name} ✅`
+      : `Sale completed · ${fmtMoney(total)} ✅`);
   } catch (err) {
     console.error("[POS sale]", err.code, err.message);
     showToast(`Failed: ${err.code || err.message} ❌`);
@@ -266,6 +333,8 @@ export function showReceipt(data, groupInfo) {
   const d = data.date;
   const dateStr = d.toLocaleString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
   const money = (n) => fmtMoney(n);
+  const isCredit = data.paymentMode === "credit";
+
   const itemsHTML = data.items.map(it => `
     <div class="receipt-item">
       <div class="receipt-item-row1">
@@ -278,6 +347,7 @@ export function showReceipt(data, groupInfo) {
       </div>
     </div>
   `).join("");
+
   content.innerHTML = `
     <div class="receipt-header">
       <div class="receipt-store">${esc(CONSTANTS.STORE_NAME.toUpperCase())}</div>
@@ -288,14 +358,17 @@ export function showReceipt(data, groupInfo) {
       <div>Date: ${esc(dateStr)}</div>
       <div>Receipt #: ${esc(data.receiptNum)}</div>
       <div>Cashier: ${esc(data.cashier || "-")}</div>
+      ${isCredit ? `<div>Customer: ${esc(data.customerName || "-")}</div>` : ""}
     </div>
     <div class="receipt-sep"></div>
     <div class="receipt-items">${itemsHTML}</div>
     <div class="receipt-sep"></div>
     <div class="receipt-totals">
       <div class="rt-line big"><span>TOTAL</span><span>${money(data.total)}</span></div>
-      <div class="rt-line"><span>Cash</span><span>${money(data.cash)}</span></div>
-      <div class="rt-line"><span>Change</span><span>${money(data.change)}</span></div>
+      ${isCredit
+        ? `<div class="rt-line"><span>UTANG (Credit)</span><span>${money(data.total)}</span></div>`
+        : `<div class="rt-line"><span>Cash</span><span>${money(data.cash)}</span></div>
+           <div class="rt-line"><span>Change</span><span>${money(data.change)}</span></div>`}
     </div>
     <div class="receipt-footer">
       <strong>Thank you for your purchase!</strong>
@@ -324,7 +397,9 @@ export function viewSaleReceipt(saleId) {
   showReceipt({
     items, total, cash, change,
     receiptNum: receiptNum || ("SALE-" + saleId.slice(0, 8).toUpperCase()),
-    date, cashier: state.currentUser?.email || "-"
+    date, cashier: state.currentUser?.email || "-",
+    paymentMode: sale.paymentMode || "cash",
+    customerName: sale.customerName || null
   }, {
     receiptNum: receiptNum || ("SALE-" + saleId.slice(0, 8).toUpperCase()),
     saleIds: lineItems.map(s => s.id),
@@ -386,13 +461,14 @@ export function renderSales() {
   list.innerHTML = state.sales.slice(0, 30).map(s => {
     const item = state.inventory.find(i => i.id === s.itemId) || { name: s.itemName, image: null };
     const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
+    const isCredit = s.paymentMode === "credit";
     return `
       <div class="sale-row">
         <div class="sale-info">
           ${productImageHTML(item, "sm")}
           <div class="sale-txt">
             <div class="sale-name">${esc(s.itemName)} × ${fmtInt(s.quantity)}</div>
-            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}</div>
+            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}${isCredit ? " · 📝 Utang" : ""}</div>
           </div>
         </div>
         <div class="sale-total">${fmtMoney(s.total)}</div>
@@ -418,6 +494,7 @@ export function initPOS() {
   $("pos-cash")?.addEventListener("input", updateChange);
   $("pos-clear-btn")?.addEventListener("click", () => { clearCart(); showToast("Cart cleared 🧹"); });
   $("pos-checkout")?.addEventListener("click", handleCheckout);
+  $("pos-payment-mode")?.addEventListener("change", togglePaymentMode);
   $("sales-search")?.addEventListener("input", debounce(renderPosProducts, 150));
   $("sales-cat-filter")?.addEventListener("change", renderPosProducts);
   $("print-receipt-btn")?.addEventListener("click", () => window.print());

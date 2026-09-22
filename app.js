@@ -9,7 +9,7 @@ import {
 } from "./inventory.js";
 import {
   initPOS, startSalesListener, renderPosProducts, renderPosCart, renderSales,
-  updateChange, startPosMiniCarousels, stopPosMiniCarousels
+  updateChange, startPosMiniCarousels, stopPosMiniCarousels, togglePaymentMode
 } from "./pos.js";
 import {
   initReports, updateStats, renderCharts, destroyCharts, renderSalesOverview,
@@ -18,18 +18,18 @@ import {
   renderKPIs, renderTopProfitAndRevenue, stopCarousel,
   exportInventoryToExcel, exportInventoryToPDF
 } from "./reports.js";
+import {
+  initCustomers, startCustomersListeners, renderCustomerPickerOptions
+} from "./customers.js";
 
 /* ---------- Startup side effects ---------- */
 buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
-// Start the background slideshow right away (don't wait for auth state).
-// If the auth screen is visible, the rotation begins immediately.
 requestAnimationFrame(() => {
   startAuthBgCarousel("auth-bg-slides");
 });
 
-// Text carousels inside the auth card + topbar tagline.
 startTextCarousel(".subtitle-carousel", ".carousel-text", 3000);
 startTextCarousel(".brand-tagline-carousel", ".brand-tagline", 3000);
 
@@ -99,6 +99,8 @@ function wireNav() {
         safeRender(renderPosCart);
         safeRender(updateChange);
         safeRender(renderSalesCategorySummary);
+        safeRender(renderCustomerPickerOptions);
+        safeRender(togglePaymentMode);
         startPosMiniCarousels();
       }
       if (btn.dataset.page === "page-history") {
@@ -107,6 +109,9 @@ function wireNav() {
       }
       if (btn.dataset.page === "page-add") {
         safeRender(autoFillSku);
+      }
+      if (btn.dataset.page === "page-customers") {
+        safeRender(renderCustomerPickerOptions);
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
@@ -125,10 +130,12 @@ function startAllListeners() {
     safeRender(renderSlowMoving);
     safeRender(renderCarousel);
     safeRender(renderPosProducts);
+    safeRender(renderCustomerPickerOptions);
     safeRender(renderCharts);
   };
   startInventoryListeners(onAfter);
   startSalesListener(onAfter);
+  startCustomersListeners(onAfter);
 }
 
 function stopAllListeners() {
@@ -240,18 +247,18 @@ function registerSW() {
   });
 }
 
-/* ---------- Auth handlers (called by auth.js) ---------- */
+/* ---------- Auth handlers ---------- */
 function onLoggedOut() {
   stopAllListeners();
   stopAuthBgCarousel();
-  startAuthBgCarousel("auth-bg-slides"); // <-- ADD THIS LINE
+  startAuthBgCarousel("auth-bg-slides");
   forceCloseScanner();
 }
 
 function onPending() {
   stopAllListeners();
   stopAuthBgCarousel();
-  startAuthBgCarousel("pending-bg-slides"); // <-- ADD THIS LINE
+  startAuthBgCarousel("pending-bg-slides");
 }
 
 function onApproved(userData) {
@@ -259,7 +266,6 @@ function onApproved(userData) {
   if (userData.role === "superadmin" && !state.unsubscribers.users) {
     startUserAdminListener();
   }
-  // Initial renders once shell is visible
   setTimeout(() => {
     safeRender(renderInventory);
     safeRender(renderDashboardInventory);
@@ -270,6 +276,7 @@ function onApproved(userData) {
     safeRender(renderSales);
     safeRender(renderPosProducts);
     safeRender(renderPosCart);
+    safeRender(renderCustomerPickerOptions);
     safeRender(updateStats);
     safeRender(populateMonthFilter);
     safeRender(renderSalesOverview);
@@ -289,27 +296,29 @@ function onApproved(userData) {
    ========================================================= */
 function wireAllModals() {
   const MODAL_MAP = {
-    "restock-modal":         { cleanup: () => { state.restockItemId = null; } },
-    "receipt-modal":         { cleanup: () => { state.currentReceiptGroup = null; } },
-    "movement-modal":        { cleanup: () => { state.currentMovementId = null; } },
-    "cat-image-modal":       { cleanup: () => { state.catImageCategoryId = null; } },
-    "install-modal":         { cleanup: null },
-    "scanner-modal":         { cleanup: () => {
+    "restock-modal":          { cleanup: () => { state.restockItemId = null; } },
+    "receipt-modal":          { cleanup: () => { state.currentReceiptGroup = null; } },
+    "movement-modal":         { cleanup: () => { state.currentMovementId = null; } },
+    "cat-image-modal":        { cleanup: () => { state.catImageCategoryId = null; } },
+    "payment-modal":          { cleanup: () => { state.currentCustomerId = null; } },
+    "customer-detail-modal":  { cleanup: () => { state.currentCustomerId = null; } },
+    "install-modal":          { cleanup: null },
+    "scanner-modal":          { cleanup: () => {
         import("./inventory.js").then(m => m.forceCloseScanner?.()).catch(() => {});
       }
     }
   };
 
-  // Map close-button IDs -> modal IDs
   const BTN_TO_MODAL = {
-    "restock-close":      "restock-modal",
-    "close-receipt-btn":  "receipt-modal",
-    "movement-close":     "movement-modal",
-    "movement-close-btn": "movement-modal",
-    "cat-image-close":    "cat-image-modal",
-    "install-close":      "install-modal",
-    "install-later":      "install-modal",
-    "scanner-close":      "scanner-modal"
+    "restock-close":         "restock-modal",
+    "close-receipt-btn":     "receipt-modal",
+    "movement-close":        "movement-modal",
+    "movement-close-btn":    "movement-modal",
+    "cat-image-close":       "cat-image-modal",
+    "customer-detail-close": "customer-detail-modal",
+    "install-close":         "install-modal",
+    "install-later":         "install-modal",
+    "scanner-close":         "scanner-modal"
   };
 
   const closeModal = (modalId) => {
@@ -318,47 +327,38 @@ function wireAllModals() {
     m.classList.add("hidden");
     const cfg = MODAL_MAP[modalId];
     try { cfg?.cleanup?.(); } catch (e) { console.warn("[modal cleanup]", e); }
-    // Restore scroll only if no modal remains open
     const stillOpen = document.querySelector(
       ".modal:not(.hidden), .scanner-modal:not(.hidden), .install-modal:not(.hidden)"
     );
     if (!stillOpen) document.body.style.overflow = "";
   };
 
-  /* ---------- 1) Global click delegation ----------
-     Catches clicks on any close button — even ones
-     created or re-rendered later. */
   document.addEventListener("click", (e) => {
-    // Close button?
     const closeBtn = e.target.closest(
       "#restock-close, #close-receipt-btn, #movement-close, #movement-close-btn, " +
-      "#cat-image-close, #install-close, #install-later, #scanner-close, " +
+      "#cat-image-close, #customer-detail-close, #install-close, #install-later, #scanner-close, " +
       "#install-banner-close, [data-close-modal]"
     );
     if (closeBtn) {
       e.preventDefault();
       e.stopPropagation();
 
-      // Special-case install-later (persist dismissal)
       if (closeBtn.id === "install-later") {
         try { localStorage.setItem("installDismissed", "1"); } catch {}
         $("install-banner")?.classList.add("hidden");
       }
-      // Special-case install banner close
       if (closeBtn.id === "install-banner-close") {
         $("install-banner")?.classList.add("hidden");
         try { localStorage.setItem("installDismissed", "1"); } catch {}
         return;
       }
 
-      // Custom data-close-modal override
       const explicit = closeBtn.getAttribute("data-close-modal");
       const modalId = explicit || BTN_TO_MODAL[closeBtn.id];
       if (modalId) closeModal(modalId);
       return;
     }
 
-    // Backdrop click?
     const openModal = e.target.closest(
       ".modal, .scanner-modal, .install-modal"
     );
@@ -368,12 +368,13 @@ function wireAllModals() {
     }
   });
 
-  /* ---------- 2) ESC key ---------- */
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     const order = [
       "install-modal",
       "cat-image-modal",
+      "customer-detail-modal",
+      "payment-modal",
       "movement-modal",
       "receipt-modal",
       "restock-modal",
@@ -394,8 +395,9 @@ function boot() {
   initInventory();
   initPOS();
   initReports();
+  initCustomers();
   wireNav();
-  wireAllModals();          // <--- ADD THIS LINE
+  wireAllModals();
   wireOnlineOffline();
   wireKeyboard();
   registerSW();
