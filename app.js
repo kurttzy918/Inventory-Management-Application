@@ -21,6 +21,8 @@ import {
 import {
   initCustomers, startCustomersListeners, renderCustomerPickerOptions
 } from "./customers.js";
+import { initLabels, renderLabelsPage } from "./labels.js";
+import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
 
 /* ---------- Startup side effects ---------- */
 buildAuthBackground("auth-bg-slides");
@@ -113,6 +115,12 @@ function wireNav() {
       if (btn.dataset.page === "page-customers") {
         safeRender(renderCustomerPickerOptions);
       }
+      if (btn.dataset.page === "page-labels") {
+        safeRender(renderLabelsPage);
+      }
+      if (btn.dataset.page === "page-gcash") {
+        safeRender(renderGcashPage);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   });
@@ -136,6 +144,7 @@ function startAllListeners() {
   startInventoryListeners(onAfter);
   startSalesListener(onAfter);
   startCustomersListeners(onAfter);
+  startGcashListeners(onAfter);
 }
 
 function stopAllListeners() {
@@ -396,6 +405,8 @@ function boot() {
   initPOS();
   initReports();
   initCustomers();
+  initLabels();
+  initGcash();
   wireNav();
   wireAllModals();
   wireOnlineOffline();

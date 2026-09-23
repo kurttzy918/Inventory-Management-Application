@@ -108,32 +108,86 @@ window.recordPayment = recordPayment;
 
 function wirePaymentModal() {
   const confirmBtn = $("payment-confirm");
-  confirmBtn?.addEventListener("click", async () => {
+  if (!confirmBtn) return;
+
+  confirmBtn.addEventListener("click", async () => {
     const id = state.currentCustomerId;
     if (!id) return;
+
     const c = state.customers.find(x => x.id === id);
     if (!c) return;
+
     const amount = Number(valOf($("payment-amount")));
-    if (!amount || amount <= 0) { showToast("Enter a valid amount ❌"); return; }
+    if (!amount || amount <= 0) {
+      showToast("Enter a valid amount ❌");
+      return;
+    }
     if (amount > Number(c.balance) + 0.001) {
-      showToast("Amount exceeds balance ❌"); return;
+      showToast("Amount exceeds balance ❌");
+      return;
     }
 
     confirmBtn.disabled = true;
+
     try {
       const batch = writeBatch(db);
+
+      // 1) Reduce customer balance
       batch.update(doc(db, "customers", id), {
         balance: increment(-amount),
         updatedAt: serverTimestamp()
       });
+
+      // 2) Log the payment in the ledger
       batch.set(doc(collection(db, "customer_transactions")), customerTxDoc({
-        customerId: id, customerName: c.name,
-        type: "payment", amount,
+        customerId: id,
+        customerName: c.name,
+        type: "payment",
+        amount,
         note: valOf($("payment-note")).trim()
       }));
+
+      // 3) Distribute payment across unpaid utang sales (oldest first)
+      const MAX_IN_BATCH = 400;
+      const unpaid = (state.creditSales || [])
+        .filter(s => s.customerId === id)
+        .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0))
+        .slice(0, MAX_IN_BATCH);
+
+      let remaining = amount;
+      let salesPaid = 0;
+
+      for (const sale of unpaid) {
+        if (remaining <= 0.005) break;
+
+        const saleTotal   = Number(sale.total) || 0;
+        const alreadyPaid = Number(sale.amountPaid) || 0;
+        const owed        = Math.max(0, saleTotal - alreadyPaid);
+        if (owed <= 0.005) continue;
+
+        const take          = Math.min(remaining, owed);
+        const newPaidAmount = alreadyPaid + take;
+        const fullyPaid     = newPaidAmount >= saleTotal - 0.01;
+
+        batch.update(doc(db, "sales", sale.id), {
+          amountPaid: newPaidAmount,
+          unpaidAmount: Math.max(0, saleTotal - newPaidAmount),
+          paid: fullyPaid,
+          paidAt: fullyPaid ? serverTimestamp() : null
+        });
+
+        remaining -= take;
+        if (fullyPaid) salesPaid++;
+      }
+
       await settleWrite(batch.commit(), "Payment");
       playSuccessSound();
-      showToast(`Payment recorded · ${fmtMoney(amount)} ✅`);
+
+      const tail = salesPaid
+        ? ` · ${salesPaid} sale${salesPaid > 1 ? "s" : ""} marked paid ✅`
+        : " · partial payment recorded";
+      showToast(`Payment ${fmtMoney(amount)} received${tail}`);
+
       $("payment-modal")?.classList.add("hidden");
       state.currentCustomerId = null;
     } catch (err) {

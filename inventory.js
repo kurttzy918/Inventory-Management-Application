@@ -313,8 +313,9 @@ export function renderInventory() {
             <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
             <span class="progress-label">${percent.toFixed(0)}%</span>
           </div>
-          <div class="item-actions">
+            <div class="item-actions">
             <button type="button" class="btn ghost" onclick="editItem('${item.id}')">Edit</button>
+            <button type="button" class="btn ghost" onclick="openLabelFor('${item.id}')" title="Print label">🏷️</button>
             <button type="button" class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
             <button type="button" class="btn danger" onclick="deleteItem('${item.id}')">Delete</button>
           </div>

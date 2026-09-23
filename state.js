@@ -6,10 +6,14 @@ export const state = {
   allUsers: [],
   movements: [],
 
-  // customers / credit
+   // customers / credit
   customers: [],
   customerTransactions: [],
   currentCustomerId: null,
+  creditSales: [],
+
+  // gcash
+  gcashTransactions: [],
 
   currentUser: null,
   currentUserData: null,

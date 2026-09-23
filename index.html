@@ -31,7 +31,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
-
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
@@ -58,7 +58,7 @@
         <img id="logo-img" class="brand-logo" alt="Company logo" src="Kurt.png" />
       </div>
 
-      <h1 class="logo">Kurt Sari-Sari Store POS</h1>
+      <h1 class="logo">My Sari-Sari Store</h1>
 
       <div class="subtitle-carousel">
         <span class="carousel-text">Manage your inventory in real time</span>
@@ -137,7 +137,7 @@
       <div class="brand-mini">
         <img id="brand-logo" class="brand-mini-logo" alt="Kurt POS logo" src="Kurt.png" />
         <div class="brand-mini-text">
-          <h1 class="logo">Kurt POS</h1>
+          <h1 class="logo">My Sari-Sari Store</h1>
           <div class="brand-tagline-carousel" aria-label="Smart Stock &amp; Sales">
             <span class="brand-tagline">Smart Stock &amp; Sales</span>
             <span class="brand-tagline">Be Systematic</span>
@@ -163,7 +163,7 @@
 
     <!-- ========== DASHBOARD ========== -->
     <main id="page-dashboard" class="page active">
-      <h2 class="page-title">Sari-Sari Store Dashboard</h2>
+      <h2 class="page-title">Dashboard</h2>
 
       <div id="expiry-banner" class="expiry-banner hidden">
         <span class="expiry-banner-icon">⚠️</span>
@@ -493,7 +493,7 @@
         </div>
       </div>
 
-      <div class="toolbar">
+        <div class="toolbar">
         <input type="search" id="search-input" placeholder="Search by name, SKU, or barcode…" />
         <select id="filter-category">
           <option value="">All Categories</option>
@@ -540,6 +540,120 @@
       <div id="customers-list" class="customers-list"></div>
     </main>
 
+        <!-- ========== LABELS ========== -->
+          <!-- ========== GCASH ========== -->
+    <main id="page-gcash" class="page hidden">
+        <h2 class="page-title gcash-page-title">
+        <img src="gcash.png" alt="" class="gcash-title-logo" />
+        GCash
+      </h2>
+
+      <!-- Summary -->
+      <div class="gcash-summary">
+        <div class="gcash-stat in">
+          <span class="gcash-stat-label">GCash In Today</span>
+          <strong id="gcash-in-today">₱0.00</strong>
+          <small id="gcash-in-count">0 transactions</small>
+        </div>
+        <div class="gcash-stat out">
+          <span class="gcash-stat-label">GCash Out Today</span>
+          <strong id="gcash-out-today">₱0.00</strong>
+          <small id="gcash-out-count">0 transactions</small>
+        </div>
+        <div class="gcash-stat fee">
+          <span class="gcash-stat-label">Fees Earned Today</span>
+          <strong id="gcash-fee-today">₱0.00</strong>
+          <small id="gcash-fee-month">This month: ₱0.00</small>
+        </div>
+        <div class="gcash-stat balance">
+          <span class="gcash-stat-label">GCash Balance</span>
+          <strong id="gcash-balance">₱0.00</strong>
+          <button type="button" class="gcash-set-opening" id="gcash-set-opening">✏️ Set opening balance</button>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <div class="card">
+        <h3 class="card-title" id="gcash-form-title">Record GCash Transaction</h3>
+        <form id="gcash-form">
+          <input type="hidden" id="gcash-id" />
+
+          <label>Type
+            <select id="gcash-type" required></select>
+          </label>
+
+          <label>Amount (₱)
+            <input type="number" id="gcash-amount" step="0.01" min="0" required placeholder="0.00" />
+          </label>
+
+          <label>Service Fee (₱)
+            <input type="number" id="gcash-fee" step="0.01" min="0" placeholder="0.00" />
+          </label>
+
+          <label>Customer Name <small class="hint-inline">(optional)</small>
+            <input type="text" id="gcash-customer" placeholder="e.g. Juan" />
+          </label>
+
+          <label>Reference # <small class="hint-inline">(optional)</small>
+            <input type="text" id="gcash-reference" placeholder="e.g. 1234567890" />
+          </label>
+
+          <label>Note <small class="hint-inline">(optional)</small>
+            <input type="text" id="gcash-note" placeholder="Any details" />
+          </label>
+
+          <button type="submit" class="btn primary block">Save Transaction</button>
+          <button type="button" class="btn ghost block hidden" id="gcash-cancel-edit" style="margin-top:8px;">Cancel Edit</button>
+        </form>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="gcash-toolbar">
+        <input type="search" id="gcash-search" placeholder="Search customer, ref, note…" />
+        <select id="gcash-filter-type"><option value="">All Types</option></select>
+        <select id="gcash-filter-range">
+          <option value="">All Time</option>
+          <option value="today">Today</option>
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+        </select>
+        <button type="button" class="btn ghost sm" id="gcash-export-excel">📊 Excel</button>
+        <button type="button" class="btn ghost sm" id="gcash-export-pdf">📄 PDF</button>
+      </div>
+
+      <!-- List -->
+      <div id="gcash-list" class="gcash-list"></div>
+    </main>
+      <main id="page-labels" class="page hidden">
+      <h2 class="page-title">🏷️ Print Barcode Labels</h2>
+
+      <div class="card">
+        <div class="labels-controls">
+          <label class="labels-field">
+            <span>Label size</span>
+            <select id="labels-size"></select>
+          </label>
+          <label class="labels-field">
+            <span>Barcode format</span>
+            <select id="labels-format"></select>
+          </label>
+        </div>
+
+        <div class="labels-toolbar">
+          <input type="search" id="labels-search" placeholder="Search by name, SKU, or barcode…" />
+          <button type="button" class="btn ghost sm" id="labels-select-all">Select all visible</button>
+          <button type="button" class="btn ghost sm" id="labels-clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="labels-toolbar labels-toolbar-floating">
+        <span id="labels-summary" class="labels-summary">No products selected</span>
+        <button type="button" id="labels-print-btn" class="btn primary" disabled>🖨️ Print Labels</button>
+      </div>
+
+      <div id="labels-product-list" class="labels-product-list"></div>
+    </main>
+
     <!-- ========== HISTORY ========== -->
     <main id="page-history" class="page hidden">
       <h2 class="page-title">Sales History</h2>
@@ -575,7 +689,21 @@
     </main>
 
     <!-- ========== BOTTOM NAV ========== -->
-    <nav class="bottom-nav">
+        <nav class="bottom-nav">
+
+      <!-- Sidebar brand (desktop only) -->
+      <div class="sidebar-brand">
+        <img src="Kurt.png" alt="Store logo" class="sidebar-brand-logo" />
+        <div class="sidebar-brand-text">
+          <strong>My Sari-Sari Store</strong>
+          <div class="brand-tagline-carousel" aria-label="Tagline">
+            <span class="brand-tagline">Smart Stock &amp; Sales</span>
+            <span class="brand-tagline">Be Systematic</span>
+            <span class="brand-tagline">Scan · Sell · Restock</span>
+          </div>
+        </div>
+      </div>
+
       <button class="nav-btn active" data-page="page-dashboard">
         <span class="nav-icon">📊</span><span>Dashboard</span>
       </button>
@@ -583,7 +711,7 @@
         <span class="nav-icon">🛒</span><span>POS</span>
       </button>
       <button class="nav-btn" data-page="page-history">
-        <span class="nav-icon">🧾</span><span>History</span>
+        <span class="nav-icon">🧾</span><span>Receipts</span>
       </button>
       <button class="nav-btn" data-page="page-add">
         <span class="nav-icon">➕</span><span>Add Item</span>
@@ -592,7 +720,28 @@
         <span class="nav-icon">🗂️</span><span>Categories</span>
       </button>
       <button class="nav-btn" data-page="page-customers">
-        <span class="nav-icon">👥</span><span>Customers</span>
+        <span class="nav-icon">👥</span><span>Utang History</span>
+      </button>
+      <button class="nav-btn" data-page="page-labels">
+      <span class="nav-icon nav-icon-svg">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+      <rect x="2"  y="4" width="2" height="16" rx="0.3"/>
+      <rect x="5"  y="4" width="1" height="16" rx="0.3"/>
+      <rect x="7"  y="4" width="2" height="16" rx="0.3"/>
+      <rect x="10" y="4" width="1" height="16" rx="0.3"/>
+      <rect x="12" y="4" width="2" height="16" rx="0.3"/>
+      <rect x="15" y="4" width="1" height="16" rx="0.3"/>
+      <rect x="17" y="4" width="2" height="16" rx="0.3"/>
+      <rect x="20" y="4" width="2" height="16" rx="0.3"/>
+    </svg>
+  </span>
+  <span>Barcode</span>
+</button>
+        <button class="nav-btn" data-page="page-gcash">
+        <span class="nav-icon nav-icon-gcash">
+          <img src="gcash.png" alt="GCash" />
+        </span>
+        <span>GCash</span>
       </button>
       <button id="nav-admin" class="nav-btn hidden" data-page="page-admin">
         <span class="nav-icon">🛡️</span><span>Admin</span>

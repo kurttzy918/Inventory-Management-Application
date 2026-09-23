@@ -2438,3 +2438,663 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast {
   .auth-tabs { margin-bottom: 12px; }
   .field { margin-bottom: 10px; }
 }
+/* Credit sale that has been paid off — still tagged for context */
+.sale-utang-badge {
+  color: var(--warning);
+  font-weight: 700;
+}
+[data-theme="dark"] .sale-utang-badge { color: #FDE68A; }
+/* ==========================================================
+   LABELS PAGE
+   ========================================================== */
+.labels-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.labels-field { display: flex; flex-direction: column; gap: 4px; }
+.labels-field > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.labels-field select {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text);
+  margin-top: 0;
+}
+
+.labels-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.labels-toolbar input {
+  flex: 1 1 220px;
+  margin-top: 0;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+}
+.labels-toolbar .btn { flex: 0 0 auto; }
+
+.labels-toolbar-floating {
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  box-shadow: var(--shadow);
+  position: sticky;
+  top: 6px;
+  z-index: 5;
+  margin-bottom: 12px;
+}
+
+.labels-product-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.label-item.selected {
+  background: var(--brand-50);
+  border-color: var(--brand-300);
+  box-shadow: 0 2px 8px rgba(18, 84, 79, 0.08);
+}
+[data-theme="dark"] .label-item { background: var(--surface); }
+[data-theme="dark"] .label-item.selected {
+  background: rgba(47, 163, 143, 0.12);
+  border-color: var(--brand-400);
+}
+
+.label-check { display: flex; align-items: center; flex: 0 0 auto; }
+.label-check input {
+  width: 18px; height: 18px;
+  accent-color: var(--brand);
+  cursor: pointer;
+  margin: 0;
+}
+
+.label-thumb {
+  width: 40px; height: 40px;
+  flex: 0 0 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.label-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lbl-fallback {
+  width: 100%; height: 100%;
+  display: grid; place-items: center;
+  color: #fff; font-weight: 800; font-size: 1rem;
+}
+
+.label-item-info { flex: 1; min-width: 0; }
+.label-item-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.label-item-sku {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.label-item-sku code {
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+}
+
+.label-item-qty {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.lbl-qty-btn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 0.9rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lbl-qty-btn:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+.lbl-qty-input {
+  width: 50px;
+  text-align: center;
+  padding: 6px 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  margin-top: 0;
+}
+.lbl-qty-input::-webkit-outer-spin-button,
+.lbl-qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.lbl-qty-input { -moz-appearance: textfield; }
+
+.labels-summary {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 520px) {
+  .labels-controls { grid-template-columns: 1fr; }
+  .labels-toolbar input { flex: 1 1 100%; }
+  .labels-toolbar .btn { flex: 1 1 auto; }
+  .labels-toolbar-floating {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .label-item { padding: 8px; gap: 8px; }
+  .label-thumb { width: 34px; height: 34px; flex: 0 0 34px; }
+  .label-item-name { font-size: 0.82rem; }
+  .lbl-qty-input { width: 42px; }
+}
+/* ==========================================================
+   RESPONSIVE NAV — Sidebar on desktop, bottom bar on mobile
+   ========================================================== */
+@media (min-width: 900px) {
+
+  /* 1) Remove mobile bottom spacing */
+  body { padding-bottom: 0; }
+
+  /* 2) Shift page content to the right of the sidebar */
+  .app-shell {
+    max-width: none;
+    margin: 0;
+    padding: 20px 28px 28px calc(220px + 28px);
+  }
+
+  /* 3) Turn the bottom nav into a fixed left sidebar */
+  .bottom-nav {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+
+    width: 220px;
+    max-width: none;
+    height: 100vh;
+    margin: 0;
+    transform: none;
+
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 4px;
+
+    padding: 18px 12px;
+    background: var(--surface);
+    border-top: none;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+    box-shadow: 2px 0 14px rgba(0, 0, 0, 0.05);
+    scrollbar-width: thin;
+  }
+
+  /* 4) Nav buttons become full-width horizontal rows */
+  .nav-btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+
+    width: 100%;
+    min-width: 0;
+    padding: 11px 14px;
+
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-align: left;
+    border-radius: 10px;
+
+    transition: background 0.15s, color 0.15s, transform 0.1s;
+  }
+  .nav-btn:hover {
+    background: var(--surface-2);
+    transform: translateX(2px);
+  }
+  .nav-btn.active {
+    background: var(--brand);
+    color: #fff;
+  }
+  .nav-btn.active .nav-icon { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
+
+  .nav-icon {
+    font-size: 1.2rem;
+    width: 26px;
+    min-width: 26px;
+    text-align: center;
+    line-height: 1;
+  }
+
+  /* 5) Push the Admin button to the bottom of the sidebar */
+  #nav-admin { margin-top: auto; }
+
+  /* 6) Toast recentered over the content area, not the whole viewport */
+  .toast { left: calc(50% + 110px); }
+
+  /* 7) Install banner sits inside the content area */
+  .install-banner {
+    left: calc(220px + 16px);
+    right: 16px;
+    max-width: 520px;
+  }
+
+  /* 8) Slightly larger page title on desktop */
+  .page-title { font-size: 1.7rem; }
+}
+
+/* ---- Extra-wide screens: cap content width so it doesn't sprawl ---- */
+@media (min-width: 1600px) {
+  .app-shell > .topbar,
+  .app-shell > .page {
+    max-width: 1400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+/* Sidebar brand — hidden on mobile, shown on desktop sidebar */
+.sidebar-brand { display: none; }
+
+@media (min-width: 900px) {
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 18px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand-logo {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    object-fit: contain;
+    flex: 0 0 36px;
+  }
+  .sidebar-brand-text {
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .sidebar-brand-text strong {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--title-color);
+    line-height: 1.1;
+  }
+  .sidebar-brand-text small {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+}
+/* ==========================================================
+   SIDEBAR BRAND — desktop only
+   ========================================================== */
+.sidebar-brand { display: none; }
+
+@media (min-width: 900px) {
+
+  /* --- 1) Widen the sidebar from 220px → 260px --- */
+  .bottom-nav {
+    width: 260px;
+  }
+  .app-shell {
+    padding-left: calc(260px + 28px);
+  }
+  .install-banner {
+    left: calc(260px + 16px);
+  }
+  .toast {
+    left: calc(50% + 130px);
+  }
+
+  /* --- 2) Brand block (logo + name + tagline carousel) --- */
+  .sidebar-brand {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 4px 10px 16px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand-logo {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    object-fit: contain;
+    flex: 0 0 42px;
+    margin-top: 2px;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.18));
+  }
+  .sidebar-brand-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* Brand name: allow wrapping to 2 lines, NO ellipsis */
+  .sidebar-brand-text strong {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: var(--title-color);
+    line-height: 1.2;
+    white-space: normal;      /* 👈 allow multi-line */
+    overflow: visible;         /* 👈 don't hide */
+    text-overflow: clip;       /* 👈 no "…" */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;     /* 👈 but cap at 2 lines max */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Tagline carousel in sidebar */
+  .sidebar-brand-text .brand-tagline-carousel {
+    display: grid;
+    margin-top: 3px;
+    min-width: 0;
+  }
+  .sidebar-brand-text .brand-tagline {
+    grid-area: 1 / 1;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: 0.02em;
+    color: var(--brand-500);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sidebar-brand-text .brand-tagline.active {
+    opacity: 1;
+    transform: none;
+  }
+  [data-theme="dark"] .sidebar-brand-text .brand-tagline { color: #8FE3C8; }
+
+  /* Hide the topbar's brand on desktop */
+  .topbar .brand-mini { display: none; }
+
+  /* Slim topbar — only user actions on the right */
+  .topbar {
+    justify-content: flex-end;
+    padding: 8px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Push Admin button to bottom */
+  #nav-admin { margin-top: auto; }
+}
+/* ==========================================================
+   GCASH PAGE
+   ========================================================== */
+.gcash-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.gcash-stat {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  border-left: 4px solid var(--brand);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gcash-stat.in      { border-left-color: var(--success); }
+.gcash-stat.out     { border-left-color: var(--danger); }
+.gcash-stat.fee     { border-left-color: #10B981; }
+.gcash-stat.balance { border-left-color: #0B6FDE; }
+
+.gcash-stat-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.gcash-stat strong {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--title-color);
+}
+.gcash-stat.in strong      { color: #059669; }
+.gcash-stat.out strong     { color: #DC2626; }
+.gcash-stat.fee strong     { color: #059669; }
+.gcash-stat.balance strong { color: #0B6FDE; }
+.gcash-stat small {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+.gcash-set-opening {
+  margin-top: 4px;
+  padding: 3px 8px;
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--brand);
+  background: var(--brand-50);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.gcash-set-opening:hover { background: var(--brand-100); }
+
+[data-theme="dark"] .gcash-stat { background: var(--surface); }
+[data-theme="dark"] .gcash-stat.in strong      { color: #34D399; }
+[data-theme="dark"] .gcash-stat.out strong     { color: #FCA5A5; }
+[data-theme="dark"] .gcash-stat.fee strong     { color: #34D399; }
+[data-theme="dark"] .gcash-stat.balance strong { color: #60A5FA; }
+[data-theme="dark"] .gcash-set-opening {
+  background: rgba(47, 163, 143, 0.12);
+  color: #8FE3C8;
+}
+
+/* Toolbar */
+.gcash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.gcash-toolbar input,
+.gcash-toolbar select {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin-top: 0;
+  padding: 9px 12px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+}
+.gcash-toolbar .btn { flex: 0 1 auto; }
+
+/* List */
+.gcash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gcash-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.gcash-row:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+.gcash-icon {
+  width: 42px; height: 42px; flex: 0 0 42px;
+  border-radius: 12px;
+  display: grid; place-items: center;
+  font-size: 1.2rem;
+}
+.gcash-icon.in  { background: #DCFCE7; }
+.gcash-icon.out { background: #FEE2E2; }
+[data-theme="dark"] .gcash-icon.in  { background: rgba(34, 197, 94, 0.18); }
+[data-theme="dark"] .gcash-icon.out { background: rgba(239, 68, 68, 0.18); }
+
+.gcash-main { flex: 1; min-width: 0; }
+.gcash-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gcash-cust {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+.gcash-meta {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gcash-amounts {
+  text-align: right;
+  flex: 0 0 auto;
+}
+.gcash-amt {
+  font-weight: 800;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+.gcash-amt.in  { color: var(--success); }
+.gcash-amt.out { color: var(--danger); }
+.gcash-fee {
+  font-size: 0.68rem;
+  color: #059669;
+  font-weight: 700;
+  margin-top: 2px;
+}
+[data-theme="dark"] .gcash-fee { color: #34D399; }
+
+.gcash-actions {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.gcash-actions .sale-action-btn {
+  width: 30px; height: 30px;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 520px) {
+  .gcash-amt { font-size: 0.85rem; }
+  .gcash-row { padding: 8px 10px; gap: 8px; }
+  .gcash-icon { width: 36px; height: 36px; flex: 0 0 36px; font-size: 1.05rem; }
+  .gcash-actions { flex-wrap: wrap; }
+}
+/* ==========================================================
+   GCASH PAGE TITLE — logo + text
+   ========================================================== */
+.gcash-page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gcash-title-logo {
+  width: 20px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+  flex: 0 0 32px;
+  box-shadow: 0 2px 6px rgba(11, 111, 222, 0.35);
+  display: block;
+}
+
+/* Mobile — slightly smaller */
+@media (max-width: 520px) {
+  .gcash-title-logo {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    border-radius: 7px;
+  }
+}
+/* ==========================================================
+   GCASH EMPTY STATE — logo + text
+   ========================================================== */
+.gcash-empty-logo {
+  width: 35px;
+  height: 56px;
+  margin: 0 auto 12px;
+  display: block;
+  border-radius: 14px;
+  object-fit: contain;
+  opacity: 0.85;
+  box-shadow: 0 4px 12px rgba(11, 111, 222, 0.25);
+  filter: saturate(1.05);
+}
+
+@media (max-width: 520px) {
+  .gcash-empty-logo {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+  }
+}

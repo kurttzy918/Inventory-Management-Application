@@ -260,17 +260,24 @@ async function handleCheckout() {
     const batch = writeBatch(db);
     const saleIds = [];
 
-    lines.forEach(({ item, qty, price }) => {
+        lines.forEach(({ item, qty, price }) => {
       const saleRef = doc(collection(db, "sales"));
       saleIds.push(saleRef.id);
+      const lineTotal = qty * price;
+      const isCash = mode === "cash";
       batch.set(saleRef, {
         itemId: item.id, itemName: item.name, category: item.category,
-        quantity: qty, unitPrice: price, total: qty * price,
+        quantity: qty, unitPrice: price, total: lineTotal,
         cost: item.cost || 0, profit: (price - (item.cost || 0)) * qty,
         workspaceId: wsId, receiptNum, cash, change,
         paymentMode: mode,
         customerId: customer?.id || null,
         customerName: customer?.name || null,
+        // 💰 cash-basis accounting flags:
+        paid: isCash,
+        paidAt: isCash ? serverTimestamp() : null,
+        amountPaid: isCash ? lineTotal : 0,
+        unpaidAmount: isCash ? 0 : lineTotal,
         createdAt: serverTimestamp(), userId: state.currentUser.uid
       });
       batch.update(doc(db, "inventory", item.id), {
@@ -461,14 +468,15 @@ export function renderSales() {
   list.innerHTML = state.sales.slice(0, 30).map(s => {
     const item = state.inventory.find(i => i.id === s.itemId) || { name: s.itemName, image: null };
     const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
-    const isCredit = s.paymentMode === "credit";
+    const wasCredit = s.paymentMode === "credit";
+    const creditTag = wasCredit ? ` · <span class="sale-utang-badge">📝 Utang paid</span>` : "";
     return `
       <div class="sale-row">
         <div class="sale-info">
           ${productImageHTML(item, "sm")}
           <div class="sale-txt">
             <div class="sale-name">${esc(s.itemName)} × ${fmtInt(s.quantity)}</div>
-            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}${isCredit ? " · 📝 Utang" : ""}</div>
+            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}${creditTag}</div>
           </div>
         </div>
         <div class="sale-total">${fmtMoney(s.total)}</div>
@@ -516,14 +524,23 @@ export function startSalesListener(onAfterSalesChange) {
   state.unsubscribers.sales = onSnapshot(
     query(collection(db, "sales"), where("workspaceId", "==", wsId)),
     (snap) => {
-      state.sales = snap.docs
+      const all = snap.docs
         .map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => {
           const ta = a.createdAt?.toMillis?.() ?? 0;
           const tb = b.createdAt?.toMillis?.() ?? 0;
           return tb - ta;
-        })
+        });
+
+      // ✅ Cash sales + already-paid credit sales — these count as revenue
+      state.sales = all
+        .filter(s => s.paymentMode !== "credit" || s.paid === true)
         .slice(0, 500);
+
+      // 🕒 Unpaid credit sales — kept separate for customer payment distribution
+      state.creditSales = all
+        .filter(s => s.paymentMode === "credit" && s.paid !== true);
+
       safeRender(renderSales);
       onAfterSalesChange?.();
     },

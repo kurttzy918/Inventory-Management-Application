@@ -65,19 +65,32 @@ export function stopAuthBgCarousel() {
 }
 
 export function startTextCarousel(containerSelector, itemSelector, intervalMs = 3000) {
-  const container = document.querySelector(containerSelector);
-  if (!container) return;
-  const items = container.querySelectorAll(itemSelector);
-  if (!items.length) return;
-  if (items.length === 1) { items[0].classList.add("active"); return; }
-  let idx = 0;
-  items.forEach((el, i) => el.classList.toggle("active", i === 0));
-  setInterval(() => {
-    if (!items[idx].isConnected) return;
-    items[idx].classList.remove("active");
-    idx = (idx + 1) % items.length;
-    items[idx].classList.add("active");
-  }, intervalMs);
+  // Support MULTIPLE carousels with the same class (topbar + sidebar)
+  const containers = document.querySelectorAll(containerSelector);
+  if (!containers.length) return;
+
+  containers.forEach((container) => {
+    const items = container.querySelectorAll(itemSelector);
+    if (!items.length) return;
+
+    // Single-item: just show it, no timer needed
+    if (items.length === 1) {
+      items[0].classList.add("active");
+      return;
+    }
+
+    // Multi-item: rotate
+    let idx = 0;
+    items.forEach((el, i) => el.classList.toggle("active", i === 0));
+
+    setInterval(() => {
+      // If the parent got removed (e.g., page switched), skip
+      if (!items[idx] || !items[idx].isConnected) return;
+      items[idx].classList.remove("active");
+      idx = (idx + 1) % items.length;
+      items[idx].classList.add("active");
+    }, intervalMs);
+  });
 }
 
 /* ---------- Auth mode ---------- */
