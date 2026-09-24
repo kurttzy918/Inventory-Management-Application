@@ -1,6 +1,6 @@
 /* app.js — Main entry: wires everything together */
 import { state, CONSTANTS } from "./state.js";
-import { $, safeRender, showToast, applyTheme, playSuccessSound } from "./utils.js";
+import { $, safeRender, showToast, applyTheme } from "./utils.js";
 import { initAuthUI, initAuthHandlers, buildAuthBackground, startAuthBgCarousel, stopAuthBgCarousel, startTextCarousel } from "./auth.js";
 import {
   initInventory, startInventoryListeners, renderInventory, renderDashboardInventory,
@@ -15,8 +15,7 @@ import {
   initReports, updateStats, renderCharts, destroyCharts, renderSalesOverview,
   populateMonthFilter, renderHistory, renderHistoryCategorySummary,
   renderSalesCategorySummary, renderFastMoving, renderSlowMoving, renderCarousel,
-  renderKPIs, renderTopProfitAndRevenue, stopCarousel,
-  exportInventoryToExcel, exportInventoryToPDF
+  renderKPIs, renderTopProfitAndRevenue, stopCarousel
 } from "./reports.js";
 import {
   initCustomers, startCustomersListeners, renderCustomerPickerOptions
@@ -24,7 +23,102 @@ import {
 import { initLabels, renderLabelsPage } from "./labels.js";
 import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
 
-/* ---------- Startup side effects ---------- */
+/* =========================================================
+   PERSONALIZED GREETING
+   ========================================================= */
+let greetingTimer = null;
+
+function getFirstNameFromEmail(email) {
+  if (!email) return "there";
+  const local = String(email).split("@")[0] || "";
+  const clean = local.split(/[._\-+0-9]/)[0] || local;
+  if (!clean) return "there";
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+}
+
+function getGreetingWord(hour) {
+  if (hour >= 5 && hour < 12)  return "Good morning";
+  if (hour >= 12 && hour < 18) return "Good afternoon";
+  if (hour >= 18 && hour < 22) return "Good evening";
+  return "Hello";
+}
+
+export function updateTopbarGreeting() {
+  const nameEl = document.getElementById("topbar-greeting-name");
+  const subEl  = document.getElementById("topbar-greeting-sub");
+  if (!nameEl) return;
+
+  const email = state.currentUser?.email || "";
+  const name = getFirstNameFromEmail(email);
+  const now = new Date();
+  const hour = now.getHours();
+
+  const emoji = hour < 12 ? "☀️" : hour < 18 ? "🌤️" : "🌙";
+  nameEl.textContent = `${emoji} ${getGreetingWord(hour)}, ${name}!`;
+
+  if (subEl) {
+    const dateStr = now.toLocaleDateString(undefined, {
+      weekday: "long", month: "long", day: "numeric"
+    });
+    const timeStr = now.toLocaleTimeString(undefined, {
+      hour: "2-digit", minute: "2-digit"
+    });
+    subEl.textContent = `${dateStr} · ${timeStr}`;
+  }
+}
+
+export function startGreetingTicker() {
+  if (greetingTimer) clearInterval(greetingTimer);
+  updateTopbarGreeting();
+  greetingTimer = setInterval(updateTopbarGreeting, 30 * 1000);
+}
+
+export function stopGreetingTicker() {
+  if (greetingTimer) { clearInterval(greetingTimer); greetingTimer = null; }
+}
+
+/* =========================================================
+   PWA INSTALL
+   ========================================================= */
+let deferredInstallPrompt = null;
+
+function wireInstallPrompt() {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    $("install-btn")?.classList.add("hidden");
+    $("install-banner")?.classList.add("hidden");
+    showToast("App installed 🎉");
+  });
+
+  $("install-btn")?.addEventListener("click", async () => {
+    if (deferredInstallPrompt) {
+      try {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === "accepted") showToast("Installing… 📱");
+      } catch (e) {
+        console.warn("[install] prompt failed:", e);
+      }
+      deferredInstallPrompt = null;
+      return;
+    }
+    $("install-modal")?.classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+  });
+
+  $("install-banner-btn")?.addEventListener("click", () => {
+    $("install-btn")?.click();
+  });
+}
+
+/* =========================================================
+   STARTUP SIDE EFFECTS
+   ========================================================= */
 buildAuthBackground("auth-bg-slides");
 buildAuthBackground("pending-bg-slides");
 
@@ -46,31 +140,55 @@ startTextCarousel(".brand-tagline-carousel", ".brand-tagline", 3000);
   }, 150);
 })();
 
-/* ---------- Theme ---------- */
+/* =========================================================
+   THEME — syncs the toggle pill state
+   ========================================================= */
+function syncThemeToggleUI() {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  const themeToggle = $("theme-toggle");
+  const icon = $("theme-icon");
+  if (icon) icon.textContent = dark ? "🌙" : "☀️";
+  themeToggle?.setAttribute("aria-checked", dark ? "true" : "false");
+}
+
 (function initTheme() {
   const saved = document.documentElement.getAttribute("data-theme") ||
     (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   applyTheme(saved);
+  syncThemeToggleUI();
+
   $("theme-toggle")?.addEventListener("click", () => {
     const cur = document.documentElement.getAttribute("data-theme") || "light";
     destroyCharts();
     applyTheme(cur === "dark" ? "light" : "dark");
+    syncThemeToggleUI();
     setTimeout(() => safeRender(renderCharts), 200);
   });
 })();
 
-/* ---------- Sound ---------- */
+/* =========================================================
+   SOUND — syncs the toggle pill state
+   ========================================================= */
+function syncSoundToggleUI() {
+  const soundToggle = $("sound-toggle");
+  const icon = $("sound-icon");
+  if (icon) icon.textContent = state.soundEnabled ? "🔊" : "🔇";
+  soundToggle?.setAttribute("aria-checked", state.soundEnabled ? "true" : "false");
+}
+
 (function initSound() {
-  const updateIcon = () => { const el = $("sound-icon"); if (el) el.textContent = state.soundEnabled ? "🔊" : "🔇"; };
-  updateIcon();
+  syncSoundToggleUI();
+
   $("sound-toggle")?.addEventListener("click", () => {
     state.soundEnabled = !state.soundEnabled;
-    localStorage.setItem("soundEnabled", state.soundEnabled);
-    updateIcon();
+    try { localStorage.setItem("soundEnabled", state.soundEnabled); } catch {}
+    syncSoundToggleUI();
   });
 })();
 
-/* ---------- Nav ---------- */
+/* =========================================================
+   NAV
+   ========================================================= */
 function wireNav() {
   const navButtons = document.querySelectorAll(".nav-btn");
   const pages = document.querySelectorAll(".page");
@@ -126,7 +244,64 @@ function wireNav() {
   });
 }
 
-/* ---------- Listeners ---------- */
+/* =========================================================
+   MOBILE NAV DRAWER
+   ========================================================= */
+function wireMobileNav() {
+  const toggle = $("nav-toggle");
+  const nav = document.querySelector(".bottom-nav");
+  const backdrop = $("nav-backdrop");
+  if (!toggle || !nav) return;
+
+  const isMobile = () => window.matchMedia("(max-width: 899px)").matches;
+  const isOpen = () => nav.classList.contains("open");
+
+  const openDrawer = () => {
+    nav.classList.add("open");
+    toggle.classList.add("open");
+    backdrop?.classList.add("open");
+    toggle.setAttribute("aria-expanded", "true");
+    document.body.style.overflow = "hidden";
+  };
+
+  const closeDrawer = () => {
+    nav.classList.remove("open");
+    toggle.classList.remove("open");
+    backdrop?.classList.remove("open");
+    toggle.setAttribute("aria-expanded", "false");
+    document.body.style.overflow = "";
+  };
+
+  window.closeMobileNav = closeDrawer;
+
+  toggle.addEventListener("click", () => {
+    isOpen() ? closeDrawer() : openDrawer();
+  });
+
+  backdrop?.addEventListener("click", closeDrawer);
+
+  nav.querySelectorAll(".nav-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (isMobile()) closeDrawer();
+    });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isOpen()) closeDrawer();
+  });
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!isMobile() && isOpen()) closeDrawer();
+    }, 150);
+  });
+}
+
+/* =========================================================
+   LISTENERS
+   ========================================================= */
 function startAllListeners() {
   const onAfter = () => {
     safeRender(updateStats);
@@ -262,16 +437,21 @@ function onLoggedOut() {
   stopAuthBgCarousel();
   startAuthBgCarousel("auth-bg-slides");
   forceCloseScanner();
+  stopGreetingTicker();
 }
 
 function onPending() {
   stopAllListeners();
   stopAuthBgCarousel();
   startAuthBgCarousel("pending-bg-slides");
+  stopGreetingTicker();
 }
 
 function onApproved(userData) {
   startAllListeners();
+  startGreetingTicker();
+  syncThemeToggleUI();
+  syncSoundToggleUI();
   if (userData.role === "superadmin" && !state.unsubscribers.users) {
     startUserAdminListener();
   }
@@ -300,6 +480,7 @@ function onApproved(userData) {
     safeRender(renderCharts);
   }, 200);
 }
+
 /* =========================================================
    MODAL CLOSE HANDLING (event delegation — bulletproof)
    ========================================================= */
@@ -398,7 +579,23 @@ function wireAllModals() {
     }
   });
 }
-/* ---------- Boot ---------- */
+
+/* =========================================================
+   SAFETY — reset any stuck state on load
+   ========================================================= */
+window.addEventListener("load", () => {
+  document.querySelector(".bottom-nav")?.classList.remove("open");
+  document.querySelector(".nav-toggle")?.classList.remove("open");
+  document.getElementById("nav-backdrop")?.classList.remove("open");
+  document.body.style.overflow = "";
+  // Ensure pills reflect actual state after everything loads
+  syncThemeToggleUI();
+  syncSoundToggleUI();
+});
+
+/* =========================================================
+   BOOT
+   ========================================================= */
 function boot() {
   initAuthUI();
   initInventory();
@@ -408,6 +605,8 @@ function boot() {
   initLabels();
   initGcash();
   wireNav();
+  wireMobileNav();
+  wireInstallPrompt();
   wireAllModals();
   wireOnlineOffline();
   wireKeyboard();
@@ -419,6 +618,7 @@ function boot() {
     onTeardown: () => {
       stopAllListeners();
       forceCloseScanner();
+      stopGreetingTicker();
     }
   });
 }

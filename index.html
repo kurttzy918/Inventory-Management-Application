@@ -31,6 +31,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
@@ -133,7 +134,12 @@
       <span>📡</span><span>You're offline — changes will sync automatically when reconnected.</span>
     </div>
 
-    <header class="topbar">
+      <header class="topbar">
+      <button id="nav-toggle" class="nav-toggle" aria-label="Open menu" aria-expanded="false">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
       <div class="brand-mini">
         <img id="brand-logo" class="brand-mini-logo" alt="Kurt POS logo" src="Kurt.png" />
         <div class="brand-mini-text">
@@ -146,24 +152,42 @@
         </div>
       </div>
 
+      <!-- 👇 ADD THIS BLOCK -->
+      <div class="topbar-greeting" id="topbar-greeting">
+        <div class="topbar-greeting-name" id="topbar-greeting-name">Welcome!</div>
+        <div class="topbar-greeting-sub"  id="topbar-greeting-sub"></div>
+      </div>
+      <!-- 👆 END -->
+
       <div class="user-area">
+        ...
+      </div>
+    </header>
+
+        <div class="user-area">
         <button id="install-btn" class="btn primary icon-btn" aria-label="Install app" title="Install app">
           <span>⬇️</span>
         </button>
-        <button id="sound-toggle" class="btn ghost icon-btn" aria-label="Toggle sound">
-          <span id="sound-icon">🔊</span>
+
+        <button id="theme-toggle" class="toggle-switch" type="button" role="switch" aria-checked="false" aria-label="Toggle dark mode" title="Dark Mode">
+          <span class="toggle-knob">
+            <span id="theme-icon" class="toggle-emoji">🌙</span>
+          </span>
         </button>
-        <button id="theme-toggle" class="btn ghost icon-btn" aria-label="Toggle theme">
-          <span id="theme-icon">🌙</span>
+
+        <button id="sound-toggle" class="toggle-switch" type="button" role="switch" aria-checked="true" aria-label="Toggle sound" title="Sound Effect">
+          <span class="toggle-knob">
+            <span id="sound-icon" class="toggle-emoji">🔊</span>
+          </span>
         </button>
+
         <span id="user-email" class="user-email"></span>
-        <button id="logout-btn" class="btn ghost">Logout</button>
       </div>
     </header>
 
     <!-- ========== DASHBOARD ========== -->
     <main id="page-dashboard" class="page active">
-      <h2 class="page-title">Dashboard</h2>
+      <h2 class="page-title">Dashboard Overview</h2>
 
       <div id="expiry-banner" class="expiry-banner hidden">
         <span class="expiry-banner-icon">⚠️</span>
@@ -171,7 +195,19 @@
         <button id="expiry-banner-btn" class="btn sm">View</button>
       </div>
 
-      <div class="stats-grid">
+        <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Running Sales</span>
+          <span id="stat-sales" class="stat-value">₱0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Cost (Puhunan)</span>
+          <span id="stat-value" class="stat-value">₱0</span>
+        </div>
+        <div class="stat-card profit">
+          <span class="stat-label">Profit (Tubo)</span>
+          <span id="stat-profit" class="stat-value">₱0</span>
+        </div>
         <div class="stat-card">
           <span class="stat-label">Total Items</span>
           <span id="stat-total" class="stat-value">0</span>
@@ -179,18 +215,6 @@
         <div class="stat-card warning">
           <span class="stat-label">Low Stock</span>
           <span id="stat-low" class="stat-value">0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Cost (Puhunan)</span>
-          <span id="stat-value" class="stat-value">₱0</span>
-        </div>
-        <div class="stat-card success">
-          <span class="stat-label">Sales (Benta)</span>
-          <span id="stat-sales" class="stat-value">₱0</span>
-        </div>
-        <div class="stat-card profit">
-          <span class="stat-label">Profit (Tubo)</span>
-          <span id="stat-profit" class="stat-value">₱0</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Categories</span>
@@ -205,7 +229,7 @@
             <option value="">All Time</option>
           </select>
         </div>
-        <div class="so-stats">
+          <div class="so-stats">
           <div class="so-stat">
             <span class="so-label">Today</span>
             <strong id="so-today" class="so-value">₱0.00</strong>
@@ -214,8 +238,12 @@
             <span class="so-label">This Month</span>
             <strong id="so-month" class="so-value">₱0.00</strong>
           </div>
+          <div class="so-stat">
+            <span class="so-label">Sales per Week</span>
+            <strong id="so-week" class="so-value">₱0.00</strong>
+          </div>
           <div class="so-stat highlight">
-            <span class="so-label">Running Total</span>
+            <span class="so-label">Running Sales</span>
             <strong id="so-running" class="so-value">₱0.00</strong>
           </div>
         </div>
@@ -519,7 +547,7 @@
 
     <!-- ========== CUSTOMERS ========== -->
     <main id="page-customers" class="page hidden">
-      <h2 class="page-title">Customers Utang History</h2>
+      <h2 class="page-title">Utang History</h2>
 
       <div class="card">
         <h3 class="card-title" id="customer-form-title">Add Customer</h3>
@@ -533,11 +561,20 @@
         </form>
       </div>
 
-      <div class="toolbar">
+        <div class="toolbar">
         <input type="search" id="customers-search" placeholder="Search by name or phone…" />
       </div>
 
       <div id="customers-list" class="customers-list"></div>
+
+      <!-- 💵 Payment History -->
+      <div class="section-heading-row">
+        <h3 class="section-heading">💵 Payment History</h3>
+      </div>
+      <div class="toolbar">
+        <input type="search" id="utang-history-search" placeholder="Search payments by customer or note…" />
+      </div>
+      <div id="utang-payment-history" class="utang-payment-history"></div>
     </main>
 
         <!-- ========== LABELS ========== -->
@@ -570,6 +607,31 @@
           <strong id="gcash-balance">₱0.00</strong>
           <button type="button" class="gcash-set-opening" id="gcash-set-opening">✏️ Set opening balance</button>
         </div>
+      </div>
+
+      <!-- ⚙️ GCash Payment Settings -->
+      <div class="card gcash-settings-card">
+        <h3 class="card-title">⚙️ GCash Payment Settings</h3>
+        <p class="gcash-settings-hint">
+          Enter your GCash details once. The system will auto-generate a payment QR
+          for every transaction — no upload needed.
+        </p>
+        <div class="gcash-settings-grid">
+          <label>GCash Number
+            <input type="tel" id="gcash-number" placeholder="09XXXXXXXXX" inputmode="numeric" />
+          </label>
+          <label>Account Name
+            <input type="text" id="gcash-account-name" placeholder="Juan Dela Cruz" />
+          </label>
+        </div>
+        <div class="gcash-settings-preview">
+          <span class="gcash-settings-preview-label">Live preview</span>
+          <canvas id="gcash-settings-canvas" class="gcash-settings-canvas"></canvas>
+          <p class="gcash-settings-preview-hint">
+            This is how your QR will look. Scan it with any phone to test.
+          </p>
+        </div>
+        <button type="button" id="gcash-save-settings" class="btn primary block">💾 Save Settings</button>
       </div>
 
       <!-- Form -->
@@ -688,8 +750,11 @@
       <div id="all-users-list" class="inventory-list"></div>
     </main>
 
-    <!-- ========== BOTTOM NAV ========== -->
-        <nav class="bottom-nav">
+    <!-- ========== NAV BACKDROP (mobile drawer) ========== -->
+    <div id="nav-backdrop" class="nav-backdrop"></div>
+
+    <!-- ========== BOTTOM NAV (mobile drawer + desktop sidebar) ========== -->
+    <nav class="bottom-nav">
 
       <!-- Sidebar brand (desktop only) -->
       <div class="sidebar-brand">
@@ -743,8 +808,13 @@
         </span>
         <span>GCash</span>
       </button>
+
       <button id="nav-admin" class="nav-btn hidden" data-page="page-admin">
         <span class="nav-icon">🛡️</span><span>Admin</span>
+      </button>
+
+      <button id="logout-btn" class="nav-btn nav-btn-logout" type="button">
+        <span class="nav-icon">🚪</span><span>Logout</span>
       </button>
     </nav>
   </section>
@@ -819,6 +889,52 @@
       <div class="receipt-actions">
         <button id="movement-delete-btn" class="btn danger">🗑️ Delete Record</button>
         <button id="movement-close-btn" class="btn ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+    <!-- ================= GCASH PAYMENT QR MODAL ================= -->
+  <div id="gcash-payment-modal" class="modal hidden">
+    <div class="modal-card gcash-payment-card">
+      <div class="modal-head">
+        <h3>📱 GCash Payment</h3>
+        <button id="gcash-payment-close" class="btn ghost icon-btn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="gcash-payment-body">
+        <div class="gcash-payment-amount">
+          <span class="gcash-pay-label">Amount to Pay</span>
+          <strong id="gcash-pay-amount">₱0.00</strong>
+        </div>
+
+        <div class="gcash-payment-ref">
+          <span>Ref</span>
+          <strong id="gcash-pay-ref">—</strong>
+        </div>
+
+          <div class="gcash-qr-wrap">
+          <canvas id="gcash-pay-qr-canvas" class="gcash-pay-canvas"></canvas>
+        </div>
+
+        <div class="gcash-payment-account">
+          <div class="gcash-payment-num">
+            <span>GCash Number</span>
+            <strong id="gcash-pay-number">—</strong>
+          </div>
+          <div class="gcash-payment-name">
+            <span>Account Name</span>
+            <strong id="gcash-pay-name">—</strong>
+          </div>
+        </div>
+
+        <p class="gcash-payment-hint" id="gcash-payment-hint">
+          Show this to the customer. They can scan the QR with their GCash app to send the exact amount.
+        </p>
+
+        <div class="gcash-payment-actions">
+          <button type="button" class="btn primary" id="gcash-pay-print">🖨️ Print</button>
+          <button type="button" class="btn ghost" id="gcash-pay-done">✅ Done</button>
+        </div>
       </div>
     </div>
   </div>

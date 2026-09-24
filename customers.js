@@ -1,14 +1,14 @@
 /* customers.js — Customer management + credit (utang) ledger */
 import {
   collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc,
-  serverTimestamp, query, where, writeBatch, increment
+  serverTimestamp, query, where, writeBatch, increment, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { db } from "./firebase.js";
 import { state, CONSTANTS } from "./state.js";
 import {
   $, valOf, numOf, setVal, esc, debounce, safeRender, showToast,
   myWorkspace, settleWrite, playSuccessSound, fmtInt, fmtMoney,
-  customerTxDoc
+  customerTxDoc, printHTML
 } from "./utils.js";
 
 /* =========================================================
@@ -86,7 +86,7 @@ export async function deleteCustomer(id) {
 window.deleteCustomer = deleteCustomer;
 
 /* =========================================================
-   PAYMENT
+   PAYMENT — with Cash-Basis Date Migration
    ========================================================= */
 export function recordPayment(customerId) {
   const c = state.customers.find(x => x.id === customerId);
@@ -131,23 +131,18 @@ function wirePaymentModal() {
 
     try {
       const batch = writeBatch(db);
+      const nowServer = serverTimestamp();
+      // Use a real Timestamp object so the local snapshot has a proper
+      // Timestamp (not a plain Date), fixing the "Today's Sales" filter.
+      const nowTimestamp = Timestamp.fromDate(new Date());
 
       // 1) Reduce customer balance
       batch.update(doc(db, "customers", id), {
         balance: increment(-amount),
-        updatedAt: serverTimestamp()
+        updatedAt: nowServer
       });
 
-      // 2) Log the payment in the ledger
-      batch.set(doc(collection(db, "customer_transactions")), customerTxDoc({
-        customerId: id,
-        customerName: c.name,
-        type: "payment",
-        amount,
-        note: valOf($("payment-note")).trim()
-      }));
-
-      // 3) Distribute payment across unpaid utang sales (oldest first)
+      // 2) Distribute payment across unpaid utang sales (oldest first)
       const MAX_IN_BATCH = 400;
       const unpaid = (state.creditSales || [])
         .filter(s => s.customerId === id)
@@ -156,6 +151,7 @@ function wirePaymentModal() {
 
       let remaining = amount;
       let salesPaid = 0;
+      const appliedTo = [];
 
       for (const sale of unpaid) {
         if (remaining <= 0.005) break;
@@ -169,16 +165,51 @@ function wirePaymentModal() {
         const newPaidAmount = alreadyPaid + take;
         const fullyPaid     = newPaidAmount >= saleTotal - 0.01;
 
-        batch.update(doc(db, "sales", sale.id), {
+        // Record what we're changing so we can reverse on delete
+        appliedTo.push({
+          saleId: sale.id,
+          take,
+          previousAmountPaid: alreadyPaid,
+          previousUnpaidAmount: Math.max(0, saleTotal - alreadyPaid),
+          previousCreatedAt: sale.createdAt || null,
+          madeFullyPaid: fullyPaid
+        });
+
+        const updateData = {
           amountPaid: newPaidAmount,
           unpaidAmount: Math.max(0, saleTotal - newPaidAmount),
           paid: fullyPaid,
-          paidAt: fullyPaid ? serverTimestamp() : null
-        });
+          paidAt: fullyPaid ? nowServer : null
+        };
+
+        // ⚡ CASH-BASIS: When fully paid, move the sale's effective date to
+        // the payment date. This puts it in TODAY's sales, dashboard,
+        // and receipt history — matching cash-basis accounting.
+        // The original date is preserved in `originalCreatedAt` and in the
+        // customer's ledger (customer_transactions).
+        if (fullyPaid) {
+          updateData.originalCreatedAt = sale.createdAt || null;
+          updateData.createdAt = nowTimestamp;   // 👈 proper Timestamp
+        }
+
+        batch.update(doc(db, "sales", sale.id), updateData);
 
         remaining -= take;
         if (fullyPaid) salesPaid++;
       }
+
+      // 3) Log the payment in the ledger (with reversal data)
+      const txRef = doc(collection(db, "customer_transactions"));
+      batch.set(txRef, {
+        ...customerTxDoc({
+          customerId: id,
+          customerName: c.name,
+          type: "payment",
+          amount,
+          note: valOf($("payment-note")).trim()
+        }),
+        appliedTo
+      });
 
       await settleWrite(batch.commit(), "Payment");
       playSuccessSound();
@@ -199,7 +230,94 @@ function wirePaymentModal() {
 }
 
 /* =========================================================
-   RENDER — list
+   PAYMENT HISTORY — Delete / Print / View
+   ========================================================= */
+export async function deletePayment(paymentId) {
+  const p = state.customerTransactions.find(t => t.id === paymentId);
+  if (!p || p.type !== "payment") { showToast("Payment not found ❌"); return; }
+
+  const appliedCount = Array.isArray(p.appliedTo) ? p.appliedTo.length : 0;
+  const warn = appliedCount
+    ? `\n\n⚠️ This will revert ${appliedCount} sale${appliedCount !== 1 ? "s" : ""} back to unpaid and restore the customer's balance.`
+    : `\n\n⚠️ This will restore the customer's balance.`;
+
+  if (!confirm(`Delete this payment?\n\n${p.customerName} · ${fmtMoney(p.amount)}${warn}`)) return;
+
+  try {
+    const batch = writeBatch(db);
+    const nowServer = serverTimestamp();
+
+    // 1) Restore customer balance
+    batch.update(doc(db, "customers", p.customerId), {
+      balance: increment(Number(p.amount) || 0),
+      updatedAt: nowServer
+    });
+
+    // 2) Reverse affected sales
+    if (Array.isArray(p.appliedTo)) {
+      for (const a of p.appliedTo) {
+        if (!a.saleId) continue;
+        const saleUpdate = {
+          amountPaid: Number(a.previousAmountPaid) || 0,
+          unpaidAmount: Number(a.previousUnpaidAmount) || 0,
+          paid: false,
+          paidAt: null
+        };
+        // Restore the original creation date
+        if (a.previousCreatedAt) {
+          saleUpdate.createdAt = a.previousCreatedAt;
+        }
+        batch.update(doc(db, "sales", a.saleId), saleUpdate);
+      }
+    }
+
+    // 3) Delete the payment transaction
+    batch.delete(doc(db, "customer_transactions", paymentId));
+
+    await settleWrite(batch.commit(), "Delete payment");
+    playSuccessSound();
+    showToast("Payment deleted & balance restored ✅");
+  } catch (err) {
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+}
+window.deletePayment = deletePayment;
+
+export function printPayment(paymentId) {
+  const p = state.customerTransactions.find(t => t.id === paymentId);
+  if (!p || p.type !== "payment") { showToast("Payment not found ❌"); return; }
+
+  const date = p.createdAt?.toDate?.().toLocaleString() || "—";
+  const appliedCount = Array.isArray(p.appliedTo) ? p.appliedTo.length : 0;
+
+  printHTML(`
+    <h1>Payment Receipt</h1>
+    <div class="meta">${esc(CONSTANTS.STORE_NAME)} · ${esc(date)}</div>
+    <table>
+      <tr><th style="width:180px">Customer</th><td>${esc(p.customerName || "-")}</td></tr>
+      <tr><th>Amount Paid</th><td>${fmtMoney(p.amount)}</td></tr>
+      ${appliedCount ? `<tr><th>Applied To</th><td>${appliedCount} sale${appliedCount !== 1 ? "s" : ""}</td></tr>` : ""}
+      ${p.note ? `<tr><th>Note</th><td>${esc(p.note)}</td></tr>` : ""}
+      <tr><th>Record ID</th><td>${esc(p.id)}</td></tr>
+    </table>
+    <p style="margin-top:24px;font-size:12px;color:#666;text-align:center;">
+      Thank you for your payment! 🙏
+    </p>
+  `, "Payment");
+  showToast("Opening print dialog 🖨️");
+}
+window.printPayment = printPayment;
+
+export function viewPaymentCustomer(paymentId) {
+  const p = state.customerTransactions.find(t => t.id === paymentId);
+  if (!p || p.type !== "payment") { showToast("Payment not found ❌"); return; }
+  if (!p.customerId) { showToast("Customer not linked ❌"); return; }
+  viewCustomer(p.customerId);
+}
+window.viewPaymentCustomer = viewPaymentCustomer;
+
+/* =========================================================
+   RENDER — customer list
    ========================================================= */
 function renderCustomers() {
   const list = $("customers-list");
@@ -248,6 +366,65 @@ function renderCustomers() {
         </div>
       </div>`;
   }).join("");
+}
+
+/* =========================================================
+   RENDER — payment history
+   ========================================================= */
+function renderPaymentHistory() {
+  const list = $("utang-payment-history");
+  if (!list) return;
+
+  const term = valOf($("utang-history-search")).toLowerCase().trim();
+
+  let payments = (state.customerTransactions || [])
+    .filter(t => t.type === "payment");
+
+  if (term) {
+    payments = payments.filter(t =>
+      (t.customerName || "").toLowerCase().includes(term) ||
+      (t.note || "").toLowerCase().includes(term)
+    );
+  }
+
+  payments = payments
+    .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
+    .slice(0, 100);
+
+  if (!payments.length) {
+    list.innerHTML = `<div class="empty-state"><p>💵 No payments recorded yet.</p></div>`;
+    return;
+  }
+
+  const totalShown = payments.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+  const header = `
+    <div class="utang-history-summary">
+      <span>Showing <strong>${payments.length}</strong> payment${payments.length !== 1 ? "s" : ""}</span>
+      <span>Total: <strong>${fmtMoney(totalShown)}</strong></span>
+    </div>
+  `;
+
+  const rows = payments.map(t => {
+    const date = t.createdAt?.toDate?.().toLocaleString() || "—";
+    const initial = (t.customerName || "?").charAt(0).toUpperCase();
+    return `
+      <div class="payment-row">
+        <div class="payment-avatar">${esc(initial)}</div>
+        <div class="payment-main">
+          <div class="payment-name">${esc(t.customerName)}</div>
+          <div class="payment-meta">${esc(date)}${t.note ? " · " + esc(t.note) : ""}</div>
+        </div>
+        <div class="payment-amount">+${fmtMoney(t.amount)}</div>
+        <div class="payment-actions">
+          <button type="button" class="sale-action-btn receipt" title="View customer" onclick="viewPaymentCustomer('${t.id}')">👁️</button>
+          <button type="button" class="sale-action-btn" title="Print receipt" onclick="printPayment('${t.id}')">🖨️</button>
+          <button type="button" class="sale-action-btn delete" title="Delete payment" onclick="deletePayment('${t.id}')">🗑️</button>
+        </div>
+      </div>`;
+  }).join("");
+
+  list.innerHTML = header + rows;
 }
 
 /* =========================================================
@@ -339,6 +516,7 @@ export function initCustomers() {
   wirePaymentModal();
   wireCustomerDetail();
   $("customers-search")?.addEventListener("input", debounce(renderCustomers, 150));
+  $("utang-history-search")?.addEventListener("input", debounce(renderPaymentHistory, 150));
 }
 
 export function startCustomersListeners(onAfter) {
@@ -365,6 +543,8 @@ export function startCustomersListeners(onAfter) {
         .map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
         .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
         .slice(0, 300);
+
+      safeRender(renderPaymentHistory);
       if (state.currentCustomerId) safeRender(() => viewCustomer(state.currentCustomerId));
     },
     (err) => console.error("[Customer txns listener]", err.code, err.message)

@@ -3,7 +3,7 @@
    Strategy: cache-first for shell, network-first for others
    ========================================================== */
 
-const CACHE_VERSION = "kurt-inventory-v10";
+const CACHE_VERSION = "kurt-inventory-v27";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -25,6 +25,7 @@ const SHELL_ASSETS = [
   "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
   "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
   "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js",
+  "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js",
   "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
   "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",

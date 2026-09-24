@@ -22,20 +22,21 @@ export function updateStats() {
   const total = state.inventory.length;
   const low = state.inventory.filter(i => i.quantity <= (i.threshold ?? 5)).length;
   const value = state.inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
-  const today = new Date(); today.setHours(0,0,0,0);
-  const todaySales = state.sales
-    .filter(s => (s.createdAt?.toDate?.() ?? 0) >= today)
-    .reduce((s, x) => s + (x.total || 0), 0);
+
+  // ✅ Running Sales = all-time sales (matches "Running Sales" in Sales Overview)
+  const runningSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
+
   const totalProfit = state.sales.reduce((sum, s) => {
     if (typeof s.profit === "number") return sum + s.profit;
     const it = state.inventory.find(i => i.id === s.itemId);
     const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
     return sum + ((s.unitPrice || 0) - cost) * (s.quantity || 0);
   }, 0);
+
   if ($("stat-total")) $("stat-total").textContent = fmtInt(total);
   if ($("stat-low")) $("stat-low").textContent = fmtInt(low);
   if ($("stat-value")) $("stat-value").textContent = fmtMoney(value);
-  if ($("stat-sales")) $("stat-sales").textContent = fmtMoney(todaySales);
+  if ($("stat-sales")) $("stat-sales").textContent = fmtMoney(runningSales); // ✅ all-time
   if ($("stat-profit")) $("stat-profit").textContent = fmtMoney(totalProfit);
   if ($("stat-cats")) $("stat-cats").textContent = fmtInt(state.categories.length);
 }
@@ -58,15 +59,24 @@ export function populateMonthFilter() {
 }
 
 export function renderSalesOverview() {
-  const todayEl = $("so-today"), monthEl = $("so-month"), runningEl = $("so-running");
+  const todayEl   = $("so-today");
+  const monthEl   = $("so-month");
+  const weekEl    = $("so-week");
+  const runningEl = $("so-running");
   if (!todayEl || !monthEl || !runningEl) return;
 
+  const now = new Date();
+
+  // ---- Running Sales: all-time ----
   const runningTotal = state.sales.reduce((a, s) => a + (Number(s.total) || 0), 0);
+
+  // ---- Today ----
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayTotal = state.sales
     .filter(s => (s.createdAt?.toDate?.() ?? 0) >= today)
     .reduce((a, s) => a + (Number(s.total) || 0), 0);
 
+  // ---- This Month (respects the month dropdown) ----
   const mk = valOf($("month-filter")) || state.soSelectedMonth || "";
   const monthSalesList = mk
     ? state.sales.filter(s => {
@@ -76,10 +86,22 @@ export function renderSalesOverview() {
     : state.sales;
   const monthTotal = monthSalesList.reduce((a, s) => a + (Number(s.total) || 0), 0);
 
+  // ---- This Week (Monday → now) ----
+  const weekStart = new Date(now);
+  const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
+  weekStart.setDate(now.getDate() - dayOfWeek);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekTotal = state.sales
+    .filter(s => (s.createdAt?.toDate?.() ?? 0) >= weekStart)
+    .reduce((a, s) => a + (Number(s.total) || 0), 0);
+
+  // ---- Apply to DOM ----
   todayEl.textContent = fmtMoney(todayTotal);
   monthEl.textContent = fmtMoney(monthTotal);
+  if (weekEl) weekEl.textContent = fmtMoney(weekTotal);
   runningEl.textContent = fmtMoney(runningTotal);
 
+  // ---- Daily list (unchanged behavior) ----
   const dailyMap = {};
   monthSalesList.forEach(s => {
     const d = s.createdAt?.toDate?.(); if (!d) return;
@@ -169,6 +191,7 @@ export function renderTrendCharts() {
 
   const textColor = getCSSVar("--text") || "#1e293b";
   const grid = getCSSVar("--border") || "#e2e8f0";
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
   const salesSeries = buildLast30DaySeries(s => Number(s.total) || 0);
   const profitSeries = buildLast30DaySeries(s => {
@@ -178,60 +201,98 @@ export function renderTrendCharts() {
     return ((s.unitPrice || 0) - cost) * (s.quantity || 0);
   });
 
-  const lineOpts = (label) => ({
-    responsive: true, maintainAspectRatio: false,
-    animation: { duration: 400 },
+  // Modern bar options
+  const barOpts = (label) => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 500, easing: "easeOutQuart" },
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: (c) => `${label}: ${fmtMoney(c.parsed.y)}` } }
+      tooltip: {
+        backgroundColor: isDark ? "#1E2D34" : "#0F172A",
+        titleColor: "#fff",
+        bodyColor: "#fff",
+        padding: 10,
+        cornerRadius: 8,
+        displayColors: false,
+        callbacks: {
+          label: (c) => `${label}: ${fmtMoney(c.parsed.y)}`
+        }
+      }
     },
     scales: {
-      x: { ticks: { color: textColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
-      y: { ticks: { color: textColor, font: { size: 10 }, callback: (v) => fmtShort(v) }, grid: { color: grid } }
+      x: {
+        ticks: {
+          color: textColor,
+          font: { size: 10 },
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 8
+        },
+        grid: { display: false },
+        border: { display: false }
+      },
+      y: {
+        beginAtZero: true,
+        ticks: {
+          color: textColor,
+          font: { size: 10 },
+          callback: (v) => fmtShort(v)
+        },
+        grid: { color: grid, drawTicks: false },
+        border: { display: false }
+      }
     }
   });
 
-  // Sales trend
+  // Sales bar chart
   const sData = {
     labels: salesSeries.labels,
     datasets: [{
       label: "Sales",
       data: salesSeries.values,
-      borderColor: "#12544F",
-      backgroundColor: "rgba(18, 84, 79, 0.15)",
-      fill: true, tension: 0.35, pointRadius: 2, borderWidth: 2
+      backgroundColor: isDark ? "#2FA38F" : "#12544F",
+      hoverBackgroundColor: "#5FC2A6",
+      borderRadius: 6,
+      borderSkipped: false,
+      maxBarThickness: 32,
+      categoryPercentage: 0.7,
+      barPercentage: 0.85
     }]
   };
   if (state.salesTrendChart?.canvas?.isConnected) {
-    state.salesTrendChart.data = sData;
-    state.salesTrendChart.options = lineOpts("Sales");
-    state.salesTrendChart.update("none");
-  } else {
-    if (state.salesTrendChart) { try { state.salesTrendChart.destroy(); } catch {} }
-    state.salesTrendChart = new Chart(salesCanvas, { type: "line", data: sData, options: lineOpts("Sales") });
+    state.salesTrendChart.destroy();
   }
+  try {
+    state.salesTrendChart = new Chart(salesCanvas, {
+      type: "bar", data: sData, options: barOpts("Sales")
+    });
+  } catch (e) { console.error("[bar chart sales]", e); }
 
-  // Profit trend
+  // Profit bar chart
   const pData = {
     labels: profitSeries.labels,
     datasets: [{
       label: "Profit",
       data: profitSeries.values,
-      borderColor: "#10B981",
-      backgroundColor: "rgba(16, 185, 129, 0.15)",
-      fill: true, tension: 0.35, pointRadius: 2, borderWidth: 2
+      backgroundColor: isDark ? "#10B981" : "#059669",
+      hoverBackgroundColor: "#34D399",
+      borderRadius: 6,
+      borderSkipped: false,
+      maxBarThickness: 32,
+      categoryPercentage: 0.7,
+      barPercentage: 0.85
     }]
   };
   if (state.profitTrendChart?.canvas?.isConnected) {
-    state.profitTrendChart.data = pData;
-    state.profitTrendChart.options = lineOpts("Profit");
-    state.profitTrendChart.update("none");
-  } else {
-    if (state.profitTrendChart) { try { state.profitTrendChart.destroy(); } catch {} }
-    state.profitTrendChart = new Chart(profitCanvas, { type: "line", data: pData, options: lineOpts("Profit") });
+    state.profitTrendChart.destroy();
   }
+  try {
+    state.profitTrendChart = new Chart(profitCanvas, {
+      type: "bar", data: pData, options: barOpts("Profit")
+    });
+  } catch (e) { console.error("[bar chart profit]", e); }
 }
-
 export function renderTopProfitAndRevenue() {
   const listProfit = $("top-profit-list");
   const listRevenue = $("top-revenue-list");
