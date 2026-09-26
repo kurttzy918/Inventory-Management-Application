@@ -575,6 +575,12 @@
             <input type="number" id="item-price" step="0.01" min="0" required />
           </label>
 
+          <label>Discount Price (₱) <small class="hint-inline">(optional — final price after discount)</small>
+            <input type="number" id="item-discount-price" step="0.01" min="0" placeholder="e.g. 15.00" />
+          </label>
+
+          <div id="item-discount-preview" class="discount-live-preview hidden"></div>
+
           <label>Expiry Date (optional)
             <input type="date" id="item-expiry" />
           </label>
@@ -587,9 +593,10 @@
         </form>
       </div>
 
-      <div class="section-heading-row">
+        <div class="section-heading-row">
         <h3 class="section-heading">All Inventory Items</h3>
         <div class="export-btns">
+          <button class="btn ghost sm" id="import-inv-excel-btn">📥 Import</button>
           <button class="btn ghost sm" id="export-inv-excel">📊 Excel</button>
           <button class="btn ghost sm" id="export-inv-pdf">📄 PDF</button>
         </div>
@@ -602,6 +609,7 @@
         </select>
       </div>
       <div id="inventory-list" class="inventory-list"></div>
+      <div id="inventory-pagination" class="pagination-bar"></div>
     </main>
 
     <!-- ========== CATEGORIES ========== -->
@@ -811,6 +819,7 @@
 
       <div id="history-category-summary" class="category-summary"></div>
       <div id="history-list" class="history-list"></div>
+      <div id="history-pagination" class="pagination-bar"></div>
     </main>
 
     <!-- ========== ADMIN ========== -->
@@ -1065,6 +1074,52 @@
       <div class="cat-image-foot">
         <span id="cat-image-source" class="cat-image-source"></span>
         <button id="cat-image-remove" type="button" class="btn ghost sm">Remove image</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= IMPORT EXCEL MODAL ================= -->
+  <div id="import-modal" class="modal hidden">
+    <div class="modal-card import-card">
+      <div class="modal-head">
+        <h3>📥 Import Inventory from Excel</h3>
+        <button id="import-close" class="btn ghost icon-btn" aria-label="Close">✕</button>
+      </div>
+
+      <!-- 🔄 AUTO-SYNC PANEL -->
+      <div class="autosync-panel">
+        <h4 class="autosync-title">🔄 Auto-Sync</h4>
+        <p class="autosync-hint">
+          Link your Excel file <strong>once</strong>. Every time you open the app, changes you saved
+          in that file will be applied automatically — no re-upload needed.
+          <br><small>Works on Chrome / Edge desktop · Requires one-time permission</small>
+        </p>
+        <p id="autosync-status" class="autosync-status">Checking…</p>
+        <div class="autosync-actions">
+          <button type="button" id="autosync-link-btn" class="btn primary">🔗 Link File</button>
+          <button type="button" id="autosync-sync-btn" class="btn ghost hidden">🔄 Sync Now</button>
+          <button type="button" id="autosync-unlink-btn" class="btn danger hidden">🔌 Unlink</button>
+        </div>
+      </div>
+
+      <div class="import-divider"><span>or import once</span></div>
+
+      <p class="import-hint">
+        Columns expected: <code>Name, SKU, Barcode, Category, Quantity, Cost, Price, Expiry, Threshold</code>.
+        Rows with an existing SKU will be <strong>updated</strong>; new SKUs will be <strong>added</strong>.
+      </p>
+
+      <label class="import-file-label">
+        <input type="file" id="import-file-input" accept=".xlsx,.xls,.csv" hidden />
+        <button type="button" class="btn primary" id="import-pick-btn">📁 Choose File</button>
+        <span id="import-file-name" class="import-file-name">No file selected</span>
+      </label>
+
+      <div id="import-preview" class="import-preview hidden"></div>
+
+      <div class="import-actions">
+        <button type="button" id="import-download-template" class="btn ghost sm">📋 Download Template</button>
+        <button type="button" id="import-confirm-btn" class="btn primary" disabled>✓ Import / Update</button>
       </div>
     </div>
   </div>

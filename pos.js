@@ -16,19 +16,53 @@ import { renderCustomerPickerOptions } from "./customers.js";
 const { NEW_ARRIVAL_WINDOW_MS } = CONSTANTS;
 
 /* =========================================================
+   DISCOUNT HELPER
+   ========================================================= */
+function getDiscountedPrice(item) {
+  const price = Number(item.price) || 0;
+  const d = Number(item.discount) || 0;
+  if (d <= 0 || price <= 0) {
+    return { original: price, final: price, discount: 0, percent: 0 };
+  }
+  if (item.discountType === "amount") {
+    const final = Math.max(0, price - d);
+    const percent = (d / price) * 100;
+    return { original: price, final, discount: d, percent };
+  }
+  // percent (default)
+  const cappedPct = Math.min(100, d);
+  const final = Math.max(0, price - (price * cappedPct / 100));
+  return { original: price, final, discount: price - final, percent: cappedPct };
+}
+export { getDiscountedPrice };
+
+/* =========================================================
    CART
    ========================================================= */
 export function addToCart(itemId) {
   const item = state.inventory.find(i => i.id === itemId);
   if (!item) return;
   if (item.quantity <= 0) { playErrorSound(); showToast("Out of stock ❌"); return; }
+
+  const disc = getDiscountedPrice(item);
+  const finalPrice = disc.final;
+
   const existing = state.posCart.find(c => c.itemId === itemId);
   if (existing) {
     if (existing.qty + 1 > item.quantity) { playErrorSound(); showToast("Not enough stock ❌"); return; }
     existing.qty++;
     existing.stock = item.quantity;
   } else {
-    state.posCart.push({ itemId, name: item.name, price: Number(item.price) || 0, qty: 1, stock: item.quantity });
+    state.posCart.push({
+      itemId,
+      name: item.name,
+      price: finalPrice,
+      originalPrice: disc.original,
+      discount: disc.discount,
+      discountPercent: disc.percent,
+      qty: 1,
+      stock: item.quantity
+    });
   }
   renderPosCart(); updateChange();
 }
@@ -60,11 +94,16 @@ export function renderPosCart() {
   if (!state.posCart.length) {
     el.innerHTML = `<div class="pos-cart-empty">Tap a product or scan a barcode to add.</div>`;
   } else {
-    el.innerHTML = state.posCart.map(c => `
+        el.innerHTML = state.posCart.map(c => {
+      const hasDisc = c.discount && c.discount > 0;
+      const metaHTML = hasDisc
+        ? `<span class="pos-ci-original">${fmtMoney(c.originalPrice)}</span> ${fmtMoney(c.price)} × ${c.qty}`
+        : `${fmtMoney(c.price)} × ${c.qty}`;
+      return `
       <div class="pos-cart-item">
         <div class="pos-ci-main">
           <div class="pos-ci-name">${esc(c.name)}</div>
-          <div class="pos-ci-meta">${fmtMoney(c.price)} × ${c.qty}</div>
+          <div class="pos-ci-meta">${metaHTML}</div>
         </div>
         <div class="pos-ci-qty">
           <button type="button" class="pos-qty-btn" data-act="dec" data-id="${c.itemId}">−</button>
@@ -74,7 +113,8 @@ export function renderPosCart() {
         <div class="pos-ci-sub">${fmtMoney(c.price * c.qty)}</div>
         <button type="button" class="pos-ci-remove" data-act="rm" data-id="${c.itemId}" title="Remove">✕</button>
       </div>
-    `).join("");
+      `;
+    }).join("");
   }
   if ($("pos-total")) $("pos-total").textContent = fmtMoney(getCartTotal());
 }
@@ -119,19 +159,36 @@ function buildPosMiniSlides(item, sold) {
   const fast = getFastSellingInfo(item.id, sold);
   const revenue = sold * (item.price || 0);
   const exp = expiryStatus(item.expiry);
+  const disc = getDiscountedPrice(item);
 
+  // 1) Expiry — most urgent
   if (exp.level === "expired") slides.push({ cls: "expiry", text: `⛔ ${exp.label.toUpperCase()}` });
   else if (exp.level === "expiring") slides.push({ cls: "expiry", text: `⏰ ${exp.label.toUpperCase()}` });
 
+  // 2) 💥 Discount
+  if (disc.discount > 0) {
+    const pct = Math.round(disc.percent);
+    const tag = item.discountType === "amount"
+      ? `₱${Number(disc.discount).toFixed(2)} OFF`
+      : `${pct}% OFF`;
+    slides.push({ cls: "discount", text: `💥 ${tag} · ${fmtMoney(disc.final)}` });
+  }
+
+  // 3) New arrival
   if (isNew) slides.push({ cls: "new", text: "✨ NEW ARRIVAL" });
 
+  // 4) Sold / Fast selling
   if (fast.isFast) slides.push({ cls: "hot", text: `🔥 FAST SELLING · ${fast.perDay.toFixed(1)}/DAY` });
   else if (sold > 0) slides.push({ cls: "hot", text: `🔥 ${fmtInt(sold)} SOLD` });
 
+  // 5) Stock level
   if (isOut) slides.push({ cls: "low", text: "🚫 OUT OF STOCK" });
   else if (isLow) slides.push({ cls: "low", text: `⚠️ ONLY ${fmtInt(item.quantity)} LEFT` });
 
+  // 6) Revenue
   if (revenue > 0) slides.push({ cls: "ok", text: `💰 ${fmtMoney(revenue)} SALES` });
+
+  // 7) Always last — remaining stock
   slides.push({ cls: "ok", text: `📦 ${fmtInt(item.quantity)} IN STOCK` });
   return slides;
 }
@@ -165,14 +222,28 @@ export function renderPosProducts() {
       : isLow
       ? `<span class="pos-stock-pill low">${fmtInt(item.quantity)} left</span>`
       : `<span class="pos-stock-pill">${fmtInt(item.quantity)}</span>`;
-    const slides = buildPosMiniSlides(item, sold);
+      const slides = buildPosMiniSlides(item, sold);
     const slideHTML = slides.map(s => `<div class="pos-mini-slide ${s.cls}">${esc(s.text)}</div>`).join("");
+
+    const disc = getDiscountedPrice(item);
+    const hasDiscount = disc.discount > 0;
+    const priceHTML = hasDiscount
+      ? `<div class="pos-price pos-price-discount">
+           <span class="pos-price-original">${fmtMoney(disc.original)}</span>
+           <span class="pos-price-final">${fmtMoney(disc.final)}</span>
+         </div>`
+      : `<div class="pos-price">${fmtMoney(disc.original)}</div>`;
+
+    const saleBadge = hasDiscount
+      ? `<span class="pos-sale-badge">💥 ${item.discountType === "amount" ? "₱" + Number(disc.discount).toFixed(2) : Math.round(disc.percent) + "%"}</span>`
+      : "";
+
     return `
       <div class="pos-card ${isOut ? "is-out" : ""}" data-id="${item.id}">
-        <div class="pos-media">${media}${stockPill}</div>
+        <div class="pos-media">${media}${stockPill}${saleBadge}</div>
         <div class="pos-info">
           <div class="pos-name" title="${esc(item.name)}">${esc(item.name)}</div>
-          <div class="pos-price">${fmtMoney(item.price)}</div>
+          ${priceHTML}
           <div class="pos-sku">${esc(item.barcode || item.sku)}</div>
         </div>
         <div class="pos-mini" data-count="${slides.length}">

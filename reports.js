@@ -11,7 +11,7 @@ import {
   getCSSVar, printHTML, downloadXLSX, downloadPDF,
   expiryStatus
 } from "./utils.js";
-import { stockProgress } from "./inventory.js";
+import { stockProgress, renderPaginationBar } from "./inventory.js";
 
 const { CATEGORY_PALETTE } = CONSTANTS;
 
@@ -22,27 +22,23 @@ export function updateStats() {
   const total = state.inventory.length;
   const low = state.inventory.filter(i => i.quantity <= (i.threshold ?? 5)).length;
   const value = state.inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
-
-  // ✅ Running Sales = all-time sales (matches "Running Sales" in Sales Overview)
   const runningSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
-
   const totalProfit = state.sales.reduce((sum, s) => {
     if (typeof s.profit === "number") return sum + s.profit;
     const it = state.inventory.find(i => i.id === s.itemId);
     const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
     return sum + ((s.unitPrice || 0) - cost) * (s.quantity || 0);
   }, 0);
-
   if ($("stat-total")) $("stat-total").textContent = fmtInt(total);
   if ($("stat-low")) $("stat-low").textContent = fmtInt(low);
   if ($("stat-value")) $("stat-value").textContent = fmtMoney(value);
-  if ($("stat-sales")) $("stat-sales").textContent = fmtMoney(runningSales); // ✅ all-time
+  if ($("stat-sales")) $("stat-sales").textContent = fmtMoney(runningSales);
   if ($("stat-profit")) $("stat-profit").textContent = fmtMoney(totalProfit);
   if ($("stat-cats")) $("stat-cats").textContent = fmtInt(state.categories.length);
 }
 
 /* =========================================================
-   SALES OVERVIEW (daily / monthly / running)
+   SALES OVERVIEW
    ========================================================= */
 export function populateMonthFilter() {
   const sel = $("month-filter"); if (!sel) return;
@@ -57,26 +53,20 @@ export function populateMonthFilter() {
   sel.value = list.includes(cur) ? cur : "";
   state.soSelectedMonth = sel.value;
 }
+
 export function populateSalesCategoryFilter() {
   const sel = $("sales-cat-analytics-filter");
   if (!sel) return;
-
   const cur = sel.value;
   const cats = new Set();
-
-  // From sales
   state.sales.forEach(s => { if (s.category) cats.add(s.category); });
-  // Also from inventory (so categories without sales still show)
   state.inventory.forEach(i => { if (i.category) cats.add(i.category); });
-
   const list = [...cats].sort((a, b) => a.localeCompare(b));
-
   sel.innerHTML = `<option value="">All Categories</option>` +
     list.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
-
-  // Restore previous selection if it still exists
   if (cur && list.includes(cur)) sel.value = cur;
 }
+
 export function renderSalesOverview() {
   const todayEl   = $("so-today");
   const monthEl   = $("so-month");
@@ -85,17 +75,13 @@ export function renderSalesOverview() {
   if (!todayEl || !monthEl || !runningEl) return;
 
   const now = new Date();
-
-  // ---- Running Sales: all-time ----
   const runningTotal = state.sales.reduce((a, s) => a + (Number(s.total) || 0), 0);
 
-  // ---- Today ----
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayTotal = state.sales
     .filter(s => (s.createdAt?.toDate?.() ?? 0) >= today)
     .reduce((a, s) => a + (Number(s.total) || 0), 0);
 
-  // ---- This Month (respects the month dropdown) ----
   const mk = valOf($("month-filter")) || state.soSelectedMonth || "";
   const monthSalesList = mk
     ? state.sales.filter(s => {
@@ -105,22 +91,19 @@ export function renderSalesOverview() {
     : state.sales;
   const monthTotal = monthSalesList.reduce((a, s) => a + (Number(s.total) || 0), 0);
 
-  // ---- This Week (Monday → now) ----
   const weekStart = new Date(now);
-  const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
+  const dayOfWeek = (now.getDay() + 6) % 7;
   weekStart.setDate(now.getDate() - dayOfWeek);
   weekStart.setHours(0, 0, 0, 0);
   const weekTotal = state.sales
     .filter(s => (s.createdAt?.toDate?.() ?? 0) >= weekStart)
     .reduce((a, s) => a + (Number(s.total) || 0), 0);
 
-  // ---- Apply to DOM ----
   todayEl.textContent = fmtMoney(todayTotal);
   monthEl.textContent = fmtMoney(monthTotal);
   if (weekEl) weekEl.textContent = fmtMoney(weekTotal);
   runningEl.textContent = fmtMoney(runningTotal);
 
-  // ---- Daily list (unchanged behavior) ----
   const dailyMap = {};
   monthSalesList.forEach(s => {
     const d = s.createdAt?.toDate?.(); if (!d) return;
@@ -152,17 +135,14 @@ export function renderSalesOverview() {
 export function renderKPIs() {
   const salesArr = state.sales;
 
-  // Avg Order Value: total / number of receipts
   const receiptSet = new Set(salesArr.map(s => s.receiptNum || s.id));
   const totalSales = salesArr.reduce((a, s) => a + (Number(s.total) || 0), 0);
   const aov = receiptSet.size ? totalSales / receiptSet.size : 0;
   if ($("kpi-aov")) $("kpi-aov").textContent = fmtMoney(aov);
 
-  // Items sold
   const itemsSold = salesArr.reduce((a, s) => a + (Number(s.quantity) || 0), 0);
   if ($("kpi-items")) $("kpi-items").textContent = fmtInt(itemsSold);
 
-  // Peak hour
   const hourBuckets = new Array(24).fill(0);
   salesArr.forEach(s => {
     const d = s.createdAt?.toDate?.(); if (!d) return;
@@ -174,7 +154,6 @@ export function renderKPIs() {
     ? `${String(peakH).padStart(2,"0")}:00`
     : "–";
 
-  // Profit margin
   const totalProfit = salesArr.reduce((a, s) => {
     if (typeof s.profit === "number") return a + s.profit;
     const it = state.inventory.find(i => i.id === s.itemId);
@@ -220,7 +199,6 @@ export function renderTrendCharts() {
     return ((s.unitPrice || 0) - cost) * (s.quantity || 0);
   });
 
-  // Modern bar options
   const barOpts = (label) => ({
     responsive: true,
     maintainAspectRatio: false,
@@ -234,37 +212,24 @@ export function renderTrendCharts() {
         padding: 10,
         cornerRadius: 8,
         displayColors: false,
-        callbacks: {
-          label: (c) => `${label}: ${fmtMoney(c.parsed.y)}`
-        }
+        callbacks: { label: (c) => `${label}: ${fmtMoney(c.parsed.y)}` }
       }
     },
     scales: {
       x: {
-        ticks: {
-          color: textColor,
-          font: { size: 10 },
-          maxRotation: 0,
-          autoSkip: true,
-          maxTicksLimit: 8
-        },
+        ticks: { color: textColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
         grid: { display: false },
         border: { display: false }
       },
       y: {
         beginAtZero: true,
-        ticks: {
-          color: textColor,
-          font: { size: 10 },
-          callback: (v) => fmtShort(v)
-        },
+        ticks: { color: textColor, font: { size: 10 }, callback: (v) => fmtShort(v) },
         grid: { color: grid, drawTicks: false },
         border: { display: false }
       }
     }
   });
 
-  // Sales bar chart
   const sData = {
     labels: salesSeries.labels,
     datasets: [{
@@ -279,16 +244,11 @@ export function renderTrendCharts() {
       barPercentage: 0.85
     }]
   };
-  if (state.salesTrendChart?.canvas?.isConnected) {
-    state.salesTrendChart.destroy();
-  }
+  if (state.salesTrendChart?.canvas?.isConnected) state.salesTrendChart.destroy();
   try {
-    state.salesTrendChart = new Chart(salesCanvas, {
-      type: "bar", data: sData, options: barOpts("Sales")
-    });
+    state.salesTrendChart = new Chart(salesCanvas, { type: "bar", data: sData, options: barOpts("Sales") });
   } catch (e) { console.error("[bar chart sales]", e); }
 
-  // Profit bar chart
   const pData = {
     labels: profitSeries.labels,
     datasets: [{
@@ -303,75 +263,61 @@ export function renderTrendCharts() {
       barPercentage: 0.85
     }]
   };
-  if (state.profitTrendChart?.canvas?.isConnected) {
-    state.profitTrendChart.destroy();
-  }
+  if (state.profitTrendChart?.canvas?.isConnected) state.profitTrendChart.destroy();
   try {
-    state.profitTrendChart = new Chart(profitCanvas, {
-      type: "bar", data: pData, options: barOpts("Profit")
-    });
+    state.profitTrendChart = new Chart(profitCanvas, { type: "bar", data: pData, options: barOpts("Profit") });
   } catch (e) { console.error("[bar chart profit]", e); }
 }
+
 export function renderTopProfitAndRevenue() {
   const listProfit = $("top-profit-list");
   const listRevenue = $("top-revenue-list");
   if (!listProfit && !listRevenue) return;
 
   const byProfit = {}, byRevenue = {};
-state.sales.forEach(s => {
-  const profit = typeof s.profit === "number"
-    ? s.profit
-    : (() => {
-        const it = state.inventory.find(i => i.id === s.itemId);
-        const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
-        return ((s.unitPrice || 0) - cost) * (s.quantity || 0);
-      })();
-  const rev = Number(s.total) || 0;
+  state.sales.forEach(s => {
+    const profit = typeof s.profit === "number"
+      ? s.profit
+      : (() => {
+          const it = state.inventory.find(i => i.id === s.itemId);
+          const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
+          return ((s.unitPrice || 0) - cost) * (s.quantity || 0);
+        })();
+    const rev = Number(s.total) || 0;
+    const invItem = state.inventory.find(i => i.id === s.itemId);
+    const image = invItem?.image || s.image || null;
 
-  // Look up the current inventory item for its photo
-  const invItem = state.inventory.find(i => i.id === s.itemId);
-  const image = invItem?.image || s.image || null;
+    if (!byProfit[s.itemId]) byProfit[s.itemId] = { itemId: s.itemId, name: s.itemName, image, profit: 0, qty: 0 };
+    byProfit[s.itemId].profit += profit;
+    byProfit[s.itemId].qty += Number(s.quantity) || 0;
 
-  if (!byProfit[s.itemId]) {
-    byProfit[s.itemId] = { itemId: s.itemId, name: s.itemName, image, profit: 0, qty: 0 };
-  }
-  byProfit[s.itemId].profit += profit;
-  byProfit[s.itemId].qty += Number(s.quantity) || 0;
-
-  if (!byRevenue[s.itemId]) {
-    byRevenue[s.itemId] = { itemId: s.itemId, name: s.itemName, image, revenue: 0, qty: 0 };
-  }
-  byRevenue[s.itemId].revenue += rev;
-  byRevenue[s.itemId].qty += Number(s.quantity) || 0;
-});
+    if (!byRevenue[s.itemId]) byRevenue[s.itemId] = { itemId: s.itemId, name: s.itemName, image, revenue: 0, qty: 0 };
+    byRevenue[s.itemId].revenue += rev;
+    byRevenue[s.itemId].qty += Number(s.quantity) || 0;
+  });
 
   const rankHTML = (arr, valueKey, label) => {
-  if (!arr.length) return `<div class="empty-state"><p>No ${label} data yet.</p></div>`;
-  const maxVal = arr[0][valueKey] || 1;
-  return arr.slice(0, 5).map((it, idx) => {
-    const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
-    const pct = (it[valueKey] / maxVal) * 100;
-
-    // Look up the inventory item so we can show its photo
-    const invItem = state.inventory.find(i => i.id === it.itemId) || {
-      id: it.itemId,
-      name: it.name,
-      image: it.image || null
-    };
-
-    return `
-      <div class="rank-row">
-        <div class="rank-badge ${rankClass}">${idx + 1}</div>
-        ${productImageHTML(invItem, "sm")}
-        <div class="rank-main">
-          <div class="rank-name">${esc(it.name)}</div>
-          <div class="rank-sub">${fmtInt(it.qty)} unit${it.qty !== 1 ? "s" : ""} sold</div>
-          <div class="progress slim"><div class="progress-bar high" style="width:${pct}%"></div></div>
-        </div>
-        <div class="rank-qty">${fmtMoney(it[valueKey])}<span>${label}</span></div>
-      </div>`;
-  }).join("");
-};
+    if (!arr.length) return `<div class="empty-state"><p>No ${label} data yet.</p></div>`;
+    const maxVal = arr[0][valueKey] || 1;
+    return arr.slice(0, 5).map((it, idx) => {
+      const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
+      const pct = (it[valueKey] / maxVal) * 100;
+      const invItem = state.inventory.find(i => i.id === it.itemId) || {
+        id: it.itemId, name: it.name, image: it.image || null
+      };
+      return `
+        <div class="rank-row">
+          <div class="rank-badge ${rankClass}">${idx + 1}</div>
+          ${productImageHTML(invItem, "sm")}
+          <div class="rank-main">
+            <div class="rank-name">${esc(it.name)}</div>
+            <div class="rank-sub">${fmtInt(it.qty)} unit${it.qty !== 1 ? "s" : ""} sold</div>
+            <div class="progress slim"><div class="progress-bar high" style="width:${pct}%"></div></div>
+          </div>
+          <div class="rank-qty">${fmtMoney(it[valueKey])}<span>${label}</span></div>
+        </div>`;
+    }).join("");
+  };
 
   const profitArr = Object.values(byProfit).sort((a, b) => b.profit - a.profit);
   const revenueArr = Object.values(byRevenue).sort((a, b) => b.revenue - a.revenue);
@@ -380,16 +326,8 @@ state.sales.forEach(s => {
 }
 
 /* =========================================================
-   CHARTS — Dashboard (stock status, category value, sales category)
+   CHARTS — Sales vs Cost + Sales by Category
    ========================================================= */
-function commonChartOptions(textColor) {
-  return {
-    responsive: true, maintainAspectRatio: false,
-    animation: { duration: 400 },
-    plugins: { legend: { position: "bottom", labels: { color: textColor, padding: 12, font: { size: 12 }, boxWidth: 14, usePointStyle: true } } }
-  };
-}
-
 export function renderCharts(retries = 0) {
   if (!state.chartJsReady || typeof Chart === "undefined") {
     if (retries < 40) setTimeout(() => renderCharts(retries + 1), 200);
@@ -409,7 +347,7 @@ export function renderCharts(retries = 0) {
   const textColor = getCSSVar("--text") || "#1e293b";
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
-  /* ================= 1) SALES vs COST (half pie) ================= */
+  /* ---- 1) SALES vs COST (half pie) ---- */
   try {
     const totalSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
     const totalCost = state.sales.reduce((s, x) => {
@@ -433,49 +371,28 @@ export function renderCharts(retries = 0) {
       }]
     };
 
-    // Info block below the chart
     const infoEl = $("sales-vs-cost-info");
     if (infoEl) {
       infoEl.innerHTML = `
-        <div class="svc-row">
-          <span class="svc-label">Total Sales</span>
-          <strong class="svc-value sales">${fmtMoney(totalSales)}</strong>
-        </div>
-        <div class="svc-row">
-          <span class="svc-label">Cost</span>
-          <strong class="svc-value cost">${fmtMoney(totalCost)} · ${costPct.toFixed(1)}%</strong>
-        </div>
-        <div class="svc-row">
-          <span class="svc-label">Profit</span>
-          <strong class="svc-value profit">${fmtMoney(totalProfit)} · ${profitPct.toFixed(1)}%</strong>
-        </div>
-        <div class="svc-row highlight">
-          <span class="svc-label">Profit Margin</span>
-          <strong class="svc-value margin">${profitMargin.toFixed(1)}%</strong>
-        </div>
+        <div class="svc-row"><span class="svc-label">Total Sales</span><strong class="svc-value sales">${fmtMoney(totalSales)}</strong></div>
+        <div class="svc-row"><span class="svc-label">Cost</span><strong class="svc-value cost">${fmtMoney(totalCost)} · ${costPct.toFixed(1)}%</strong></div>
+        <div class="svc-row"><span class="svc-label">Profit</span><strong class="svc-value profit">${fmtMoney(totalProfit)} · ${profitPct.toFixed(1)}%</strong></div>
+        <div class="svc-row highlight"><span class="svc-label">Profit Margin</span><strong class="svc-value margin">${profitMargin.toFixed(1)}%</strong></div>
       `;
     }
 
-    if (state.salesVsCostChart?.canvas?.isConnected) {
-      state.salesVsCostChart.destroy();
-    }
+    if (state.salesVsCostChart?.canvas?.isConnected) state.salesVsCostChart.destroy();
     state.salesVsCostChart = new Chart(svcCanvas, {
-      type: "doughnut",
-      data: svcData,
+      type: "doughnut", data: svcData,
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        rotation: -90,
-        circumference: 180,
-        cutout: "65%",
+        responsive: true, maintainAspectRatio: false,
+        rotation: -90, circumference: 180, cutout: "65%",
         animation: { duration: 450 },
         plugins: {
           legend: { display: false },
           tooltip: {
             backgroundColor: isDark ? "#1E2D34" : "#0F172A",
-            padding: 10,
-            cornerRadius: 8,
-            displayColors: false,
+            padding: 10, cornerRadius: 8, displayColors: false,
             callbacks: {
               label: (c) => {
                 const pct = totalSales > 0 ? ((c.parsed / totalSales) * 100).toFixed(1) : "0.0";
@@ -488,19 +405,17 @@ export function renderCharts(retries = 0) {
     });
   } catch (e) { console.error("[chart] sales vs cost:", e); }
 
-    /* ================= 2) SALES BY CATEGORY (with amount display) ================= */
+  /* ---- 2) SALES BY CATEGORY (drill-down) ---- */
   try {
     const catFilter = (valOf($("sales-cat-analytics-filter")) || "").trim();
     let labels = [], values = [];
 
-    // Summary block elements
     const summaryEl = $("sales-cat-summary");
     const catEl     = $("scs-category");
     const totalEl   = $("scs-total");
     const txnsEl    = $("scs-txns");
     const unitsEl   = $("scs-units");
 
-    // Filter state.sales by category (case-insensitive to be safe)
     const filteredSales = catFilter
       ? state.sales.filter(s => {
           const sc = (s.category || "Uncategorized");
@@ -509,20 +424,15 @@ export function renderCharts(retries = 0) {
       : state.sales;
 
     if (catFilter) {
-      // ---- SPECIFIC CATEGORY SELECTED ----
-      // Pie shows the top products within that category
       const productMap = {};
       filteredSales.forEach(s => {
         const key = s.itemName || "Unknown";
         productMap[key] = (productMap[key] || 0) + (Number(s.total) || 0);
       });
-      const entries = Object.entries(productMap)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8);
+      const entries = Object.entries(productMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
       labels = entries.map(e => e[0]);
       values = entries.map(e => e[1]);
 
-      // Populate the summary block
       const totalAmount = filteredSales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
       const totalUnits  = filteredSales.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
       const totalTxns   = filteredSales.length;
@@ -532,9 +442,7 @@ export function renderCharts(retries = 0) {
       if (txnsEl)  txnsEl.textContent  = fmtInt(totalTxns);
       if (unitsEl) unitsEl.textContent = fmtInt(totalUnits);
       summaryEl?.classList.remove("hidden");
-
     } else {
-      // ---- ALL CATEGORIES ----
       const catMap = {};
       state.sales.forEach(s => {
         const k = s.category || "Uncategorized";
@@ -543,8 +451,6 @@ export function renderCharts(retries = 0) {
       const entries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
       labels = entries.map(e => e[0]);
       values = entries.map(e => e[1]);
-
-      // Hide the summary block
       summaryEl?.classList.add("hidden");
     }
 
@@ -564,26 +470,16 @@ export function renderCharts(retries = 0) {
 
     const totalValues = values.reduce((a, b) => a + b, 0);
 
-    if (state.salesCategoryChart?.canvas?.isConnected) {
-      state.salesCategoryChart.destroy();
-    }
+    if (state.salesCategoryChart?.canvas?.isConnected) state.salesCategoryChart.destroy();
     state.salesCategoryChart = new Chart(salesCatCanvas, {
-      type: "pie",
-      data: salesCatData,
+      type: "pie", data: salesCatData,
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         animation: { duration: 400 },
         plugins: {
           legend: {
             position: "bottom",
-            labels: {
-              color: textColor,
-              padding: 10,
-              font: { size: 11 },
-              boxWidth: 12,
-              usePointStyle: true
-            }
+            labels: { color: textColor, padding: 10, font: { size: 11 }, boxWidth: 12, usePointStyle: true }
           },
           tooltip: {
             callbacks: {
@@ -598,7 +494,6 @@ export function renderCharts(retries = 0) {
     });
   } catch (e) { console.error("[chart] sales category:", e); }
 
-  // Trend charts (unchanged)
   renderTrendCharts();
 
   requestAnimationFrame(() => {
@@ -628,7 +523,7 @@ export function destroyCharts() {
 }
 
 /* =========================================================
-   HISTORY
+   HISTORY — with pagination
    ========================================================= */
 export function groupSalesByReceipt() {
   const map = new Map();
@@ -654,6 +549,7 @@ export function renderHistory() {
   const list = $("history-list"); if (!list) return;
   let groups = groupSalesByReceipt();
 
+  // Range filter
   const range = valOf($("history-filter")) || "all";
   if (range !== "all") {
     const now = Date.now(); const dayMs = 24 * 60 * 60 * 1000;
@@ -664,6 +560,7 @@ export function renderHistory() {
     groups = groups.filter(g => g.date.getTime() >= cutoff);
   }
 
+  // Category filter
   const catFilter = valOf($("history-cat-filter"));
   if (catFilter) {
     groups = groups.map(g => {
@@ -674,6 +571,7 @@ export function renderHistory() {
     }).filter(Boolean);
   }
 
+  // Search
   const term = valOf($("history-search")).toLowerCase().trim();
   if (term) {
     groups = groups.filter(g =>
@@ -683,9 +581,22 @@ export function renderHistory() {
     );
   }
 
-  if (!groups.length) { list.innerHTML = `<div class="empty-state"><p>🧾 No sales history found.</p></div>`; return; }
+  if (!groups.length) {
+    list.innerHTML = `<div class="empty-state"><p>🧾 No sales history found.</p></div>`;
+    renderPaginationBar("history-pagination", 0, 1, 1, () => {});
+    return;
+  }
 
-  list.innerHTML = groups.slice(0, 60).map(g => {
+  // ---- Pagination ----
+  const pageSize = Math.max(5, state.histPageSize || 15);
+  const total = groups.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (state.histPage > totalPages) state.histPage = totalPages;
+  if (state.histPage < 1) state.histPage = 1;
+  const start = (state.histPage - 1) * pageSize;
+  const pageGroups = groups.slice(start, start + pageSize);
+
+  list.innerHTML = pageGroups.map(g => {
     const itemCount = g.items.length;
     const qtyTotal = g.items.reduce((sum, it) => sum + (it.quantity || 0), 0);
     const dateStr = g.date.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -716,6 +627,12 @@ export function renderHistory() {
         </div>
       </div>`;
   }).join("");
+
+  renderPaginationBar("history-pagination", total, state.histPage, pageSize, (newPage) => {
+    state.histPage = newPage;
+    renderHistory();
+    document.getElementById("history-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 export function viewReceiptGroup(receiptNum) {
@@ -1124,15 +1041,27 @@ export function exportHistoryToPDF() {
    INIT
    ========================================================= */
 export function initReports() {
-  $("history-search")?.addEventListener("input", debounce(renderHistory, 150));
-  $("history-filter")?.addEventListener("change", () => { safeRender(renderHistory); safeRender(renderHistoryCategorySummary); });
-  $("history-cat-filter")?.addEventListener("change", () => { safeRender(renderHistory); safeRender(renderHistoryCategorySummary); });
+  const resetHistPage = () => { state.histPage = 1; };
+
+  $("history-search")?.addEventListener("input", debounce(() => {
+    resetHistPage(); renderHistory();
+  }, 150));
+  $("history-filter")?.addEventListener("change", () => {
+    resetHistPage();
+    safeRender(renderHistory);
+    safeRender(renderHistoryCategorySummary);
+  });
+  $("history-cat-filter")?.addEventListener("change", () => {
+    resetHistPage();
+    safeRender(renderHistory);
+    safeRender(renderHistoryCategorySummary);
+  });
   $("month-filter")?.addEventListener("change", () => {
     state.soSelectedMonth = valOf($("month-filter"));
     safeRender(renderSalesOverview);
+  });
   $("sales-cat-analytics-filter")?.addEventListener("change", () => {
     safeRender(renderCharts);
-  });
   });
   $("carousel-prev")?.addEventListener("click", () => { prevSlide(); restartCarousel(); });
   $("carousel-next")?.addEventListener("click", () => { nextSlide(); restartCarousel(); });

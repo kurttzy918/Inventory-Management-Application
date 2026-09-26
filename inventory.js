@@ -1,4 +1,4 @@
-/* inventory.js — Stock, categories, movements, scanner, photo */
+/* inventory.js — Stock, categories, movements, scanner, photo, Excel import */
 import {
   collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc,
   serverTimestamp, query, where, writeBatch, increment
@@ -10,7 +10,7 @@ import {
   myWorkspace, movementDoc, settleWrite, productImageHTML,
   fallbackColorFor, expiryStatus, daysUntilExpiry, printHTML,
   playSuccessSound, playErrorSound,
-  fmtInt, fmtMoney
+  fmtInt, fmtMoney, downloadXLSX
 } from "./utils.js";
 
 const { SCANNER_STATE, SCAN_BOX, SCAN_FPS, SCAN_VIDEO, SCAN_COOLDOWN_MS, CATEGORY_IMAGE_API } = CONSTANTS;
@@ -109,6 +109,56 @@ function wirePhotoInputs() {
 }
 
 /* =========================================================
+   LIVE DISCOUNT PRICE PREVIEW
+   Shows computed % + save amount as user types
+   ========================================================= */
+function updateDiscountPreview() {
+  const priceEl = $("item-price");
+  const dpEl = $("item-discount-price");
+  const box = $("item-discount-preview");
+  if (!priceEl || !dpEl || !box) return;
+
+  const price = Number(valOf(priceEl)) || 0;
+  const dp    = Number(valOf(dpEl)) || 0;
+
+  // Clear
+  if (!dp || dp <= 0 || !price) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+
+  // Validate
+  if (dp >= price) {
+    box.classList.remove("hidden");
+    box.innerHTML = `<span class="dlp-warn">⚠️ Discount price must be lower than selling price (₱${price.toFixed(2)})</span>`;
+    return;
+  }
+
+  const pct = ((price - dp) / price) * 100;
+  const save = price - dp;
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <span class="dlp-badge">💥 ${pct.toFixed(1)}% OFF</span>
+    <span class="dlp-save">Save ${fmtMoney(save)} · Final ${fmtMoney(dp)}</span>
+  `;
+}
+
+function wireDiscountPreview() {
+  $("item-price")?.addEventListener("input", updateDiscountPreview);
+  $("item-discount-price")?.addEventListener("input", updateDiscountPreview);
+  updateDiscountPreview(); // initial
+}
+
+/* Compute discount % from price + discountPrice */
+function computeDiscountPercent(price, discountPrice) {
+  const p = Number(price) || 0;
+  const dp = Number(discountPrice) || 0;
+  if (!p || !dp || dp >= p) return 0;
+  return ((p - dp) / p) * 100;
+}
+
+/* =========================================================
    ITEM FORM (Add / Edit)
    ========================================================= */
 function wireItemForm() {
@@ -122,6 +172,17 @@ function wireItemForm() {
     const wasEditing = !!(itemIdEl && itemIdEl.value);
     const prev = wasEditing ? state.inventory.find(i => i.id === itemIdEl.value) : null;
 
+    const price = numOf($("item-price"));
+    const discountPrice = Number(valOf($("item-discount-price"))) || 0;
+
+    if (!price || price <= 0) { showToast("Price must be greater than 0 ❌"); return; }
+    if (discountPrice > 0 && discountPrice >= price) {
+      showToast("Discount price must be lower than selling price ❌");
+      return;
+    }
+
+    const discount = computeDiscountPercent(price, discountPrice);
+
     const data = {
       name: valOf($("item-name")).trim(),
       sku: valOf($("item-sku")).trim(),
@@ -129,7 +190,10 @@ function wireItemForm() {
       category: valOf($("item-category")).trim(),
       quantity: numOf($("item-qty")),
       cost: Number(valOf($("item-cost"))) || 0,
-      price: numOf($("item-price")),
+      price,
+      discount: Number(discount.toFixed(4)),
+      discountType: "percent",
+      discountPrice: discountPrice > 0 ? discountPrice : 0,
       expiry: valOf($("item-expiry")),
       threshold: Number(valOf($("item-threshold"))) || 5,
       image: valOf($("item-image-data")) || null,
@@ -140,7 +204,6 @@ function wireItemForm() {
     if (!data.name)     { showToast("Name is required ❌"); return; }
     if (!data.sku)      { showToast("SKU is required ❌"); return; }
     if (!data.category) { showToast("Category is required ❌"); return; }
-    if (!data.price || data.price <= 0) { showToast("Price must be greater than 0 ❌"); return; }
 
     try {
       const batch = writeBatch(db);
@@ -171,10 +234,12 @@ function wireItemForm() {
       itemForm.reset();
       if (itemIdEl) itemIdEl.value = "";
       if ($("item-threshold")) $("item-threshold").value = "5";
+      if ($("item-discount-price")) $("item-discount-price").value = "";
       if ($("item-image-data")) $("item-image-data").value = "";
       if ($("item-image")) $("item-image").value = "";
       if ($("item-image-camera")) $("item-image-camera").value = "";
       showPhotoPreview(null);
+      updateDiscountPreview();
       state.manualSku = false; state.skuInitialized = false;
       autoFillSku();
     } catch (err) {
@@ -200,10 +265,12 @@ export function editItem(id) {
   setVal($("item-qty"), item.quantity);
   setVal($("item-cost"), item.cost ?? "");
   setVal($("item-price"), item.price);
+  setVal($("item-discount-price"), item.discountPrice ?? 0);
   setVal($("item-expiry"), item.expiry || "");
   setVal($("item-threshold"), item.threshold ?? 5);
   setVal($("item-image-data"), item.image || "");
   showPhotoPreview(item.image || null);
+  updateDiscountPreview();
   state.manualSku = true; state.skuInitialized = true;
   document.querySelector('[data-page="page-add"]')?.click();
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -273,21 +340,51 @@ export { stockProgress };
 
 export function renderInventory() {
   const list = $("inventory-list"); if (!list) return;
-  const s = valOf($("search-input")).toLowerCase();
+  const s = valOf($("search-input")).toLowerCase().trim();
   const f = valOf($("filter-category"));
+
   const filtered = state.inventory.filter(i => {
-    const mS = !s || (i.name || "").toLowerCase().includes(s) || (i.sku || "").toLowerCase().includes(s) || (i.barcode || "").toLowerCase().includes(s);
+    const mS = !s
+      || (i.name || "").toLowerCase().includes(s)
+      || (i.sku || "").toLowerCase().includes(s)
+      || (i.barcode || "").toLowerCase().includes(s)
+      || (i.category || "").toLowerCase().includes(s);
     const mC = !f || i.category === f;
     return mS && mC;
   });
-  if (!filtered.length) { list.innerHTML = `<div class="empty-state"><p>📭 No items found.</p></div>`; return; }
-  list.innerHTML = filtered.map(item => {
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-state"><p>📭 No items found.</p></div>`;
+    renderPaginationBar("inventory-pagination", 0, 1, 1, () => {});
+    return;
+  }
+
+  const pageSize = Math.max(5, state.invPageSize || 20);
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (state.invPage > totalPages) state.invPage = totalPages;
+  if (state.invPage < 1) state.invPage = 1;
+  const start = (state.invPage - 1) * pageSize;
+  const pageItems = filtered.slice(start, start + pageSize);
+
+  list.innerHTML = pageItems.map(item => {
     const isLow = item.quantity <= (item.threshold ?? 5);
     const { percent, level } = stockProgress(item);
     const exp = expiryStatus(item.expiry);
     const expBadge = exp.level === "expired" ? `<span class="badge expired">Expired</span>` :
                      exp.level === "expiring" ? `<span class="badge expiring">Expiring</span>` : "";
-    const expMeta = (exp.level === "expired" || exp.level === "expiring") ? `<span class="expiry-tag">⏰ ${esc(exp.label)}</span>` : "";
+    const expMeta = (exp.level === "expired" || exp.level === "expiring")
+      ? `<span class="expiry-tag">⏰ ${esc(exp.label)}</span>` : "";
+
+    // 💥 Discount price display
+    const hasDiscount = Number(item.discountPrice) > 0 && Number(item.discountPrice) < Number(item.price);
+    const priceHTML = hasDiscount
+      ? `<span class="price-original">${fmtMoney(item.price)}</span> <span class="price-discount">${fmtMoney(item.discountPrice)}</span>`
+      : fmtMoney(item.price);
+    const discBadge = hasDiscount
+      ? `<span class="badge sale">💥 ${Math.round(item.discount || 0)}%</span>`
+      : "";
+
     return `
       <div class="item-card ${isLow ? "low-stock" : ""} ${exp.level === "expired" ? "expiring" : ""}">
         ${productImageHTML(item)}
@@ -298,6 +395,7 @@ export function renderInventory() {
               <div class="item-sku">SKU: ${esc(item.sku)}${item.barcode ? " · " + esc(item.barcode) : ""}</div>
             </div>
             <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+              ${discBadge}
               ${expBadge}
               <span class="badge ${isLow ? "low" : "ok"}">${isLow ? "Low" : "OK"}</span>
             </div>
@@ -305,7 +403,7 @@ export function renderInventory() {
           <div class="item-meta">
             <span>📂 ${esc(item.category)}</span>
             <span>📦 ${fmtInt(item.quantity)}</span>
-            <span>💰 ${fmtMoney(item.price)}</span>
+            <span>💰 ${priceHTML}</span>
             ${item.cost ? `<span>📉 Cost: ${fmtMoney(item.cost)}</span>` : ""}
             ${expMeta}
           </div>
@@ -322,7 +420,59 @@ export function renderInventory() {
         </div>
       </div>`;
   }).join("");
+
+  renderPaginationBar("inventory-pagination", total, state.invPage, pageSize, (newPage) => {
+    state.invPage = newPage;
+    renderInventory();
+    document.querySelector('[data-page="page-add"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
+
+/* Pagination bar helper (shared with history) */
+function renderPaginationBar(elId, total, currentPage, pageSize, onPageChange) {
+  const el = $(elId);
+  if (!el) return;
+  if (total === 0) { el.innerHTML = ""; return; }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const from = (currentPage - 1) * pageSize + 1;
+  const to = Math.min(total, currentPage * pageSize);
+
+  const btn = (label, page, disabled, active = false) => `
+    <button type="button"
+            class="page-btn ${active ? "active" : ""}"
+            ${disabled ? "disabled" : ""}
+            data-page="${page}">${label}</button>`;
+
+  const pages = [];
+  const maxVisible = 5;
+  let startP = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+  let endP = Math.min(totalPages, startP + maxVisible - 1);
+  if (endP - startP + 1 < maxVisible) startP = Math.max(1, endP - maxVisible + 1);
+  for (let p = startP; p <= endP; p++) pages.push(p);
+
+  el.innerHTML = `
+    <div class="page-info">Showing <strong>${from}–${to}</strong> of <strong>${total}</strong></div>
+    <div class="page-controls">
+      ${btn("‹", currentPage - 1, currentPage <= 1)}
+      ${startP > 1 ? btn("1", 1, false, currentPage === 1) : ""}
+      ${startP > 2 ? `<span class="page-ellipsis">…</span>` : ""}
+      ${pages.map(p => btn(p, p, false, p === currentPage)).join("")}
+      ${endP < totalPages - 1 ? `<span class="page-ellipsis">…</span>` : ""}
+      ${endP < totalPages ? btn(totalPages, totalPages, false, currentPage === totalPages) : ""}
+      ${btn("›", currentPage + 1, currentPage >= totalPages)}
+    </div>
+  `;
+
+  el.querySelectorAll(".page-btn[data-page]").forEach(b => {
+    if (b.disabled) return;
+    b.addEventListener("click", () => {
+      const p = Number(b.dataset.page);
+      if (p !== currentPage && p >= 1 && p <= totalPages) onPageChange(p);
+    });
+  });
+}
+export { renderPaginationBar };
 
 export function renderDashboardInventory() {
   const container = $("dashboard-inventory"); if (!container) return;
@@ -337,6 +487,10 @@ export function renderDashboardInventory() {
   container.innerHTML = filtered.map(item => {
     const isLow = item.quantity <= (item.threshold ?? 5);
     const { percent, level } = stockProgress(item);
+    const hasDiscount = Number(item.discountPrice) > 0 && Number(item.discountPrice) < Number(item.price);
+    const priceHTML = hasDiscount
+      ? `<span class="price-original">${fmtMoney(item.price)}</span> <span class="price-discount">${fmtMoney(item.discountPrice)}</span>`
+      : fmtMoney(item.price);
     return `
       <div class="item-card ${isLow ? "low-stock" : ""}">
         ${productImageHTML(item)}
@@ -348,7 +502,7 @@ export function renderDashboardInventory() {
           <div class="item-meta">
             <span>📂 ${esc(item.category)}</span>
             <span>📦 ${fmtInt(item.quantity)}</span>
-            <span>💰 ${fmtMoney(item.price)}</span>
+            <span>💰 ${priceHTML}</span>
           </div>
           <div class="progress-wrap">
             <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
@@ -463,11 +617,9 @@ export function renderMovements() {
     const isIn = m.type === "in";
     const date = m.createdAt?.toDate?.().toLocaleString() ?? "—";
     const reasonLabel = REASON_LABEL[m.reason] || m.reason || "";
-
     const item = state.inventory.find(i => i.id === m.itemId) || {
       id: m.itemId, name: m.itemName, image: null
     };
-
     return `
     <div class="movement-row">
       ${productImageHTML(item, "sm")}
@@ -809,7 +961,7 @@ function closeCategoryImagePicker() {
 }
 
 /* =========================================================
-   RENDER — Categories grid (FIXED)
+   RENDER — Categories grid
    ========================================================= */
 function categoryThumbHTML(cat) {
   const src = cat.imageThumb || cat.image;
@@ -1169,17 +1321,313 @@ function wireScanner() {
    ========================================================= */
 export function initInventory() {
   wirePhotoInputs();
+  wireDiscountPreview();
   wireItemForm();
   wireRestock();
   wireMovementModal();
   wireScanner();
   wireCategoryForm();
+  wireImport();
+  wireAutoSync();
   $("search-input")?.addEventListener("input", debounce(renderInventory, 150));
   $("filter-category")?.addEventListener("change", renderInventory);
   $("dash-search")?.addEventListener("input", debounce(renderDashboardInventory, 150));
   $("expiry-banner-btn")?.addEventListener("click", () => {
     $("expiring-list")?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
+}
+
+/* =========================================================
+   EXCEL IMPORT / UPDATE
+   ========================================================= */
+const IMPORT_COLUMNS = [
+  "Name", "SKU", "Barcode", "Category",
+  "Quantity", "Cost", "Price",
+  "Discount%", "Discount price",
+  "Expiry", "Threshold"
+];
+
+let _importRows = [];
+
+function openImportModal() {
+  _importRows = [];
+  const fileInput = $("import-file-input");
+  if (fileInput) fileInput.value = "";
+  const fileName = $("import-file-name");
+  if (fileName) fileName.textContent = "No file selected";
+  const preview = $("import-preview");
+  if (preview) { preview.classList.add("hidden"); preview.innerHTML = ""; }
+  const confirmBtn = $("import-confirm-btn");
+  if (confirmBtn) confirmBtn.disabled = true;
+  $("import-modal")?.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeImportModal() {
+  $("import-modal")?.classList.add("hidden");
+  document.body.style.overflow = "";
+  _importRows = [];
+}
+
+async function parseExcelFile(file) {
+  if (typeof XLSX === "undefined") throw new Error("Excel library not loaded");
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error("No sheets found");
+  return XLSX.utils.sheet_to_json(ws, { defval: "" });
+}
+
+/* Smart column matcher — case/symbol-insensitive */
+function findColumnKey(raw, candidates) {
+  const keys = Object.keys(raw || {});
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const cand of candidates) {
+    const n = norm(cand);
+    if (!n) continue;
+    const exact = keys.find(k => norm(k) === n);
+    if (exact) return exact;
+  }
+  for (const cand of candidates) {
+    const n = norm(cand);
+    if (!n) continue;
+    const partial = keys.find(k => norm(k).includes(n));
+    if (partial) return partial;
+  }
+  return null;
+}
+
+/* Normalize a raw Excel row → our inventory shape */
+function normalizeImportRow(raw) {
+  const getByCandidates = (candidates) => {
+    const key = findColumnKey(raw, candidates);
+    return key != null ? raw[key] : "";
+  };
+
+  const name      = String(getByCandidates(["Name", "Product", "Product Name", "Item"]) || "").trim();
+  const sku       = String(getByCandidates(["SKU", "Sku", "Code", "Item Code"]) || "").trim();
+  const barcode   = String(getByCandidates(["Barcode", "Bar Code", "EAN", "UPC", "GTIN"]) || "").trim();
+  const category  = String(getByCandidates(["Category", "Cat"]) || "").trim();
+  const quantity  = Number(getByCandidates(["Quantity", "Qty", "Stock", "On Hand"])) || 0;
+  const cost      = Number(getByCandidates(["Cost", "Cost Price", "Puhunan", "Buy Price"])) || 0;
+  const price     = Number(getByCandidates(["Selling Price", "SellingPrice", "Selling", "Price", "SRP"])) || 0;
+  const expiry    = String(getByCandidates(["Expiry", "Expiry Date", "Expiration", "Best Before"]) || "").trim();
+  const threshold = Number(getByCandidates(["Threshold", "Min Stock", "Low Stock", "Reorder Point"])) || 5;
+
+  /* ---------- DISCOUNT ---------- */
+  // Primary: discount price (final price after discount)
+  const discPriceRaw = getByCandidates([
+    "Discount price", "Discount Price", "Discountprice",
+    "Discounted Price", "DiscountedPrice",
+    "Final Price", "FinalPrice",
+    "Sale Price", "SalePrice", "Net Price"
+  ]);
+
+  // Secondary: discount percent
+  const discPctRaw = getByCandidates([
+    "Discount%", "Discount %", "Discount Percent", "DiscountPercent",
+    "Disc%", "Disc %", "Discount Rate"
+  ]);
+
+  const numOf = (v) => {
+    if (v === "" || v == null) return null;
+    const cleaned = String(v).replace(/[^0-9.\-]/g, "");
+    const n = Number(cleaned);
+    return isNaN(n) ? null : n;
+  };
+
+  const dpVal = numOf(discPriceRaw);
+  const pctVal = numOf(discPctRaw);
+
+  let discountPrice = 0;
+  let discount = 0;
+
+  if (dpVal != null && dpVal > 0 && price > 0 && dpVal < price) {
+    // Explicit final price wins
+    discountPrice = dpVal;
+    discount = computeDiscountPercent(price, dpVal);
+  } else if (pctVal != null && pctVal > 0 && price > 0) {
+    // Percent-only → compute final
+    const capped = Math.min(100, pctVal);
+    discountPrice = price * (1 - capped / 100);
+    discount = capped;
+  }
+
+  return {
+    name, sku, barcode, category, quantity, cost, price,
+    discount: Number(discount.toFixed(4)),
+    discountType: "percent",
+    discountPrice: Number(discountPrice.toFixed(2)),
+    expiry, threshold
+  };
+}
+
+/* Decide action for each row: create / update / skip (with reason) */
+function planImport(rows) {
+  const skuMap = new Map();
+  state.inventory.forEach(i => { if (i.sku) skuMap.set(String(i.sku).trim(), i); });
+
+  return rows.map((r, idx) => {
+    const errors = [];
+    if (!r.name) errors.push("Name required");
+    if (!r.category) errors.push("Category required");
+    if (!r.price || r.price <= 0) errors.push("Price must be > 0");
+
+    const existing = r.sku ? skuMap.get(r.sku) : null;
+    const action = existing ? "update" : "create";
+    if (!r.sku && action === "create") errors.push("SKU required for new items");
+
+    return { ...r, _row: idx + 2, _action: action, _errors: errors, _existingId: existing?.id || null };
+  });
+}
+
+function renderImportPreview(planned) {
+  const preview = $("import-preview");
+  if (!preview) return;
+  const valid = planned.filter(p => !p._errors.length);
+  const invalid = planned.filter(p => p._errors.length);
+  const creates = valid.filter(p => p._action === "create").length;
+  const updates = valid.filter(p => p._action === "update").length;
+
+  const rowsHTML = planned.slice(0, 30).map(p => {
+    const cls = p._errors.length ? "err" : (p._action === "update" ? "upd" : "new");
+    const label = p._errors.length ? `❌ ${p._errors.join(", ")}` : (p._action === "update" ? "↻ Update" : "＋ New");
+    const discBadge = (p.discountPrice && p.discountPrice > 0)
+      ? `<span class="import-row-disc">💥 ${p.discount ? Math.round(p.discount) + "% · " : ""}${fmtMoney(p.discountPrice)}</span>`
+      : "";
+    return `<div class="import-row ${cls}">
+      <span class="import-row-num">#${p._row}</span>
+      <span class="import-row-name">${esc(p.name || "(no name)")}</span>
+      <span class="import-row-sku">${esc(p.sku || "—")}</span>
+      ${discBadge}
+      <span class="import-row-action">${label}</span>
+    </div>`;
+  }).join("");
+
+  preview.classList.remove("hidden");
+  preview.innerHTML = `
+    <div class="import-summary">
+      <span>✅ <strong>${creates}</strong> new</span>
+      <span>↻ <strong>${updates}</strong> updates</span>
+      ${invalid.length ? `<span>❌ <strong>${invalid.length}</strong> skipped</span>` : ""}
+    </div>
+    <div class="import-rows">${rowsHTML}${planned.length > 30 ? `<div class="import-more">… and ${planned.length - 30} more rows</div>` : ""}</div>
+  `;
+
+  const confirmBtn = $("import-confirm-btn");
+  if (confirmBtn) confirmBtn.disabled = valid.length === 0;
+}
+
+async function handleImportFile(file) {
+  if (!file) return;
+  try {
+    const raw = await parseExcelFile(file);
+    if (!raw.length) { showToast("Excel file is empty ❌"); return; }
+    const normalized = raw.map(normalizeImportRow);
+    const planned = planImport(normalized);
+    _importRows = planned;
+    renderImportPreview(planned);
+    const nameEl = $("import-file-name");
+    if (nameEl) nameEl.textContent = `${file.name} · ${planned.length} row${planned.length !== 1 ? "s" : ""}`;
+    showToast(`Preview ready · ${planned.filter(p => !p._errors.length).length} valid ✅`);
+  } catch (err) {
+    console.error("[import] parse failed:", err);
+    showToast(`Import failed: ${err.message} ❌`);
+  }
+}
+
+async function commitImport() {
+  const valid = _importRows.filter(p => !p._errors.length);
+  if (!valid.length) { showToast("No valid rows to import ❌"); return; }
+
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+
+  const btn = $("import-confirm-btn");
+  if (btn) btn.disabled = true;
+
+  const BATCH_LIMIT = 200;
+  let processed = 0, created = 0, updated = 0;
+
+  try {
+    for (let i = 0; i < valid.length; i += BATCH_LIMIT) {
+      const chunk = valid.slice(i, i + BATCH_LIMIT);
+      const batch = writeBatch(db);
+
+      for (const row of chunk) {
+        const data = {
+          name: row.name,
+          sku: row.sku,
+          barcode: row.barcode,
+          category: row.category,
+          quantity: row.quantity,
+          cost: row.cost,
+          price: row.price,
+          discount: row.discount || 0,
+          discountType: "percent",
+          discountPrice: row.discountPrice || 0,
+          expiry: row.expiry,
+          threshold: row.threshold,
+          workspaceId: wsId,
+          updatedAt: serverTimestamp()
+        };
+
+        if (row._action === "update" && row._existingId) {
+          batch.update(doc(db, "inventory", row._existingId), data);
+          updated++;
+        } else {
+          const newRef = doc(collection(db, "inventory"));
+          batch.set(newRef, { ...data, createdAt: serverTimestamp() });
+          created++;
+        }
+      }
+
+      await settleWrite(batch.commit(), "Import chunk");
+      processed += chunk.length;
+      showToast(`Imported ${processed}/${valid.length}…`);
+    }
+
+    playSuccessSound();
+    showToast(`Import complete · ${created} new, ${updated} updated ✅`);
+    closeImportModal();
+  } catch (err) {
+    console.error("[import] commit failed:", err);
+    showToast(`Import failed: ${err.code || err.message} ❌`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function downloadImportTemplate() {
+  const sample = [
+    { Name: "White bread",     SKU: "1001", Barcode: "", Category: "bread",           Quantity: 95,  Cost: 15, Price: 25, "Discount%": 40, "Discount price": 15,  Expiry: "",           Threshold: 10 },
+    { Name: "Petroleum Jelly", SKU: "1002", Barcode: "", Category: "Petroleum Jelly", Quantity: 148, Cost: 12, Price: 16, "Discount%": 50, "Discount price": 8,   Expiry: "",           Threshold: 20 },
+    { Name: "Rexona",          SKU: "1003", Barcode: "", Category: "deodorant",       Quantity: 195, Cost: 18, Price: 24, "Discount%": 65, "Discount price": 8.4, Expiry: "",           Threshold: 15 },
+    { Name: "Coke 1.5L",       SKU: "1004", Barcode: "4801234567890", Category: "Drinks", Quantity: 50, Cost: 55, Price: 75, "Discount%": 0, "Discount price": 0,  Expiry: "2026-12-31", Threshold: 10 }
+  ];
+  const ws = XLSX.utils.json_to_sheet(sample, { header: IMPORT_COLUMNS });
+  const colWidths = IMPORT_COLUMNS.map(h => ({ wch: Math.max(h.length + 2, 12) }));
+  ws["!cols"] = colWidths;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+  downloadXLSX(wb, `import_template_${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast("Template downloaded 📋");
+}
+
+function wireImport() {
+  $("import-inv-excel-btn")?.addEventListener("click", openImportModal);
+  $("import-close")?.addEventListener("click", closeImportModal);
+  $("import-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("import-modal")) closeImportModal();
+  });
+  $("import-pick-btn")?.addEventListener("click", () => $("import-file-input")?.click());
+  $("import-file-input")?.addEventListener("change", (e) => {
+    const f = e.target.files?.[0];
+    if (f) handleImportFile(f);
+  });
+  $("import-confirm-btn")?.addEventListener("click", commitImport);
+  $("import-download-template")?.addEventListener("click", downloadImportTemplate);
 }
 
 /* =========================================================
@@ -1231,4 +1679,287 @@ export function startInventoryListeners(onAfterInventoryChange) {
     },
     (err) => console.error("[Movements listener]", err.code, err.message)
   );
+}
+/* =========================================================
+   AUTO-SYNC — File System Access API
+   Links a local Excel file once. Re-reads it on every app
+   boot + every 60s. Only changed rows are written to Firestore.
+   ========================================================= */
+
+const AUTOSYNC_DB     = "kurt-autosync";
+const AUTOSYNC_STORE  = "handles";
+const AUTOSYNC_KEY    = "inventory-file";
+
+/* ---------- IndexedDB helpers ---------- */
+function _openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(AUTOSYNC_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(AUTOSYNC_STORE)) {
+        db.createObjectStore(AUTOSYNC_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function _idbPut(key, val) {
+  const idb = await _openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = idb.transaction(AUTOSYNC_STORE, "readwrite");
+    tx.objectStore(AUTOSYNC_STORE).put(val, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function _idbGet(key) {
+  const idb = await _openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = idb.transaction(AUTOSYNC_STORE, "readonly");
+    const req = tx.objectStore(AUTOSYNC_STORE).get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function _idbDel(key) {
+  const idb = await _openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = idb.transaction(AUTOSYNC_STORE, "readwrite");
+    tx.objectStore(AUTOSYNC_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ---------- Support check ---------- */
+function supportsFileSystemAccess() {
+  return typeof window !== "undefined" && "showOpenFilePicker" in window;
+}
+
+/* ---------- UI refresh ---------- */
+export async function updateAutoSyncUI() {
+  const statusEl  = $("autosync-status");
+  const linkBtn   = $("autosync-link-btn");
+  const unlinkBtn = $("autosync-unlink-btn");
+  const syncBtn   = $("autosync-sync-btn");
+  if (!statusEl) return;
+
+  if (!supportsFileSystemAccess()) {
+    statusEl.innerHTML = "⚠️ Auto-sync needs <b>Chrome</b> or <b>Edge</b> on desktop. Use manual import below.";
+    if (linkBtn)   linkBtn.disabled = true;
+    if (unlinkBtn) unlinkBtn.classList.add("hidden");
+    if (syncBtn)   syncBtn.classList.add("hidden");
+    return;
+  }
+  if (linkBtn) linkBtn.disabled = false;
+
+  let handle = null;
+  try { handle = await _idbGet(AUTOSYNC_KEY); } catch {}
+
+  if (!handle) {
+    statusEl.innerHTML = `No file linked yet. Click <b>🔗 Link File</b> to enable auto-sync.`;
+    if (unlinkBtn) unlinkBtn.classList.add("hidden");
+    if (syncBtn)   syncBtn.classList.add("hidden");
+    if (linkBtn)   linkBtn.textContent = "🔗 Link File";
+    return;
+  }
+
+  let perm = "denied";
+  try { perm = await handle.queryPermission({ mode: "read" }); } catch {}
+  const needPerm = perm !== "granted";
+
+  statusEl.innerHTML = needPerm
+    ? `📁 <b>${esc(handle.name)}</b> — permission needed. Click <b>🔓 Re-grant</b>.`
+    : `<span class="autosync-pulse"></span><b>${esc(handle.name)}</b> — auto-sync ON`;
+
+  if (unlinkBtn) unlinkBtn.classList.remove("hidden");
+  if (syncBtn)   syncBtn.classList.remove("hidden");
+  if (linkBtn)   linkBtn.textContent = needPerm ? "🔓 Re-grant Permission" : "🔗 Replace File";
+}
+
+/* ---------- Link a file ---------- */
+export async function linkAutoSyncFile() {
+  if (!supportsFileSystemAccess()) {
+    showToast("Auto-sync needs Chrome / Edge desktop ⚠️");
+    return;
+  }
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{
+        description: "Excel or CSV",
+        accept: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+          "application/vnd.ms-excel": [".xls"],
+          "text/csv": [".csv"]
+        }
+      }],
+      multiple: false,
+      excludeAcceptAllOption: false
+    });
+    if (!handle) return;
+
+    const perm = await handle.requestPermission({ mode: "read" });
+    if (perm !== "granted") { showToast("Permission denied ❌"); return; }
+
+    await _idbPut(AUTOSYNC_KEY, handle);
+    playSuccessSound();
+    showToast(`Linked: ${handle.name} ✅`);
+    await updateAutoSyncUI();
+
+    // Sync once immediately so the user sees it working
+    await autoSyncFromFile({ silent: false });
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+    console.error("[autosync] link failed:", err);
+    showToast(`Link failed: ${err.message} ❌`);
+  }
+}
+
+/* ---------- Unlink ---------- */
+export async function unlinkAutoSyncFile() {
+  if (!confirm("Unlink the file? Auto-sync will stop.")) return;
+  try {
+    await _idbDel(AUTOSYNC_KEY);
+    showToast("File unlinked 🗑️");
+    await updateAutoSyncUI();
+  } catch (err) { showToast(`Failed: ${err.message} ❌`); }
+}
+
+/* ---------- Compare current vs incoming ---------- */
+function rowMatchesInventory(current, row) {
+  if (!current) return false;
+  return (
+    (current.name || "")           === (row.name || "") &&
+    (current.category || "")       === (row.category || "") &&
+    (current.barcode || "")        === (row.barcode || "") &&
+    Number(current.price || 0)     === Number(row.price || 0) &&
+    Number(current.cost || 0)      === Number(row.cost || 0) &&
+    Number(current.quantity || 0)  === Number(row.quantity || 0) &&
+    Number(current.discountPrice || 0) === Number(row.discountPrice || 0) &&
+    Number(current.discount || 0)  === Number(row.discount || 0) &&
+    (current.expiry || "")         === (row.expiry || "") &&
+    Number(current.threshold ?? 5) === Number(row.threshold ?? 5)
+  );
+}
+
+/* ---------- Core sync ---------- */
+export async function autoSyncFromFile({ silent = false } = {}) {
+  if (!state.currentUser) return;
+  if (!supportsFileSystemAccess()) {
+    if (!silent) showToast("Auto-sync not supported on this browser ⚠️");
+    return;
+  }
+
+  let handle;
+  try { handle = await _idbGet(AUTOSYNC_KEY); }
+  catch (e) { if (!silent) showToast(`Sync read failed: ${e.message} ❌`); return; }
+
+  if (!handle) {
+    if (!silent) showToast("No file linked. Click '🔗 Link File' first ⚠️");
+    return;
+  }
+
+  // Permission check
+  let perm = "denied";
+  try { perm = await handle.queryPermission({ mode: "read" }); } catch {}
+  if (perm !== "granted") {
+    if (silent) return;   // can't prompt silently
+    perm = await handle.requestPermission({ mode: "read" });
+    if (perm !== "granted") { showToast("Permission denied ❌"); return; }
+  }
+
+  // Read & parse
+  let raw;
+  try {
+    const file = await handle.getFile();
+    raw = await parseExcelFile(file);
+  } catch (e) {
+    console.warn("[autosync] read/parse failed:", e);
+    if (!silent) showToast(`Read failed: ${e.message} ❌`);
+    return;
+  }
+  if (!raw.length) { if (!silent) showToast("Linked file is empty ❌"); return; }
+
+  const normalized = raw.map(normalizeImportRow);
+  const planned    = planImport(normalized);
+  const valid      = planned.filter(p => !p._errors.length);
+  if (!valid.length) { if (!silent) showToast("No valid rows to sync ❌"); return; }
+
+  // Only changed rows
+  const changed = [];
+  for (const row of valid) {
+    const current = row._existingId ? state.inventory.find(i => i.id === row._existingId) : null;
+    if (!current || !rowMatchesInventory(current, row)) changed.push(row);
+  }
+
+  if (!changed.length) {
+    if (!silent) showToast("Already up to date ✅");
+    return;
+  }
+
+  const wsId = myWorkspace();
+  if (!wsId) { if (!silent) showToast("Workspace not ready ❌"); return; }
+
+  // Commit in chunks
+  const BATCH_LIMIT = 200;
+  let updated = 0, created = 0;
+  try {
+    for (let i = 0; i < changed.length; i += BATCH_LIMIT) {
+      const chunk = changed.slice(i, i + BATCH_LIMIT);
+      const batch = writeBatch(db);
+      for (const row of chunk) {
+        const data = {
+          name: row.name,
+          sku: row.sku,
+          barcode: row.barcode,
+          category: row.category,
+          quantity: row.quantity,
+          cost: row.cost,
+          price: row.price,
+          discount: row.discount || 0,
+          discountType: "percent",
+          discountPrice: row.discountPrice || 0,
+          expiry: row.expiry,
+          threshold: row.threshold,
+          workspaceId: wsId,
+          updatedAt: serverTimestamp()
+        };
+        if (row._action === "update" && row._existingId) {
+          batch.update(doc(db, "inventory", row._existingId), data);
+          updated++;
+        } else {
+          batch.set(doc(collection(db, "inventory")), { ...data, createdAt: serverTimestamp() });
+          created++;
+        }
+      }
+      await settleWrite(batch.commit(), "AutoSync");
+    }
+    playSuccessSound();
+    showToast(`Auto-synced · ${created} new, ${updated} updated ✅`);
+  } catch (err) {
+    console.error("[autosync] commit failed:", err);
+    if (!silent) showToast(`Sync failed: ${err.code || err.message} ❌`);
+  }
+}
+
+/* ---------- Periodic ticker ---------- */
+let _autosyncInterval = null;
+export function startAutoSyncTicker() {
+  stopAutoSyncTicker();
+  _autosyncInterval = setInterval(() => {
+    // Silent — won't toast unless it actually syncs something
+    autoSyncFromFile({ silent: true });
+  }, 60 * 1000); // every 60 seconds
+}
+export function stopAutoSyncTicker() {
+  if (_autosyncInterval) { clearInterval(_autosyncInterval); _autosyncInterval = null; }
+}
+
+/* ---------- Wire the panel in the Import modal ---------- */
+export function wireAutoSync() {
+  $("autosync-link-btn")?.addEventListener("click", linkAutoSyncFile);
+  $("autosync-sync-btn")?.addEventListener("click", () => autoSyncFromFile({ silent: false }));
+  $("autosync-unlink-btn")?.addEventListener("click", unlinkAutoSyncFile);
+  updateAutoSyncUI();
 }

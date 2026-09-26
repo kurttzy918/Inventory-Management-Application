@@ -48,6 +48,12 @@ export const state = {
   manualSku: false,
   skuInitialized: false,
 
+  // pagination
+  invPage: 1,
+  invPageSize: 20,
+  histPage: 1,
+  histPageSize: 15,
+
   // modal state
   restockItemId: null,
   currentReceiptGroup: null,

@@ -5,7 +5,8 @@ import { initAuthUI, initAuthHandlers, buildAuthBackground, startAuthBgCarousel,
 import {
   initInventory, startInventoryListeners, renderInventory, renderDashboardInventory,
   renderLowStockAlerts, renderExpiring, renderMovements, renderCategories, autoFillSku,
-  forceCloseScanner
+  forceCloseScanner,
+  autoSyncFromFile, startAutoSyncTicker, stopAutoSyncTicker, updateAutoSyncUI
 } from "./inventory.js";
 import {
   initPOS, startSalesListener, renderPosProducts, renderPosCart, renderSales,
@@ -536,6 +537,7 @@ function onLoggedOut() {
   startAuthBgCarousel("auth-bg-slides");
   forceCloseScanner();
   stopGreetingTicker();
+  stopAutoSyncTicker();      // 👈 NEW
 }
 
 function onPending() {
@@ -543,6 +545,7 @@ function onPending() {
   stopAuthBgCarousel();
   startAuthBgCarousel("pending-bg-slides");
   stopGreetingTicker();
+  stopAutoSyncTicker();      // 👈 NEW
 }
 
 function onApproved(userData) {
@@ -550,6 +553,14 @@ function onApproved(userData) {
   startGreetingTicker();
   syncThemeToggleUI();
   syncSoundToggleUI();
+
+  // 🔄 Auto-sync: refresh the linked file handle UI, then
+  // try a silent sync (runs after Firestore has loaded inventory)
+  updateAutoSyncUI();
+  setTimeout(() => {
+    autoSyncFromFile({ silent: true });
+  }, 2500);
+  startAutoSyncTicker();
   if (userData.role === "superadmin" && !state.unsubscribers.users) {
     startUserAdminListener();
   }
@@ -721,6 +732,7 @@ function boot() {
       stopAllListeners();
       forceCloseScanner();
       stopGreetingTicker();
+      stopAutoSyncTicker();  // 👈 NEW
     }
   });
 }
