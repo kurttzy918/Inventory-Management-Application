@@ -1,6 +1,6 @@
 /* pos.js — Point of Sale: cart, checkout, receipt */
 import {
-  collection, onSnapshot, doc, writeBatch, serverTimestamp,
+  collection, onSnapshot, doc, writeBatch, serverTimestamp, Timestamp,
   query, where, increment
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { db } from "./firebase.js";
@@ -253,6 +253,11 @@ async function handleCheckout() {
   const now = new Date();
   const cashier = state.currentUser?.email || "-";
 
+  // ✅ Use ONE shared Timestamp for every write in this batch.
+  // Mixing multiple `serverTimestamp()` sentinels with `increment()`
+  // triggers Firestore 10.12's "Unexpected state" assertion error.
+  const nowTs = Timestamp.fromDate(now);
+
   state.checkoutBusy = true;
   const btn = $("pos-checkout"); if (btn) btn.disabled = true;
 
@@ -260,7 +265,7 @@ async function handleCheckout() {
     const batch = writeBatch(db);
     const saleIds = [];
 
-        lines.forEach(({ item, qty, price }) => {
+    lines.forEach(({ item, qty, price }) => {
       const saleRef = doc(collection(db, "sales"));
       saleIds.push(saleRef.id);
       const lineTotal = qty * price;
@@ -268,35 +273,40 @@ async function handleCheckout() {
       batch.set(saleRef, {
         itemId: item.id, itemName: item.name, category: item.category,
         quantity: qty, unitPrice: price, total: lineTotal,
-        cost: item.cost || 0, profit: (price - (item.cost || 0)) * qty,
+        cost: Number(item.cost) || 0,
+        profit: (price - (Number(item.cost) || 0)) * qty,
         workspaceId: wsId, receiptNum, cash, change,
         paymentMode: mode,
         customerId: customer?.id || null,
         customerName: customer?.name || null,
         // 💰 cash-basis accounting flags:
         paid: isCash,
-        paidAt: isCash ? serverTimestamp() : null,
+        paidAt: isCash ? nowTs : null,
         amountPaid: isCash ? lineTotal : 0,
         unpaidAmount: isCash ? 0 : lineTotal,
-        createdAt: serverTimestamp(), userId: state.currentUser.uid
+        createdAt: nowTs,
+        userId: state.currentUser?.uid || null
       });
       batch.update(doc(db, "inventory", item.id), {
-        quantity: increment(-qty), updatedAt: serverTimestamp()
+        quantity: increment(-qty), updatedAt: nowTs
       });
-      batch.set(doc(collection(db, "movements")), movementDoc({
+      // Movement — override createdAt to the same shared timestamp
+      const mov = movementDoc({
         itemId: item.id, itemName: item.name,
         type: "out", quantity: qty, reason: "sale", note: `Receipt ${receiptNum}`
-      }));
+      });
+      mov.createdAt = nowTs;
+      batch.set(doc(collection(db, "movements")), mov);
     });
 
     if (mode === "credit" && customer) {
       batch.update(doc(db, "customers", customer.id), {
         balance: increment(total),
         totalPurchases: increment(total),
-        lastPurchaseAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        lastPurchaseAt: nowTs,
+        updatedAt: nowTs
       });
-      batch.set(doc(collection(db, "customer_transactions")), customerTxDoc({
+      const cTx = customerTxDoc({
         customerId: customer.id,
         customerName: customer.name,
         type: "purchase",
@@ -304,7 +314,9 @@ async function handleCheckout() {
         receiptNum,
         saleIds,
         note: "Credit sale"
-      }));
+      });
+      cTx.createdAt = nowTs;
+      batch.set(doc(collection(db, "customer_transactions")), cTx);
     }
 
     await settleWrite(batch.commit(), "Sale");

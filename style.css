@@ -3354,3 +3354,68 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast { bottom: auto
 
 /* Chart gets a bit smaller when the summary is showing */
 .sales-cat-summary:not(.hidden) + .chart-wrapper { height: 130px !important; }
+
+/* ==========================================================
+   DASHBOARD TOPBAR — refresh button
+   ========================================================== */
+.dash-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.dash-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+.dash-refresh-btn:hover {
+  background: var(--brand-50);
+  border-color: var(--brand-300);
+  color: var(--brand);
+}
+.dash-refresh-btn:active {
+  transform: scale(0.97);
+}
+.dash-refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.dash-refresh-btn.is-refreshing {
+  background: var(--brand-50);
+  border-color: var(--brand-300);
+}
+
+.dash-refresh-icon {
+  display: inline-block;
+  font-size: 0.92rem;
+  line-height: 1;
+  will-change: transform;
+}
+
+[data-theme="dark"] .dash-refresh-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+[data-theme="dark"] .dash-refresh-btn:hover {
+  background: rgba(47, 163, 143, 0.14);
+  border-color: var(--brand-400);
+  color: #8FE3C8;
+}
+
+@media (max-width: 520px) {
+  .dash-refresh-label { display: none; }
+  .dash-refresh-btn { padding: 6px 9px; }
+  .dash-refresh-icon { font-size: 1rem; }
+}

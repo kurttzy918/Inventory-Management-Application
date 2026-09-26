@@ -25,6 +25,48 @@ import { initLabels, renderLabelsPage } from "./labels.js";
 import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
 
 /* =========================================================
+   POPULATE CATEGORY OPTIONS — local function
+   ========================================================= */
+function populateCategoryOptions() {
+  const names = (state.categories || []).map(c => c.name).filter(Boolean);
+
+  // 1) Datalist for the Add/Edit Item form
+  const datalist = document.getElementById("category-list");
+  if (datalist) {
+    datalist.innerHTML = names
+      .map(n => `<option value="${n.replace(/"/g, '&quot;')}"></option>`)
+      .join("");
+  }
+
+  // 2) Add Item page — category filter
+  const filterSel = document.getElementById("filter-category");
+  if (filterSel) {
+    const cur = filterSel.value;
+    filterSel.innerHTML = `<option value="">All Categories</option>` +
+      names.map(n => `<option value="${n}">${n}</option>`).join("");
+    if (cur && names.includes(cur)) filterSel.value = cur;
+  }
+
+  // 3) POS — category filter
+  const posSel = document.getElementById("sales-cat-filter");
+  if (posSel) {
+    const cur = posSel.value;
+    posSel.innerHTML = `<option value="">All Categories</option>` +
+      names.map(n => `<option value="${n}">${n}</option>`).join("");
+    if (cur && names.includes(cur)) posSel.value = cur;
+  }
+
+  // 4) History — category filter
+  const histSel = document.getElementById("history-cat-filter");
+  if (histSel) {
+    const cur = histSel.value;
+    histSel.innerHTML = `<option value="">All Categories</option>` +
+      names.map(n => `<option value="${n}">${n}</option>`).join("");
+    if (cur && names.includes(cur)) histSel.value = cur;
+  }
+}
+
+/* =========================================================
    PERSONALIZED GREETING
    ========================================================= */
 let greetingTimer = null;
@@ -231,6 +273,10 @@ function wireNav() {
       }
       if (btn.dataset.page === "page-add") {
         safeRender(autoFillSku);
+        safeRender(populateCategoryOptions);
+      }
+      if (btn.dataset.page === "page-categories") {
+        safeRender(renderCategories);
       }
       if (btn.dataset.page === "page-customers") {
         safeRender(renderCustomerPickerOptions);
@@ -302,12 +348,62 @@ function wireMobileNav() {
 }
 
 /* =========================================================
+   DASHBOARD REFRESH
+   ========================================================= */
+function wireDashboardRefresh() {
+  const btn = $("dash-refresh-btn");
+  if (!btn) return;
+
+  btn.addEventListener("click", () => {
+    const icon = btn.querySelector(".dash-refresh-icon");
+    if (icon) {
+      icon.style.transition = "transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)";
+      icon.style.transform = "rotate(360deg)";
+      setTimeout(() => { icon.style.transform = ""; }, 650);
+    }
+    btn.classList.add("is-refreshing");
+    btn.disabled = true;
+
+    safeRender(renderInventory);
+    safeRender(renderDashboardInventory);
+    safeRender(renderLowStockAlerts);
+    safeRender(renderExpiring);
+    safeRender(renderMovements);
+    safeRender(renderCategories);
+    safeRender(populateCategoryOptions);
+    safeRender(updateStats);
+    safeRender(populateMonthFilter);
+    safeRender(populateSalesCategoryFilter);
+    safeRender(renderSalesOverview);
+    safeRender(renderKPIs);
+    safeRender(renderTopProfitAndRevenue);
+    safeRender(renderFastMoving);
+    safeRender(renderSlowMoving);
+    safeRender(renderCarousel);
+    safeRender(renderSales);
+    safeRender(renderPosProducts);
+    safeRender(renderPosCart);
+    safeRender(renderCustomerPickerOptions);
+    safeRender(renderCharts);
+
+    showToast("Dashboard refreshed ✅");
+
+    setTimeout(() => {
+      btn.classList.remove("is-refreshing");
+      btn.disabled = false;
+    }, 700);
+  });
+}
+
+/* =========================================================
    LISTENERS
    ========================================================= */
 function startAllListeners() {
   const onAfter = () => {
     safeRender(updateStats);
     safeRender(populateMonthFilter);
+    safeRender(populateSalesCategoryFilter);
+    safeRender(populateCategoryOptions);      // 👈 CRITICAL: refresh datalist + filters
     safeRender(renderSalesOverview);
     safeRender(renderKPIs);
     safeRender(renderTopProfitAndRevenue);
@@ -468,8 +564,10 @@ function onApproved(userData) {
     safeRender(renderPosProducts);
     safeRender(renderPosCart);
     safeRender(renderCustomerPickerOptions);
+    safeRender(populateCategoryOptions);      // 👈 refresh datalist after login
     safeRender(updateStats);
     safeRender(populateMonthFilter);
+    safeRender(populateSalesCategoryFilter);
     safeRender(renderSalesOverview);
     safeRender(renderKPIs);
     safeRender(renderTopProfitAndRevenue);
@@ -494,6 +592,7 @@ function wireAllModals() {
     "cat-image-modal":        { cleanup: () => { state.catImageCategoryId = null; } },
     "payment-modal":          { cleanup: () => { state.currentCustomerId = null; } },
     "customer-detail-modal":  { cleanup: () => { state.currentCustomerId = null; } },
+    "gcash-payment-modal":    { cleanup: () => { /* nothing */ } },
     "install-modal":          { cleanup: null },
     "scanner-modal":          { cleanup: () => {
         import("./inventory.js").then(m => m.forceCloseScanner?.()).catch(() => {});
@@ -567,6 +666,7 @@ function wireAllModals() {
       "cat-image-modal",
       "customer-detail-modal",
       "payment-modal",
+      "gcash-payment-modal",
       "movement-modal",
       "receipt-modal",
       "restock-modal",
@@ -590,7 +690,6 @@ window.addEventListener("load", () => {
   document.querySelector(".nav-toggle")?.classList.remove("open");
   document.getElementById("nav-backdrop")?.classList.remove("open");
   document.body.style.overflow = "";
-  // Ensure pills reflect actual state after everything loads
   syncThemeToggleUI();
   syncSoundToggleUI();
 });
@@ -608,6 +707,7 @@ function boot() {
   initGcash();
   wireNav();
   wireMobileNav();
+  wireDashboardRefresh();
   wireInstallPrompt();
   wireAllModals();
   wireOnlineOffline();

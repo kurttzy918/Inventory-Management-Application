@@ -187,9 +187,15 @@
 
         <!-- ========== DASHBOARD ========== -->
     <main id="page-dashboard" class="page active">
-      <div class="dash-top">
+        <div class="dash-top">
         <h2 class="page-title">Dashboard Overview</h2>
-        <span class="dash-live-badge">🟢 Live</span>
+        <div class="dash-top-actions">
+          <button id="dash-refresh-btn" class="dash-refresh-btn" type="button" title="Refresh dashboard">
+            <span class="dash-refresh-icon">🔄</span>
+            <span class="dash-refresh-label">Refresh</span>
+          </button>
+          <span class="dash-live-badge">🟢 Live</span>
+        </div>
       </div>
 
       <div id="expiry-banner" class="expiry-banner hidden">
@@ -615,7 +621,7 @@
 
     <!-- ========== CUSTOMERS ========== -->
     <main id="page-customers" class="page hidden">
-      <h2 class="page-title">Utang History</h2>
+      <h2 class="page-title">Utang Ledger</h2>
 
       <div class="card">
         <h3 class="card-title" id="customer-form-title">Add Customer</h3>
@@ -853,7 +859,7 @@
         <span class="nav-icon">🗂️</span><span>Categories</span>
       </button>
       <button class="nav-btn" data-page="page-customers">
-        <span class="nav-icon">👥</span><span>Utang History</span>
+        <span class="nav-icon">👥</span><span>Utang Ledger</span>
       </button>
       <button class="nav-btn" data-page="page-labels">
       <span class="nav-icon nav-icon-svg">

@@ -313,7 +313,7 @@ export function renderInventory() {
             <div class="progress"><div class="progress-bar ${level}" style="width:${percent}%"></div></div>
             <span class="progress-label">${percent.toFixed(0)}%</span>
           </div>
-            <div class="item-actions">
+          <div class="item-actions">
             <button type="button" class="btn ghost" onclick="editItem('${item.id}')">Edit</button>
             <button type="button" class="btn ghost" onclick="openLabelFor('${item.id}')" title="Print label">🏷️</button>
             <button type="button" class="btn primary" onclick="restockItem('${item.id}')">➕ Restock</button>
@@ -419,7 +419,7 @@ export function renderExpiring() {
 }
 
 /* =========================================================
-   MOVEMENTS — render + filter + search + print + view + delete
+   MOVEMENTS
    ========================================================= */
 function getFilteredMovements() {
   const term = valOf($("movement-search")).toLowerCase().trim();
@@ -460,16 +460,15 @@ export function renderMovements() {
     return;
   }
   list.innerHTML = filtered.slice(0, 60).map(m => {
-  const isIn = m.type === "in";
-  const date = m.createdAt?.toDate?.().toLocaleString() ?? "—";
-  const reasonLabel = REASON_LABEL[m.reason] || m.reason || "";
+    const isIn = m.type === "in";
+    const date = m.createdAt?.toDate?.().toLocaleString() ?? "—";
+    const reasonLabel = REASON_LABEL[m.reason] || m.reason || "";
 
-  // Look up the item for its photo
-  const item = state.inventory.find(i => i.id === m.itemId) || {
-    id: m.itemId, name: m.itemName, image: null
-  };
+    const item = state.inventory.find(i => i.id === m.itemId) || {
+      id: m.itemId, name: m.itemName, image: null
+    };
 
-  return `
+    return `
     <div class="movement-row">
       ${productImageHTML(item, "sm")}
       <div class="movement-icon ${isIn ? "in" : "out"}">${isIn ? "⬇️" : "⬆️"}</div>
@@ -484,7 +483,7 @@ export function renderMovements() {
         <button type="button" class="sale-action-btn delete" onclick="deleteMovement('${m.id}')" title="Delete">🗑️</button>
       </div>
     </div>`;
-}).join("");
+  }).join("");
 }
 
 export function viewMovement(id) {
@@ -605,7 +604,7 @@ function wireMovementModal() {
 }
 
 /* =========================================================
-   CATEGORY IMAGE API — Pexels-first with graceful fallback
+   CATEGORY IMAGE API
    ========================================================= */
 const IMG_KEYWORD_MAP = CONSTANTS.CATEGORY_IMAGE_API.keywordMap || {};
 const IMG_DEFAULT_KW  = CONSTANTS.CATEGORY_IMAGE_API.keyword || "grocery product";
@@ -617,19 +616,15 @@ async function fetchWithTimeout(url, opts = {}, ms = CATEGORY_IMAGE_API.timeoutM
   finally { clearTimeout(t); }
 }
 
-/* Build a smart, specific query for each category. */
 function buildCategoryImageQuery(name) {
   const clean = String(name || "").trim().toLowerCase();
   if (!clean) return IMG_DEFAULT_KW;
-  // Look for a mapped keyword (e.g. "Snacks" → "snack packet")
   for (const [key, kw] of Object.entries(IMG_KEYWORD_MAP)) {
     if (clean.includes(key)) return kw;
   }
-  // Fall back to "<name> <default keyword>"
   return `${name} ${IMG_DEFAULT_KW}`;
 }
 
-/* ---------- Pexels (best for product photos) ---------- */
 async function fetchPexelsImages(query, perPage, apiKey) {
   if (!apiKey) throw new Error("Pexels API key missing");
   const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`;
@@ -645,7 +640,6 @@ async function fetchPexelsImages(query, perPage, apiKey) {
   })).filter(x => x.url);
 }
 
-/* ---------- Unsplash (great fallback) ---------- */
 async function fetchUnsplashImages(query, perPage, apiKey) {
   if (!apiKey) throw new Error("Unsplash access key missing");
   const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`;
@@ -661,7 +655,6 @@ async function fetchUnsplashImages(query, perPage, apiKey) {
   })).filter(x => x.url);
 }
 
-/* ---------- Openverse (no key needed) ---------- */
 async function fetchOpenverseImages(query, perPage) {
   const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=${perPage}&mature=false`;
   const res = await fetchWithTimeout(url);
@@ -675,7 +668,6 @@ async function fetchOpenverseImages(query, perPage) {
   })).filter(x => x.url);
 }
 
-/* ---------- Wikipedia (last resort) ---------- */
 async function fetchWikipediaImages(query, perPage) {
   const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search` +
     `&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${perPage}&gsrnamespace=6` +
@@ -695,13 +687,11 @@ async function fetchWikipediaImages(query, perPage) {
   }).filter(Boolean);
 }
 
-/* ---------- Provider chain (tries each in order) ---------- */
 async function fetchCategoryImages(query) {
   const cfg = CONSTANTS.CATEGORY_IMAGE_API;
   const perPage = cfg.perPage || 12;
   const keys = cfg.keys || {};
 
-  // Attempt order: user's primary provider first, then fallbacks.
   const order = [];
   const push = (p) => { if (!order.includes(p)) order.push(p); };
   push((cfg.provider || "pexels").toLowerCase());
@@ -714,11 +704,11 @@ async function fetchCategoryImages(query) {
   for (const p of order) {
     try {
       if (p === "pexels") {
-        if (!keys.pexels) { console.warn("[cat image] Pexels key empty — skipping"); continue; }
+        if (!keys.pexels) continue;
         return await fetchPexelsImages(query, perPage, keys.pexels);
       }
       if (p === "unsplash") {
-        if (!keys.unsplash) { console.warn("[cat image] Unsplash key empty — skipping"); continue; }
+        if (!keys.unsplash) continue;
         return await fetchUnsplashImages(query, perPage, keys.unsplash);
       }
       if (p === "openverse") return await fetchOpenverseImages(query, perPage);
@@ -731,7 +721,6 @@ async function fetchCategoryImages(query) {
   throw lastErr || new Error("No image provider available");
 }
 
-/* ---------- Picker UI (unchanged from before) ---------- */
 function setCatImageStatus(text, isError = false) {
   const el = $("cat-image-status"); if (!el) return;
   el.textContent = text || "";
@@ -820,7 +809,7 @@ function closeCategoryImagePicker() {
 }
 
 /* =========================================================
-   RENDER — Categories
+   RENDER — Categories grid (FIXED)
    ========================================================= */
 function categoryThumbHTML(cat) {
   const src = cat.imageThumb || cat.image;
@@ -831,9 +820,16 @@ function categoryThumbHTML(cat) {
     ${src ? `<img class="cat-thumb-img" src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()" />` : ""}
   `;
 }
+
 export function renderCategories() {
-  const grid = $("category-grid"); if (!grid) return;
-  if (!state.categories.length) { grid.innerHTML = `<div class="empty-state"><p>🗂️ No categories yet.</p></div>`; return; }
+  const grid = $("category-grid");
+  if (!grid) return;
+
+  if (!state.categories.length) {
+    grid.innerHTML = `<div class="empty-state"><p>🗂️ No categories yet — add one above.</p></div>`;
+    return;
+  }
+
   grid.innerHTML = state.categories.map(cat => {
     const count = state.inventory.filter(i => i.category === cat.name).length;
     const creditHTML = cat.imageCredit
@@ -856,6 +852,7 @@ export function renderCategories() {
       </div>
     </div>`;
   }).join("");
+
   grid.querySelectorAll(".cat-thumb").forEach(btn => {
     btn.addEventListener("click", () => openCategoryImagePicker(btn.dataset.catId));
   });
@@ -1124,7 +1121,6 @@ function handleScanResult(text) {
     if (!state.inventory.length) { playErrorSound(); setScannerStatus("⚠️ Inventory still loading.", "error"); return; }
     const item = findItemByCode(code);
     if (!item) { playErrorSound(); setScannerStatus(`❌ No match for: ${code}`, "error"); return; }
-    // dynamic import to avoid circular dep with pos.js
     import("./pos.js").then(mod => mod.addToCart(item.id));
     playSuccessSound();
     const cartCount = state.posCart.reduce((s, c) => s + c.qty, 0);

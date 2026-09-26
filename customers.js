@@ -131,15 +131,15 @@ function wirePaymentModal() {
 
     try {
       const batch = writeBatch(db);
-      const nowServer = serverTimestamp();
-      // Use a real Timestamp object so the local snapshot has a proper
-      // Timestamp (not a plain Date), fixing the "Today's Sales" filter.
+      // Use ONE shared explicit Timestamp for the whole batch to avoid
+      // the Firestore 10.12 "Unexpected state" assertion bug that fires
+      // when you mix multiple serverTimestamp() sentinels with increment().
       const nowTimestamp = Timestamp.fromDate(new Date());
 
       // 1) Reduce customer balance
       batch.update(doc(db, "customers", id), {
         balance: increment(-amount),
-        updatedAt: nowServer
+        updatedAt: nowTimestamp
       });
 
       // 2) Distribute payment across unpaid utang sales (oldest first)
@@ -165,7 +165,6 @@ function wirePaymentModal() {
         const newPaidAmount = alreadyPaid + take;
         const fullyPaid     = newPaidAmount >= saleTotal - 0.01;
 
-        // Record what we're changing so we can reverse on delete
         appliedTo.push({
           saleId: sale.id,
           take,
@@ -179,17 +178,12 @@ function wirePaymentModal() {
           amountPaid: newPaidAmount,
           unpaidAmount: Math.max(0, saleTotal - newPaidAmount),
           paid: fullyPaid,
-          paidAt: fullyPaid ? nowServer : null
+          paidAt: fullyPaid ? nowTimestamp : null   // 👈 fixed
         };
 
-        // ⚡ CASH-BASIS: When fully paid, move the sale's effective date to
-        // the payment date. This puts it in TODAY's sales, dashboard,
-        // and receipt history — matching cash-basis accounting.
-        // The original date is preserved in `originalCreatedAt` and in the
-        // customer's ledger (customer_transactions).
         if (fullyPaid) {
           updateData.originalCreatedAt = sale.createdAt || null;
-          updateData.createdAt = nowTimestamp;   // 👈 proper Timestamp
+          updateData.createdAt = nowTimestamp;       // 👈 fixed
         }
 
         batch.update(doc(db, "sales", sale.id), updateData);
@@ -198,9 +192,9 @@ function wirePaymentModal() {
         if (fullyPaid) salesPaid++;
       }
 
-      // 3) Log the payment in the ledger (with reversal data)
+      // 3) Log the payment in the ledger
       const txRef = doc(collection(db, "customer_transactions"));
-      batch.set(txRef, {
+      const paymentTx = {
         ...customerTxDoc({
           customerId: id,
           customerName: c.name,
@@ -209,7 +203,9 @@ function wirePaymentModal() {
           note: valOf($("payment-note")).trim()
         }),
         appliedTo
-      });
+      };
+      paymentTx.createdAt = nowTimestamp;          // 👈 fixed
+      batch.set(txRef, paymentTx);
 
       await settleWrite(batch.commit(), "Payment");
       playSuccessSound();
@@ -245,12 +241,12 @@ export async function deletePayment(paymentId) {
 
   try {
     const batch = writeBatch(db);
-    const nowServer = serverTimestamp();
+    const nowTimestamp = Timestamp.fromDate(new Date());   // 👈 fixed
 
     // 1) Restore customer balance
     batch.update(doc(db, "customers", p.customerId), {
       balance: increment(Number(p.amount) || 0),
-      updatedAt: nowServer
+      updatedAt: nowTimestamp
     });
 
     // 2) Reverse affected sales
@@ -263,7 +259,6 @@ export async function deletePayment(paymentId) {
           paid: false,
           paidAt: null
         };
-        // Restore the original creation date
         if (a.previousCreatedAt) {
           saleUpdate.createdAt = a.previousCreatedAt;
         }

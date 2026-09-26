@@ -3,7 +3,7 @@
    Strategy: cache-first for shell, network-first for others
    ========================================================== */
 
-const CACHE_VERSION = "kurt-inventory-v31";
+const CACHE_VERSION = "kurt-inventory-v36";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
