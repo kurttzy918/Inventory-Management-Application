@@ -13,7 +13,8 @@ import {
 } from "./pos.js";
 import {
   initReports, updateStats, renderCharts, destroyCharts, renderSalesOverview,
-  populateMonthFilter, renderHistory, renderHistoryCategorySummary,
+  populateMonthFilter, populateSalesCategoryFilter,
+  renderHistory, renderHistoryCategorySummary,
   renderSalesCategorySummary, renderFastMoving, renderSlowMoving, renderCarousel,
   renderKPIs, renderTopProfitAndRevenue, stopCarousel
 } from "./reports.js";
@@ -209,6 +210,7 @@ function wireNav() {
         safeRender(renderMovements);
         safeRender(renderExpiring);
         safeRender(populateMonthFilter);
+        safeRender(populateSalesCategoryFilter);
         safeRender(renderSalesOverview);
         safeRender(renderKPIs);
         safeRender(renderTopProfitAndRevenue);

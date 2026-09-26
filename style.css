@@ -423,18 +423,34 @@ form label, .modal-card label, .restock-card label, .card label {
   align-items: flex-start;
 }
 .topbar-greeting-name {
-  font-size: 0.9rem; font-weight: 800;
-  color: var(--title-color); line-height: 1.2;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 1.75rem;             /* 👈 main size — adjust to taste */
+  font-weight: 800;
+  color: var(--title-color);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .topbar-greeting-sub {
-  font-size: 0.72rem; font-weight: 600;
-  color: var(--text-secondary); letter-spacing: 0.02em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* Phones */
 @media (max-width: 640px) {
   .topbar-greeting-sub { display: none; }
-  .topbar-greeting-name { font-size: 0.85rem; }
+  .topbar-greeting-name { font-size: 0.95rem; }
+}
+
+/* Tablets — between phone and desktop */
+@media (min-width: 641px) and (max-width: 899px) {
+  .topbar-greeting-name { font-size: 1.2rem; }
 }
 
 /* User actions */
@@ -2837,3 +2853,504 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast { bottom: auto
   #gcash-pay-amount { font-size: 1.7rem; }
   .gcash-payment-account { grid-template-columns: 1fr; }
 }
+/* ==========================================================
+   DASHBOARD — COMPACT GRID LAYOUT
+   ========================================================== */
+
+/* Title row with live badge */
+.dash-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.dash-top .page-title { margin-bottom: 0; }
+
+.dash-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #059669;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+[data-theme="dark"] .dash-live-badge { color: #34D399; }
+
+/* ============== MAIN 2-COLUMN GRID ============== */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (min-width: 900px) {
+  .dash-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 16px;
+  }
+  .dash-left,
+  .dash-right {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+}
+
+/* ============== 2-COLUMN ROW ============== */
+.dash-2col {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (min-width: 700px) {
+  .dash-2col { grid-template-columns: 1fr 1fr; gap: 16px; }
+}
+
+/* ============== TREND CHARTS SIDE-BY-SIDE ============== */
+.charts-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 620px) {
+  .charts-grid-2 { grid-template-columns: 1fr 1fr; }
+}
+
+/* ============== COMPACT CARD ============== */
+.card.compact,
+.chart-card {
+  padding: 12px 14px;
+  margin-bottom: 0;
+  border-radius: var(--radius-sm);
+}
+.card.compact .card-title,
+.chart-card .card-title {
+  font-size: 0.88rem;
+  margin-bottom: 10px;
+}
+
+/* ============== COMPACT STAT CARDS ============== */
+#page-dashboard .stats-grid {
+  gap: 10px;
+  margin-bottom: 14px;
+}
+#page-dashboard .stat-card {
+  padding: 12px 14px;
+  min-height: 76px;
+  gap: 3px;
+  border-radius: 12px;
+}
+#page-dashboard .stat-label {
+  font-size: 0.64rem;
+  letter-spacing: 0.05em;
+}
+#page-dashboard .stat-value {
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+#page-dashboard .stat-card::after {
+  width: 90px;
+  height: 90px;
+  top: -30%;
+  right: -20%;
+}
+@media (max-width: 620px) {
+  #page-dashboard .stat-card { padding: 10px; min-height: 66px; }
+  #page-dashboard .stat-value { font-size: 1.15rem; }
+  #page-dashboard .stat-label { font-size: 0.58rem; }
+}
+
+/* ============== COMPACT SALES OVERVIEW ============== */
+#page-dashboard .sales-overview-card {
+  padding: 12px 14px;
+  margin-bottom: 0;
+  border-radius: var(--radius-sm);
+}
+#page-dashboard .so-title { font-size: 0.92rem; }
+#page-dashboard .so-head { margin-bottom: 10px; }
+#page-dashboard .so-month-select {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  min-width: 130px;
+}
+#page-dashboard .so-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+@media (max-width: 640px) {
+  #page-dashboard .so-stats { grid-template-columns: repeat(2, 1fr); }
+}
+#page-dashboard .so-stat {
+  padding: 8px 10px;
+  border-radius: 8px;
+  gap: 2px;
+}
+#page-dashboard .so-label { font-size: 0.6rem; letter-spacing: 0.05em; }
+#page-dashboard .so-value { font-size: 0.98rem; }
+
+#page-dashboard .so-daily-wrap {
+  padding-top: 10px;
+  margin-top: 2px;
+}
+#page-dashboard .so-daily-title { font-size: 0.7rem; }
+#page-dashboard .so-daily-total { font-size: 0.82rem; }
+#page-dashboard .so-daily-list {
+  max-height: 140px;
+  gap: 4px;
+}
+#page-dashboard .so-day-row {
+  padding: 5px 8px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+}
+
+/* ============== COMPACT KPI CARDS ============== */
+#page-dashboard .kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 0;
+}
+@media (max-width: 640px) {
+  #page-dashboard .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+#page-dashboard .kpi-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  gap: 2px;
+  border-left-width: 3px;
+}
+#page-dashboard .kpi-label { font-size: 0.6rem; letter-spacing: 0.05em; }
+#page-dashboard .kpi-value { font-size: 1rem; }
+#page-dashboard .kpi-sub { font-size: 0.58rem; }
+
+/* ============== COMPACT CHART WRAPPERS ============== */
+#page-dashboard .chart-wrapper { height: 150px; }
+#page-dashboard .chart-wrapper.compact { height: 140px; }
+@media (min-width: 900px) {
+  #page-dashboard .chart-wrapper { height: 165px; }
+  #page-dashboard .chart-wrapper.compact { height: 145px; }
+}
+.charts-grid-2 .chart-card { padding: 12px 14px; }
+
+/* ============== COMPACT RANK LISTS ============== */
+.rank-list.compact { gap: 6px; }
+.rank-list.compact .rank-row {
+  padding: 7px 8px;
+  gap: 8px;
+  border-radius: 10px;
+}
+.rank-list.compact .rank-badge {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  font-size: 0.7rem;
+  border-radius: 7px;
+}
+.rank-list.compact .rank-name { font-size: 0.8rem; }
+.rank-list.compact .rank-sub { font-size: 0.64rem; margin: 1px 0 4px; }
+.rank-list.compact .rank-qty { font-size: 0.85rem; }
+.rank-list.compact .rank-qty span { font-size: 0.52rem; }
+.rank-list.compact .product-img.sm {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 8px;
+}
+.rank-list.compact .progress.slim { height: 4px; }
+
+/* ============== COMPACT INVENTORY LIST ============== */
+.inventory-list.compact {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.inventory-list.compact .item-card {
+  padding: 8px 10px;
+  gap: 10px;
+  border-radius: 8px;
+}
+.inventory-list.compact .product-img {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 9px;
+  font-size: 1rem;
+}
+.inventory-list.compact .product-img.sm {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+}
+.inventory-list.compact .item-name { font-size: 0.82rem; }
+.inventory-list.compact .item-sku { font-size: 0.64rem; }
+.inventory-list.compact .item-meta {
+  font-size: 0.68rem;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.inventory-list.compact .item-actions { gap: 4px; }
+.inventory-list.compact .item-actions .btn {
+  padding: 4px 6px;
+  font-size: 0.66rem;
+  min-width: 50px;
+}
+.inventory-list.compact .progress-wrap { margin-bottom: 5px; gap: 6px; }
+.inventory-list.compact .progress { height: 5px; }
+.inventory-list.compact .progress-label { font-size: 0.62rem; min-width: 26px; }
+.inventory-list.compact .empty-state { padding: 20px 12px; font-size: 0.82rem; }
+
+/* ============== COMPACT TOOLBARS ============== */
+.toolbar.compact {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.toolbar.compact input {
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  min-width: 140px;
+}
+.movement-toolbar.compact {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.movement-toolbar.compact input,
+.movement-toolbar.compact select {
+  padding: 7px 10px;
+  font-size: 0.78rem;
+}
+.movement-toolbar.compact .btn.sm { padding: 6px 10px; }
+
+/* ============== COMPACT SECTION HEADINGS ============== */
+#page-dashboard .section-heading {
+  margin: 14px 0 8px;
+  font-size: 0.95rem;
+}
+#page-dashboard .section-subheading {
+  margin: 10px 0 6px;
+  font-size: 0.82rem;
+}
+
+/* ============== COMPACT SPOTLIGHT ============== */
+#page-dashboard .spotlight-card {
+  padding: 14px;
+  border-radius: 16px;
+}
+#page-dashboard .spotlight-top { margin-bottom: 10px; }
+#page-dashboard .spotlight-stats {
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+#page-dashboard .spot-stat { padding: 6px 4px; border-radius: 8px; }
+#page-dashboard .spot-num { font-size: 0.88rem; }
+#page-dashboard .spot-lab { font-size: 0.54rem; }
+#page-dashboard .spotlight-thumb {
+  width: 50px;
+  height: 50px;
+  flex: 0 0 50px;
+  border-radius: 12px;
+  font-size: 1.2rem;
+}
+#page-dashboard .spotlight-name { font-size: 0.95rem; }
+#page-dashboard .spotlight-sku { font-size: 0.68rem; }
+#page-dashboard .spotlight-meta { font-size: 0.72rem; }
+#page-dashboard .carousel-dots { margin: 8px 0 2px; }
+
+/* ============== COMPACT MOVEMENTS ============== */
+#page-dashboard .movements-list {
+  max-height: 260px;
+  gap: 5px;
+}
+#page-dashboard .movement-row {
+  padding: 7px 9px;
+  gap: 8px;
+  border-radius: 8px;
+}
+#page-dashboard .movement-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  font-size: 0.92rem;
+  border-radius: 8px;
+}
+#page-dashboard .movement-name { font-size: 0.8rem; }
+#page-dashboard .movement-meta { font-size: 0.64rem; }
+#page-dashboard .movement-qty { font-size: 0.82rem; }
+#page-dashboard .movement-actions .sale-action-btn {
+  width: 26px;
+  height: 26px;
+  font-size: 0.68rem;
+}
+
+/* ============== PAGE PADDING ============== */
+#page-dashboard { padding-bottom: 16px; }
+/* ==========================================================
+   HALF-PIE — Sales vs Cost
+   ========================================================== */
+.half-pie-wrapper {
+  height: 150px !important;
+  margin-bottom: 6px;
+}
+
+.svc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.svc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.78rem;
+  padding: 3px 0;
+}
+.svc-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.svc-value {
+  font-weight: 800;
+  color: var(--title-color);
+  white-space: nowrap;
+}
+.svc-value.cost   { color: #2563EB; }
+.svc-value.profit { color: #059669; }
+.svc-value.sales  { color: var(--brand); }
+[data-theme="dark"] .svc-value.cost   { color: #93C5FD; }
+[data-theme="dark"] .svc-value.profit { color: #34D399; }
+
+.svc-row.highlight {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, rgba(16,185,129,0.10), transparent 65%);
+  border-radius: 8px;
+  border-left: 3px solid #10B981;
+}
+.svc-row.highlight .svc-label { color: #059669; font-weight: 700; }
+.svc-row.highlight .svc-value.margin {
+  color: #047857;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+[data-theme="dark"] .svc-row.highlight .svc-value.margin { color: #34D399; }
+
+/* ==========================================================
+   CATEGORY DRILL-DOWN — chart card head with select
+   ========================================================== */
+.chart-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.chart-card-head .card-title { margin-bottom: 0; }
+
+.cat-analytics-select {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  max-width: 180px;
+  margin-top: 0;
+}
+.cat-analytics-select:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(18, 84, 79, 0.12);
+}
+
+@media (max-width: 520px) {
+  .chart-card-head { flex-direction: column; align-items: stretch; }
+  .cat-analytics-select { max-width: 100%; }
+  .half-pie-wrapper { height: 130px !important; }
+}
+/* ==========================================================
+   SALES BY CATEGORY — summary block
+   ========================================================== */
+.sales-cat-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border-left: 4px solid var(--brand);
+  margin-bottom: 10px;
+  animation: cardIn 0.25s ease;
+}
+.sales-cat-summary.hidden { display: none !important; }
+
+.scs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.scs-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.scs-value {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--title-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scs-row.highlight {
+  padding: 8px 10px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), transparent 65%);
+  border-radius: 8px;
+  border-left: 3px solid #10B981;
+  margin-top: 2px;
+}
+.scs-row.highlight .scs-label { color: #059669; }
+.scs-row.highlight .scs-value.amount {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #047857;
+  letter-spacing: -0.02em;
+}
+[data-theme="dark"] .scs-row.highlight .scs-label { color: #34D399; }
+[data-theme="dark"] .scs-row.highlight .scs-value.amount { color: #34D399; }
+
+.scs-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+.scs-meta strong {
+  color: var(--title-color);
+  font-weight: 800;
+}
+
+/* Chart gets a bit smaller when the summary is showing */
+.sales-cat-summary:not(.hidden) + .chart-wrapper { height: 130px !important; }

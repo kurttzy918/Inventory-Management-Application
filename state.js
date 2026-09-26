@@ -28,6 +28,7 @@ export const state = {
   salesCategoryChart: null,
   salesTrendChart: null,
   profitTrendChart: null,
+  salesVsCostChart: null,
   chartJsReady: false,
   chartRenderQueued: false,
 

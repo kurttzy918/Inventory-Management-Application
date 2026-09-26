@@ -57,7 +57,26 @@ export function populateMonthFilter() {
   sel.value = list.includes(cur) ? cur : "";
   state.soSelectedMonth = sel.value;
 }
+export function populateSalesCategoryFilter() {
+  const sel = $("sales-cat-analytics-filter");
+  if (!sel) return;
 
+  const cur = sel.value;
+  const cats = new Set();
+
+  // From sales
+  state.sales.forEach(s => { if (s.category) cats.add(s.category); });
+  // Also from inventory (so categories without sales still show)
+  state.inventory.forEach(i => { if (i.category) cats.add(i.category); });
+
+  const list = [...cats].sort((a, b) => a.localeCompare(b));
+
+  sel.innerHTML = `<option value="">All Categories</option>` +
+    list.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+
+  // Restore previous selection if it still exists
+  if (cur && list.includes(cur)) sel.value = cur;
+}
 export function renderSalesOverview() {
   const todayEl   = $("so-today");
   const monthEl   = $("so-month");
@@ -378,109 +397,234 @@ export function renderCharts(retries = 0) {
   }
   const dashEl = $("page-dashboard");
   if (!dashEl || dashEl.classList.contains("hidden")) return;
-  const stockCanvas = $("stock-status-chart");
-  const catCanvas = $("category-value-chart");
-  const salesCanvas = $("sales-category-chart");
-  if (!stockCanvas || !catCanvas || !salesCanvas) return;
-  if (stockCanvas.clientWidth <= 0 || stockCanvas.clientHeight <= 0) {
+
+  const svcCanvas = $("sales-vs-cost-chart");
+  const salesCatCanvas = $("sales-category-chart");
+  if (!svcCanvas || !salesCatCanvas) return;
+  if (svcCanvas.clientWidth <= 0 || svcCanvas.clientHeight <= 0) {
     if (retries < 40) setTimeout(() => renderCharts(retries + 1), 200);
     return;
   }
+
   const textColor = getCSSVar("--text") || "#1e293b";
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
+  /* ================= 1) SALES vs COST (half pie) ================= */
   try {
-    const inStock  = state.inventory.filter(i => i.quantity >  (i.threshold ?? 5)).length;
-    const lowStock = state.inventory.filter(i => i.quantity > 0 && i.quantity <= (i.threshold ?? 5)).length;
-    const outStock = state.inventory.filter(i => i.quantity === 0).length;
-    const stockData = {
-      labels: ["In Stock", "Low Stock", "Out of Stock"],
-      datasets: [{ data: [inStock, lowStock, outStock], backgroundColor: ["#22c55e", "#f59e0b", "#ef4444"], borderWidth: 0, hoverOffset: 6 }]
-    };
-    if (state.stockChart?.canvas?.isConnected) {
-      state.stockChart.data = stockData;
-      state.stockChart.options.plugins.legend.labels.color = textColor;
-      state.stockChart.update("none");
-    } else {
-      if (state.stockChart) { try { state.stockChart.destroy(); } catch {} }
-      state.stockChart = new Chart(stockCanvas, {
-        type: "doughnut", data: stockData,
-        options: { ...commonChartOptions(textColor), cutout: "62%" }
-      });
-    }
-  } catch (e) { console.error("[chart] stock:", e); }
+    const totalSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
+    const totalCost = state.sales.reduce((s, x) => {
+      const unitCost = Number(x.cost) || 0;
+      const qty = Number(x.quantity) || 0;
+      return s + (unitCost * qty);
+    }, 0);
+    const totalProfit = totalSales - totalCost;
+    const profitMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+    const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0;
+    const profitPct = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
 
-  try {
-    const vbc = {};
-    state.inventory.forEach(i => { vbc[i.category] = (vbc[i.category] || 0) + (i.quantity * i.price || 0); });
-    const catLabels = Object.keys(vbc), catValues = Object.values(vbc);
-    const catData = {
-      labels: catLabels.length ? catLabels : ["No data"],
+    const svcData = {
+      labels: ["Cost", "Profit"],
       datasets: [{
-        data: catValues.length ? catValues : [1],
-        backgroundColor: catLabels.length ? catLabels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]) : ["#e2e8f0"],
-        borderWidth: 0, hoverOffset: 6
+        data: [Math.max(0, totalCost), Math.max(0, totalProfit)],
+        backgroundColor: ["#3B82F6", "#10B981"],
+        hoverBackgroundColor: ["#2563EB", "#059669"],
+        borderWidth: 0,
+        hoverOffset: 4
       }]
     };
-    if (state.categoryValueChart?.canvas?.isConnected) {
-      state.categoryValueChart.data = catData;
-      state.categoryValueChart.options.plugins.legend.labels.color = textColor;
-      state.categoryValueChart.update("none");
-    } else {
-      if (state.categoryValueChart) { try { state.categoryValueChart.destroy(); } catch {} }
-      state.categoryValueChart = new Chart(catCanvas, {
-        type: "pie", data: catData,
-        options: { ...commonChartOptions(textColor),
-          plugins: { ...commonChartOptions(textColor).plugins,
-            tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.parsed)}` } }
+
+    // Info block below the chart
+    const infoEl = $("sales-vs-cost-info");
+    if (infoEl) {
+      infoEl.innerHTML = `
+        <div class="svc-row">
+          <span class="svc-label">Total Sales</span>
+          <strong class="svc-value sales">${fmtMoney(totalSales)}</strong>
+        </div>
+        <div class="svc-row">
+          <span class="svc-label">Cost</span>
+          <strong class="svc-value cost">${fmtMoney(totalCost)} · ${costPct.toFixed(1)}%</strong>
+        </div>
+        <div class="svc-row">
+          <span class="svc-label">Profit</span>
+          <strong class="svc-value profit">${fmtMoney(totalProfit)} · ${profitPct.toFixed(1)}%</strong>
+        </div>
+        <div class="svc-row highlight">
+          <span class="svc-label">Profit Margin</span>
+          <strong class="svc-value margin">${profitMargin.toFixed(1)}%</strong>
+        </div>
+      `;
+    }
+
+    if (state.salesVsCostChart?.canvas?.isConnected) {
+      state.salesVsCostChart.destroy();
+    }
+    state.salesVsCostChart = new Chart(svcCanvas, {
+      type: "doughnut",
+      data: svcData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        rotation: -90,
+        circumference: 180,
+        cutout: "65%",
+        animation: { duration: 450 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: isDark ? "#1E2D34" : "#0F172A",
+            padding: 10,
+            cornerRadius: 8,
+            displayColors: false,
+            callbacks: {
+              label: (c) => {
+                const pct = totalSales > 0 ? ((c.parsed / totalSales) * 100).toFixed(1) : "0.0";
+                return `${c.label}: ${fmtMoney(c.parsed)} (${pct}%)`;
+              }
+            }
           }
         }
-      });
-    }
-  } catch (e) { console.error("[chart] category value:", e); }
+      }
+    });
+  } catch (e) { console.error("[chart] sales vs cost:", e); }
 
+    /* ================= 2) SALES BY CATEGORY (with amount display) ================= */
   try {
-    const sbc = {};
-    state.sales.forEach(s => { const k = s.category || "Unknown"; sbc[k] = (sbc[k] || 0) + (s.total || 0); });
-    const sLabels = Object.keys(sbc), sValues = Object.values(sbc);
-    const salesData = {
-      labels: sLabels.length ? sLabels : ["No sales yet"],
+    const catFilter = (valOf($("sales-cat-analytics-filter")) || "").trim();
+    let labels = [], values = [];
+
+    // Summary block elements
+    const summaryEl = $("sales-cat-summary");
+    const catEl     = $("scs-category");
+    const totalEl   = $("scs-total");
+    const txnsEl    = $("scs-txns");
+    const unitsEl   = $("scs-units");
+
+    // Filter state.sales by category (case-insensitive to be safe)
+    const filteredSales = catFilter
+      ? state.sales.filter(s => {
+          const sc = (s.category || "Uncategorized");
+          return sc.trim().toLowerCase() === catFilter.trim().toLowerCase();
+        })
+      : state.sales;
+
+    if (catFilter) {
+      // ---- SPECIFIC CATEGORY SELECTED ----
+      // Pie shows the top products within that category
+      const productMap = {};
+      filteredSales.forEach(s => {
+        const key = s.itemName || "Unknown";
+        productMap[key] = (productMap[key] || 0) + (Number(s.total) || 0);
+      });
+      const entries = Object.entries(productMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8);
+      labels = entries.map(e => e[0]);
+      values = entries.map(e => e[1]);
+
+      // Populate the summary block
+      const totalAmount = filteredSales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+      const totalUnits  = filteredSales.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+      const totalTxns   = filteredSales.length;
+
+      if (catEl)   catEl.textContent   = catFilter;
+      if (totalEl) totalEl.textContent = fmtMoney(totalAmount);
+      if (txnsEl)  txnsEl.textContent  = fmtInt(totalTxns);
+      if (unitsEl) unitsEl.textContent = fmtInt(totalUnits);
+      summaryEl?.classList.remove("hidden");
+
+    } else {
+      // ---- ALL CATEGORIES ----
+      const catMap = {};
+      state.sales.forEach(s => {
+        const k = s.category || "Uncategorized";
+        catMap[k] = (catMap[k] || 0) + (Number(s.total) || 0);
+      });
+      const entries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+      labels = entries.map(e => e[0]);
+      values = entries.map(e => e[1]);
+
+      // Hide the summary block
+      summaryEl?.classList.add("hidden");
+    }
+
+    const colors = labels.length
+      ? labels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length])
+      : ["#e2e8f0"];
+
+    const salesCatData = {
+      labels: labels.length ? labels : ["No sales yet"],
       datasets: [{
-        data: sValues.length ? sValues : [1],
-        backgroundColor: sLabels.length ? sLabels.map((_, i) => CATEGORY_PALETTE[(i + 3) % CATEGORY_PALETTE.length]) : ["#e2e8f0"],
-        borderWidth: 0, hoverOffset: 6
+        data: values.length ? values : [1],
+        backgroundColor: colors,
+        borderWidth: 0,
+        hoverOffset: 6
       }]
     };
+
+    const totalValues = values.reduce((a, b) => a + b, 0);
+
     if (state.salesCategoryChart?.canvas?.isConnected) {
-      state.salesCategoryChart.data = salesData;
-      state.salesCategoryChart.options.plugins.legend.labels.color = textColor;
-      state.salesCategoryChart.update("none");
-    } else {
-      if (state.salesCategoryChart) { try { state.salesCategoryChart.destroy(); } catch {} }
-      state.salesCategoryChart = new Chart(salesCanvas, {
-        type: "pie", data: salesData,
-        options: { ...commonChartOptions(textColor),
-          plugins: { ...commonChartOptions(textColor).plugins,
-            tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.parsed)}` } }
+      state.salesCategoryChart.destroy();
+    }
+    state.salesCategoryChart = new Chart(salesCatCanvas, {
+      type: "pie",
+      data: salesCatData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: {
+              color: textColor,
+              padding: 10,
+              font: { size: 11 },
+              boxWidth: 12,
+              usePointStyle: true
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: (c) => {
+                const pct = totalValues > 0 ? ((c.parsed / totalValues) * 100).toFixed(1) : "0.0";
+                return `${c.label}: ${fmtMoney(c.parsed)} (${pct}%)`;
+              }
+            }
           }
         }
-      });
-    }
+      }
+    });
   } catch (e) { console.error("[chart] sales category:", e); }
 
-  // Trend charts (advanced)
+  // Trend charts (unchanged)
   renderTrendCharts();
 
   requestAnimationFrame(() => {
-    [state.stockChart, state.categoryValueChart, state.salesCategoryChart,
-     state.salesTrendChart, state.profitTrendChart].forEach(c => { try { c?.resize(); } catch {} });
+    [state.salesVsCostChart, state.salesCategoryChart,
+     state.salesTrendChart, state.profitTrendChart].forEach(c => {
+      try { c?.resize(); } catch {}
+    });
   });
 }
 
 export function destroyCharts() {
-  [state.stockChart, state.categoryValueChart, state.salesCategoryChart,
-   state.salesTrendChart, state.profitTrendChart].forEach(c => { try { c?.destroy(); } catch {} });
-  state.stockChart = null; state.categoryValueChart = null; state.salesCategoryChart = null;
-  state.salesTrendChart = null; state.profitTrendChart = null;
+  [
+    state.salesVsCostChart,
+    state.salesCategoryChart,
+    state.salesTrendChart,
+    state.profitTrendChart,
+    state.stockChart,
+    state.categoryValueChart
+  ].forEach(c => { try { c?.destroy(); } catch {} });
+
+  state.salesVsCostChart = null;
+  state.salesCategoryChart = null;
+  state.salesTrendChart = null;
+  state.profitTrendChart = null;
+  state.stockChart = null;
+  state.categoryValueChart = null;
 }
 
 /* =========================================================
@@ -986,6 +1130,9 @@ export function initReports() {
   $("month-filter")?.addEventListener("change", () => {
     state.soSelectedMonth = valOf($("month-filter"));
     safeRender(renderSalesOverview);
+  $("sales-cat-analytics-filter")?.addEventListener("change", () => {
+    safeRender(renderCharts);
+  });
   });
   $("carousel-prev")?.addEventListener("click", () => { prevSlide(); restartCarousel(); });
   $("carousel-next")?.addEventListener("click", () => { nextSlide(); restartCarousel(); });
