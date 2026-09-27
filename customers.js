@@ -12,6 +12,11 @@ import {
 } from "./utils.js";
 
 /* =========================================================
+   PAYMENT-HISTORY BULK-SELECTION STATE (NEW)
+   ========================================================= */
+const selectedPayments = new Set();
+
+/* =========================================================
    CRUD
    ========================================================= */
 function wireCustomerForm() {
@@ -131,9 +136,6 @@ function wirePaymentModal() {
 
     try {
       const batch = writeBatch(db);
-      // Use ONE shared explicit Timestamp for the whole batch to avoid
-      // the Firestore 10.12 "Unexpected state" assertion bug that fires
-      // when you mix multiple serverTimestamp() sentinels with increment().
       const nowTimestamp = Timestamp.fromDate(new Date());
 
       // 1) Reduce customer balance
@@ -178,12 +180,12 @@ function wirePaymentModal() {
           amountPaid: newPaidAmount,
           unpaidAmount: Math.max(0, saleTotal - newPaidAmount),
           paid: fullyPaid,
-          paidAt: fullyPaid ? nowTimestamp : null   // 👈 fixed
+          paidAt: fullyPaid ? nowTimestamp : null
         };
 
         if (fullyPaid) {
           updateData.originalCreatedAt = sale.createdAt || null;
-          updateData.createdAt = nowTimestamp;       // 👈 fixed
+          updateData.createdAt = nowTimestamp;
         }
 
         batch.update(doc(db, "sales", sale.id), updateData);
@@ -204,7 +206,7 @@ function wirePaymentModal() {
         }),
         appliedTo
       };
-      paymentTx.createdAt = nowTimestamp;          // 👈 fixed
+      paymentTx.createdAt = nowTimestamp;
       batch.set(txRef, paymentTx);
 
       await settleWrite(batch.commit(), "Payment");
@@ -240,36 +242,7 @@ export async function deletePayment(paymentId) {
   if (!confirm(`Delete this payment?\n\n${p.customerName} · ${fmtMoney(p.amount)}${warn}`)) return;
 
   try {
-    const batch = writeBatch(db);
-    const nowTimestamp = Timestamp.fromDate(new Date());   // 👈 fixed
-
-    // 1) Restore customer balance
-    batch.update(doc(db, "customers", p.customerId), {
-      balance: increment(Number(p.amount) || 0),
-      updatedAt: nowTimestamp
-    });
-
-    // 2) Reverse affected sales
-    if (Array.isArray(p.appliedTo)) {
-      for (const a of p.appliedTo) {
-        if (!a.saleId) continue;
-        const saleUpdate = {
-          amountPaid: Number(a.previousAmountPaid) || 0,
-          unpaidAmount: Number(a.previousUnpaidAmount) || 0,
-          paid: false,
-          paidAt: null
-        };
-        if (a.previousCreatedAt) {
-          saleUpdate.createdAt = a.previousCreatedAt;
-        }
-        batch.update(doc(db, "sales", a.saleId), saleUpdate);
-      }
-    }
-
-    // 3) Delete the payment transaction
-    batch.delete(doc(db, "customer_transactions", paymentId));
-
-    await settleWrite(batch.commit(), "Delete payment");
+    await reversePaymentSilently(paymentId);
     playSuccessSound();
     showToast("Payment deleted & balance restored ✅");
   } catch (err) {
@@ -277,6 +250,43 @@ export async function deletePayment(paymentId) {
   }
 }
 window.deletePayment = deletePayment;
+
+/* Silent reversal used by both single-delete and bulk-delete */
+async function reversePaymentSilently(paymentId) {
+  const p = state.customerTransactions.find(t => t.id === paymentId);
+  if (!p || p.type !== "payment") throw new Error("Not a payment");
+
+  const batch = writeBatch(db);
+  const nowTimestamp = Timestamp.fromDate(new Date());
+
+  // 1) Restore customer balance
+  batch.update(doc(db, "customers", p.customerId), {
+    balance: increment(Number(p.amount) || 0),
+    updatedAt: nowTimestamp
+  });
+
+  // 2) Reverse affected sales
+  if (Array.isArray(p.appliedTo)) {
+    for (const a of p.appliedTo) {
+      if (!a.saleId) continue;
+      const saleUpdate = {
+        amountPaid: Number(a.previousAmountPaid) || 0,
+        unpaidAmount: Number(a.previousUnpaidAmount) || 0,
+        paid: false,
+        paidAt: null
+      };
+      if (a.previousCreatedAt) {
+        saleUpdate.createdAt = a.previousCreatedAt;
+      }
+      batch.update(doc(db, "sales", a.saleId), saleUpdate);
+    }
+  }
+
+  // 3) Delete the payment transaction
+  batch.delete(doc(db, "customer_transactions", paymentId));
+
+  await batch.commit();
+}
 
 export function printPayment(paymentId) {
   const p = state.customerTransactions.find(t => t.id === paymentId);
@@ -310,6 +320,77 @@ export function viewPaymentCustomer(paymentId) {
   viewCustomer(p.customerId);
 }
 window.viewPaymentCustomer = viewPaymentCustomer;
+
+/* =========================================================
+   BULK UI HELPERS (NEW)
+   ========================================================= */
+function updatePaymentsBulkUI() {
+  const bar       = $("payments-bulk-bar");
+  const countEl   = $("payments-selected-count");
+  const delBtn    = $("payments-delete-selected");
+  const selectAll = $("payments-select-all");
+  const list      = $("utang-payment-history");
+
+  const hasRows = !!(list && list.querySelector(".payment-row"));
+  if (bar) bar.classList.toggle("hidden", !hasRows);
+
+  if (countEl) countEl.textContent = `${selectedPayments.size} selected`;
+  if (delBtn) delBtn.disabled = selectedPayments.size === 0;
+
+  const cbs = list ? [...list.querySelectorAll(".payment-row-checkbox")] : [];
+  if (selectAll) {
+    const allChecked = cbs.length > 0 && cbs.every(cb => cb.checked);
+    const anyChecked = cbs.some(cb => cb.checked);
+    selectAll.checked = allChecked;
+    selectAll.indeterminate = !allChecked && anyChecked;
+  }
+}
+
+function wirePaymentsBulkUI() {
+  const selectAll = $("payments-select-all");
+  const delBtn    = $("payments-delete-selected");
+
+  if (selectAll && !selectAll.dataset.wired) {
+    selectAll.dataset.wired = "1";
+    selectAll.addEventListener("change", (e) => {
+      const checked = e.target.checked;
+      const list = $("utang-payment-history");
+      list?.querySelectorAll(".payment-row-checkbox").forEach(cb => {
+        cb.checked = checked;
+        const id = cb.dataset.id;
+        if (checked) selectedPayments.add(id);
+        else         selectedPayments.delete(id);
+        cb.closest(".payment-row")?.classList.toggle("is-selected", checked);
+      });
+      updatePaymentsBulkUI();
+    });
+  }
+
+  if (delBtn && !delBtn.dataset.wired) {
+    delBtn.dataset.wired = "1";
+    delBtn.addEventListener("click", async () => {
+      if (!selectedPayments.size) return;
+      const ids = [...selectedPayments];
+      if (!confirm(`Delete ${ids.length} payment${ids.length !== 1 ? "s" : ""}?\n\nCustomer balances will be restored and affected sales marked unpaid.`)) return;
+
+      delBtn.disabled = true;
+      let ok = 0, fail = 0;
+      for (const id of ids) {
+        try {
+          await reversePaymentSilently(id);
+          ok++;
+        } catch (err) {
+          console.error("[bulk payment delete]", id, err);
+          fail++;
+        }
+      }
+      selectedPayments.clear();
+      updatePaymentsBulkUI();
+      playSuccessSound();
+      showToast(`Deleted ${ok} payment${ok !== 1 ? "s" : ""}${fail ? ` · ${fail} failed` : ""} ✅`);
+    });
+  }
+}
 
 /* =========================================================
    RENDER — customer list
@@ -364,7 +445,7 @@ function renderCustomers() {
 }
 
 /* =========================================================
-   RENDER — payment history
+   RENDER — payment history (with bulk selection)
    ========================================================= */
 function renderPaymentHistory() {
   const list = $("utang-payment-history");
@@ -388,6 +469,7 @@ function renderPaymentHistory() {
 
   if (!payments.length) {
     list.innerHTML = `<div class="empty-state"><p>💵 No payments recorded yet.</p></div>`;
+    updatePaymentsBulkUI();
     return;
   }
 
@@ -403,8 +485,15 @@ function renderPaymentHistory() {
   const rows = payments.map(t => {
     const date = t.createdAt?.toDate?.().toLocaleString() || "—";
     const initial = (t.customerName || "?").charAt(0).toUpperCase();
+    const isSelected = selectedPayments.has(t.id);
     return `
-      <div class="payment-row">
+      <div class="payment-row ${isSelected ? "is-selected" : ""}">
+        <label class="history-receipt-check" title="Select payment">
+          <input type="checkbox"
+                 class="payment-row-checkbox"
+                 data-id="${t.id}"
+                 ${isSelected ? "checked" : ""} />
+        </label>
         <div class="payment-avatar">${esc(initial)}</div>
         <div class="payment-main">
           <div class="payment-name">${esc(t.customerName)}</div>
@@ -420,6 +509,19 @@ function renderPaymentHistory() {
   }).join("");
 
   list.innerHTML = header + rows;
+
+  /* Wire per-row checkboxes + bulk bar */
+  list.querySelectorAll(".payment-row-checkbox").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const id = cb.dataset.id;
+      if (cb.checked) selectedPayments.add(id);
+      else            selectedPayments.delete(id);
+      cb.closest(".payment-row")?.classList.toggle("is-selected", cb.checked);
+      updatePaymentsBulkUI();
+    });
+  });
+  wirePaymentsBulkUI();
+  updatePaymentsBulkUI();
 }
 
 /* =========================================================
@@ -512,6 +614,10 @@ export function initCustomers() {
   wireCustomerDetail();
   $("customers-search")?.addEventListener("input", debounce(renderCustomers, 150));
   $("utang-history-search")?.addEventListener("input", debounce(renderPaymentHistory, 150));
+
+  /* NEW: wire bulk UI once at boot */
+  wirePaymentsBulkUI();
+  updatePaymentsBulkUI();
 }
 
 export function startCustomersListeners(onAfter) {

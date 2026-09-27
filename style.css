@@ -3786,3 +3786,153 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast { bottom: auto
 @media (prefers-reduced-motion: reduce) {
   .autosync-pulse { animation: none; }
 }
+/* ==========================================================
+   REMEMBER ME + GOOGLE BUTTON
+   ========================================================== */
+.remember-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.remember-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+  margin: 0;
+  cursor: pointer;
+}
+
+.google-btn {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fff !important;
+  color: #1F2937 !important;
+  border: 1px solid var(--border) !important;
+  font-weight: 700;
+  padding: 11px 14px !important;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.google-btn:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.10);
+  transform: translateY(-1px);
+}
+.google-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+.google-btn svg { flex: 0 0 auto; }
+[data-theme="dark"] .google-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #E7F3F1 !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* ==========================================================
+   HISTORY / PAYMENT BULK-SELECTION
+   ========================================================== */
+.history-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  animation: cardIn 0.2s ease;
+}
+.history-bulk-bar.hidden { display: none !important; }
+
+.bulk-select-all {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  margin: 0 !important;
+  user-select: none;
+}
+.bulk-select-all input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+  margin: 0;
+  cursor: pointer;
+}
+.bulk-count {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  flex: 1;
+  min-width: 80px;
+}
+.history-bulk-bar .btn.danger.sm { padding: 6px 12px; font-size: 0.78rem; }
+.history-bulk-bar .btn.danger.sm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Per-row checkboxes */
+.history-receipt-check {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-right: 2px;
+}
+.history-receipt-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+  cursor: pointer;
+  margin: 0;
+}
+.payment-row .history-receipt-check { margin-right: 4px; }
+
+/* Selected-row highlight */
+.history-receipt.is-selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(18, 84, 79, 0.15);
+}
+.payment-row.is-selected {
+  border-color: var(--brand);
+  background: var(--brand-50);
+}
+[data-theme="dark"] .payment-row.is-selected {
+  background: rgba(47, 163, 143, 0.10);
+}
+
+/* ==========================================================
+   DASHBOARD LIVE INVENTORY — POS-style cards
+   ========================================================== */
+#dashboard-inventory {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+#dashboard-inventory .pos-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+#dashboard-inventory .pos-media { aspect-ratio: 1 / 1; }
+
+@media (max-width: 520px) {
+  #dashboard-inventory {
+    grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .history-bulk-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .bulk-count { text-align: center; }
+  .history-bulk-bar .btn.danger.sm { width: 100%; }
+}

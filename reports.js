@@ -16,6 +16,11 @@ import { stockProgress, renderPaginationBar } from "./inventory.js";
 const { CATEGORY_PALETTE } = CONSTANTS;
 
 /* =========================================================
+   HISTORY BULK-SELECTION STATE (NEW)
+   ========================================================= */
+const selectedReceipts = new Set();
+
+/* =========================================================
    STATS (stat cards)
    ========================================================= */
 export function updateStats() {
@@ -523,7 +528,7 @@ export function destroyCharts() {
 }
 
 /* =========================================================
-   HISTORY — with pagination
+   HISTORY — with pagination + bulk selection
    ========================================================= */
 export function groupSalesByReceipt() {
   const map = new Map();
@@ -543,6 +548,72 @@ export function groupSalesByReceipt() {
     g.items.push(s); g.saleIds.push(s.id); g.total += (s.total || 0);
   });
   return [...map.values()].sort((a, b) => b.date - a.date);
+}
+
+/* ---------- Bulk UI helpers ---------- */
+function updateHistoryBulkUI() {
+  const bar       = $("history-bulk-bar");
+  const countEl   = $("history-selected-count");
+  const delBtn    = $("history-delete-selected");
+  const selectAll = $("history-select-all");
+  const list      = $("history-list");
+
+  const hasRows = !!(list && list.querySelector(".history-receipt"));
+  if (bar) bar.classList.toggle("hidden", !hasRows);
+
+  if (countEl) countEl.textContent = `${selectedReceipts.size} selected`;
+  if (delBtn) delBtn.disabled = selectedReceipts.size === 0;
+
+  const cbs = list ? [...list.querySelectorAll(".history-receipt-checkbox")] : [];
+  if (selectAll) {
+    const allChecked = cbs.length > 0 && cbs.every(cb => cb.checked);
+    const anyChecked = cbs.some(cb => cb.checked);
+    selectAll.checked = allChecked;
+    selectAll.indeterminate = !allChecked && anyChecked;
+  }
+}
+
+function wireHistoryBulkUI() {
+  const selectAll = $("history-select-all");
+  const delBtn    = $("history-delete-selected");
+
+  if (selectAll && !selectAll.dataset.wired) {
+    selectAll.dataset.wired = "1";
+    selectAll.addEventListener("change", (e) => {
+      const checked = e.target.checked;
+      const list = $("history-list");
+      list?.querySelectorAll(".history-receipt-checkbox").forEach(cb => {
+        cb.checked = checked;
+        const rn = cb.dataset.receipt;
+        if (checked) selectedReceipts.add(rn);
+        else         selectedReceipts.delete(rn);
+        cb.closest(".history-receipt")?.classList.toggle("is-selected", checked);
+      });
+      updateHistoryBulkUI();
+    });
+  }
+
+  if (delBtn && !delBtn.dataset.wired) {
+    delBtn.dataset.wired = "1";
+    delBtn.addEventListener("click", async () => {
+      if (!selectedReceipts.size) return;
+      const groups = groupSalesByReceipt();
+      const ids = [];
+      groups.forEach(g => {
+        if (selectedReceipts.has(g.receiptNum)) ids.push(...g.saleIds);
+      });
+      if (!ids.length) return;
+
+      const n = selectedReceipts.size;
+      if (!confirm(`Delete ${n} receipt${n !== 1 ? "s" : ""}?\n\n${ids.length} sale${ids.length !== 1 ? "s" : ""} will be removed and quantities restored to inventory.`)) return;
+
+      delBtn.disabled = true;
+      const mod = await import("./pos.js");
+      await mod.deleteSaleIds(ids, { skipConfirm: true, label: "Bulk history delete" });
+      selectedReceipts.clear();
+      renderHistory();
+    });
+  }
 }
 
 export function renderHistory() {
@@ -584,6 +655,7 @@ export function renderHistory() {
   if (!groups.length) {
     list.innerHTML = `<div class="empty-state"><p>🧾 No sales history found.</p></div>`;
     renderPaginationBar("history-pagination", 0, 1, 1, () => {});
+    updateHistoryBulkUI();
     return;
   }
 
@@ -606,9 +678,16 @@ export function renderHistory() {
         <span class="history-item-qty">× ${fmtInt(it.quantity)}</span>
         <span class="history-item-price">${fmtMoney(it.total)}</span>
       </div>`).join("");
+    const isSelected = selectedReceipts.has(g.receiptNum);
     return `
-      <div class="history-receipt">
+      <div class="history-receipt ${isSelected ? "is-selected" : ""}">
         <div class="history-receipt-head">
+          <label class="history-receipt-check" title="Select receipt">
+            <input type="checkbox"
+                   class="history-receipt-checkbox"
+                   data-receipt="${esc(g.receiptNum)}"
+                   ${isSelected ? "checked" : ""} />
+          </label>
           <div class="history-receipt-meta">
             <div class="history-receipt-num">🧾 ${esc(g.receiptNum)}</div>
             <div class="history-receipt-date">${dateStr}</div>
@@ -627,6 +706,19 @@ export function renderHistory() {
         </div>
       </div>`;
   }).join("");
+
+  /* Wire per-receipt checkboxes + bulk bar */
+  list.querySelectorAll(".history-receipt-checkbox").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const rn = cb.dataset.receipt;
+      if (cb.checked) selectedReceipts.add(rn);
+      else            selectedReceipts.delete(rn);
+      cb.closest(".history-receipt")?.classList.toggle("is-selected", cb.checked);
+      updateHistoryBulkUI();
+    });
+  });
+  wireHistoryBulkUI();
+  updateHistoryBulkUI();
 
   renderPaginationBar("history-pagination", total, state.histPage, pageSize, (newPage) => {
     state.histPage = newPage;
@@ -1072,4 +1164,8 @@ export function initReports() {
   $("export-movements")?.addEventListener("click", exportMovementsToExcel);
   $("export-history-excel")?.addEventListener("click", exportHistoryToExcel);
   $("export-history-pdf")?.addEventListener("click", exportHistoryToPDF);
+
+  /* Wire bulk UI once at boot */
+  wireHistoryBulkUI();
+  updateHistoryBulkUI();
 }

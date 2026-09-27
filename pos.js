@@ -94,7 +94,7 @@ export function renderPosCart() {
   if (!state.posCart.length) {
     el.innerHTML = `<div class="pos-cart-empty">Tap a product or scan a barcode to add.</div>`;
   } else {
-        el.innerHTML = state.posCart.map(c => {
+    el.innerHTML = state.posCart.map(c => {
       const hasDisc = c.discount && c.discount > 0;
       const metaHTML = hasDisc
         ? `<span class="pos-ci-original">${fmtMoney(c.originalPrice)}</span> ${fmtMoney(c.price)} × ${c.qty}`
@@ -150,7 +150,7 @@ window.togglePaymentMode = togglePaymentMode;
 /* =========================================================
    PRODUCT GRID
    ========================================================= */
-function buildPosMiniSlides(item, sold) {
+export function buildPosMiniSlides(item, sold) {
   const slides = [];
   const isLow = item.quantity > 0 && item.quantity <= (item.threshold ?? 5);
   const isOut = item.quantity === 0;
@@ -222,7 +222,7 @@ export function renderPosProducts() {
       : isLow
       ? `<span class="pos-stock-pill low">${fmtInt(item.quantity)} left</span>`
       : `<span class="pos-stock-pill">${fmtInt(item.quantity)}</span>`;
-      const slides = buildPosMiniSlides(item, sold);
+    const slides = buildPosMiniSlides(item, sold);
     const slideHTML = slides.map(s => `<div class="pos-mini-slide ${s.cls}">${esc(s.text)}</div>`).join("");
 
     const disc = getDiscountedPrice(item);
@@ -258,13 +258,17 @@ export function renderPosProducts() {
   startPosMiniCarousels();
 }
 
+/* Runs on BOTH the POS page and the Dashboard (Live Inventory) */
 export function startPosMiniCarousels() {
   stopPosMiniCarousels();
   state.posMiniIndex = 0;
   state.posMiniTimer = setInterval(() => {
-    const salesPage = $("page-sales");
-    if (salesPage && salesPage.classList.contains("hidden")) return;
+    const salesHidden = $("page-sales")?.classList.contains("hidden");
+    const dashHidden  = $("page-dashboard")?.classList.contains("hidden");
+    // If neither page is visible, skip the tick
+    if (salesHidden && dashHidden) return;
     if (!$("scanner-modal")?.classList.contains("hidden")) return;
+
     state.posMiniIndex++;
     document.querySelectorAll(".pos-mini").forEach(carousel => {
       const count = parseInt(carousel.dataset.count || "1");
@@ -324,9 +328,7 @@ async function handleCheckout() {
   const now = new Date();
   const cashier = state.currentUser?.email || "-";
 
-  // ✅ Use ONE shared Timestamp for every write in this batch.
-  // Mixing multiple `serverTimestamp()` sentinels with `increment()`
-  // triggers Firestore 10.12's "Unexpected state" assertion error.
+  // Use ONE shared Timestamp for every write in this batch
   const nowTs = Timestamp.fromDate(now);
 
   state.checkoutBusy = true;
@@ -350,7 +352,6 @@ async function handleCheckout() {
         paymentMode: mode,
         customerId: customer?.id || null,
         customerName: customer?.name || null,
-        // 💰 cash-basis accounting flags:
         paid: isCash,
         paidAt: isCash ? nowTs : null,
         amountPaid: isCash ? lineTotal : 0,
@@ -361,7 +362,6 @@ async function handleCheckout() {
       batch.update(doc(db, "inventory", item.id), {
         quantity: increment(-qty), updatedAt: nowTs
       });
-      // Movement — override createdAt to the same shared timestamp
       const mov = movementDoc({
         itemId: item.id, itemName: item.name,
         type: "out", quantity: qty, reason: "sale", note: `Receipt ${receiptNum}`
@@ -542,6 +542,27 @@ export async function deleteReceiptGroup(saleIds, receiptNum) {
   } catch (err) { showToast(`Failed: ${err.code || err.message} ❌`); }
 }
 
+/* ---------- Bulk delete (History select-all) ---------- */
+export async function deleteSaleIds(saleIds, opts = {}) {
+  if (!saleIds?.length) return;
+  const { skipConfirm = false, label = "" } = opts;
+  if (!skipConfirm) {
+    if (!confirm(`Delete ${saleIds.length} sale(s)?`)) return;
+  }
+  try {
+    const batch = writeBatch(db);
+    saleIds.forEach(id => {
+      const sale = state.sales.find(s => s.id === id);
+      if (sale) queueSaleRemoval(batch, sale, label || `Bulk delete`);
+    });
+    await settleWrite(batch.commit(), "Bulk delete");
+    playSuccessSound();
+    showToast(`Deleted ${saleIds.length} item${saleIds.length !== 1 ? "s" : ""} ✅`);
+  } catch (err) {
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+}
+
 /* =========================================================
    RENDER — Recent sales list
    ========================================================= */
@@ -615,12 +636,12 @@ export function startSalesListener(onAfterSalesChange) {
           return tb - ta;
         });
 
-      // ✅ Cash sales + already-paid credit sales — these count as revenue
+      // Cash sales + already-paid credit sales count as revenue
       state.sales = all
         .filter(s => s.paymentMode !== "credit" || s.paid === true)
         .slice(0, 500);
 
-      // 🕒 Unpaid credit sales — kept separate for customer payment distribution
+      // Unpaid credit sales — kept separate for payment distribution
       state.creditSales = all
         .filter(s => s.paymentMode === "credit" && s.paid !== true);
 
