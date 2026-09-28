@@ -35,7 +35,12 @@ export const fmtShort = (n) => {
   if (abs >= 1_000)     return "₱" + (v / 1_000).toFixed(2) + "K";
   return fmtMoney(v);
 };
-
+/* -------- Money rounding (IEEE-754 safety) -------- */
+export const roundMoney = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+};
 /* -------- Toast -------- */
 const toastEl = () => document.getElementById("toast");
 export function showToast(msg) {

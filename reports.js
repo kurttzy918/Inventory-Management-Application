@@ -16,7 +16,7 @@ import { stockProgress, renderPaginationBar } from "./inventory.js";
 const { CATEGORY_PALETTE } = CONSTANTS;
 
 /* =========================================================
-   HISTORY BULK-SELECTION STATE (NEW)
+   HISTORY BULK-SELECTION STATE
    ========================================================= */
 const selectedReceipts = new Set();
 
@@ -620,7 +620,7 @@ export function renderHistory() {
   const list = $("history-list"); if (!list) return;
   let groups = groupSalesByReceipt();
 
-  // Range filter
+  /* ---- Range filter ---- */
   const range = valOf($("history-filter")) || "all";
   if (range !== "all") {
     const now = Date.now(); const dayMs = 24 * 60 * 60 * 1000;
@@ -631,7 +631,7 @@ export function renderHistory() {
     groups = groups.filter(g => g.date.getTime() >= cutoff);
   }
 
-  // Category filter
+  /* ---- Category filter ---- */
   const catFilter = valOf($("history-cat-filter"));
   if (catFilter) {
     groups = groups.map(g => {
@@ -642,7 +642,7 @@ export function renderHistory() {
     }).filter(Boolean);
   }
 
-  // Search
+  /* ---- Search ---- */
   const term = valOf($("history-search")).toLowerCase().trim();
   if (term) {
     groups = groups.filter(g =>
@@ -659,7 +659,7 @@ export function renderHistory() {
     return;
   }
 
-  // ---- Pagination ----
+  /* ---- Pagination ---- */
   const pageSize = Math.max(5, state.histPageSize || 15);
   const total = groups.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -670,44 +670,102 @@ export function renderHistory() {
 
   list.innerHTML = pageGroups.map(g => {
     const itemCount = g.items.length;
-    const qtyTotal = g.items.reduce((sum, it) => sum + (it.quantity || 0), 0);
-    const dateStr = g.date.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const qtyTotal = g.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+    const timeStr = g.date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const dateStr = g.date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    const isCredit = g.items.some(it => it.paymentMode === "credit");
+    const isSelected = selectedReceipts.has(g.receiptNum);
+
+    /* Item lines — name + qty + line total */
     const itemsHTML = g.items.map(it => `
       <div class="history-item-line">
-        <span class="history-item-name">${esc(it.itemName)}</span>
-        <span class="history-item-qty">× ${fmtInt(it.quantity)}</span>
+        <span class="history-item-name" title="${esc(it.itemName || "Item")}">
+          ${esc(it.itemName || "Item")}
+          ${Number(it.quantity) > 1
+            ? `<span class="history-item-qty">×${fmtInt(it.quantity)}</span>`
+            : ""}
+        </span>
         <span class="history-item-price">${fmtMoney(it.total)}</span>
-      </div>`).join("");
-    const isSelected = selectedReceipts.has(g.receiptNum);
+      </div>
+    `).join("");
+
     return `
-      <div class="history-receipt ${isSelected ? "is-selected" : ""}">
-        <div class="history-receipt-head">
+      <article class="history-receipt ${isSelected ? "is-selected" : ""}"
+               data-receipt="${esc(g.receiptNum)}">
+
+        <header class="history-receipt-head">
           <label class="history-receipt-check" title="Select receipt">
             <input type="checkbox"
                    class="history-receipt-checkbox"
                    data-receipt="${esc(g.receiptNum)}"
                    ${isSelected ? "checked" : ""} />
           </label>
+
           <div class="history-receipt-meta">
-            <div class="history-receipt-num">🧾 ${esc(g.receiptNum)}</div>
-            <div class="history-receipt-date">${dateStr}</div>
+            <span class="history-receipt-num">${esc(g.receiptNum)}</span>
+            <span class="history-receipt-date">${esc(timeStr)} · ${esc(dateStr)}</span>
           </div>
-          <div class="history-receipt-total">${fmtMoney(g.total)}</div>
-          <div class="history-receipt-actions">
-            <button type="button" class="sale-action-btn receipt" onclick="viewReceiptGroup('${esc(g.receiptNum)}')" title="View">🧾</button>
-            <button type="button" class="sale-action-btn" onclick="printReceiptGroup('${esc(g.receiptNum)}')" title="Print">🖨️</button>
-            <button type="button" class="sale-action-btn delete" onclick="deleteReceiptGroupFromHistory('${esc(g.receiptNum)}')" title="Delete">🗑️</button>
-          </div>
-        </div>
+
+          <span class="sale-badge ${isCredit ? "credit" : "cash"}">
+            ${isCredit ? "📝 Utang" : "💵 Cash"}
+          </span>
+        </header>
+
         <div class="history-receipt-items">${itemsHTML}</div>
-        <div class="history-receipt-footer">
-          <span>${itemCount} item${itemCount !== 1 ? "s" : ""} · ${fmtInt(qtyTotal)} unit${qtyTotal !== 1 ? "s" : ""}</span>
-          <span>Cashier: ${esc((g.cashier || "-").slice(0, 20))}</span>
-        </div>
-      </div>`;
+
+        <footer class="history-receipt-foot">
+          <div class="history-foot-left">
+            <span class="history-foot-label">
+              ${itemCount} item${itemCount !== 1 ? "s" : ""} · ${fmtInt(qtyTotal)} pc
+            </span>
+            <span class="history-foot-cashier">
+              Cashier: ${esc((g.cashier || "-").slice(0, 22))}
+            </span>
+          </div>
+
+          <div class="history-foot-total">
+            <span class="history-total-label">Total</span>
+            <span class="history-total-amount">${fmtMoney(g.total)}</span>
+          </div>
+
+          <div class="history-receipt-actions">
+            <button type="button" class="sale-btn-icon"
+                    data-hact="view" data-receipt="${esc(g.receiptNum)}"
+                    title="View receipt" aria-label="View receipt">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 3 2V2l-3 2-3-2-3 2-3-2-3 2L4 2z"/>
+                <path d="M8 8h8M8 12h8M8 16h5"/>
+              </svg>
+            </button>
+            <button type="button" class="sale-btn-icon"
+                    data-hact="print" data-receipt="${esc(g.receiptNum)}"
+                    title="Print receipt" aria-label="Print receipt">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9"/>
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                <rect x="6" y="14" width="12" height="8"/>
+              </svg>
+            </button>
+            <button type="button" class="sale-btn-icon danger"
+                    data-hact="delete" data-receipt="${esc(g.receiptNum)}"
+                    title="Delete receipt" aria-label="Delete receipt">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              </svg>
+            </button>
+          </div>
+        </footer>
+      </article>
+    `;
   }).join("");
 
-  /* Wire per-receipt checkboxes + bulk bar */
+  /* ---- Wire row checkboxes ---- */
   list.querySelectorAll(".history-receipt-checkbox").forEach(cb => {
     cb.addEventListener("change", () => {
       const rn = cb.dataset.receipt;
@@ -717,6 +775,20 @@ export function renderHistory() {
       updateHistoryBulkUI();
     });
   });
+
+  /* ---- Wire action buttons ---- */
+  list.querySelectorAll(".sale-btn-icon[data-hact]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const act = btn.dataset.hact;
+      const receiptNum = btn.dataset.receipt;
+
+      if (act === "view")  return viewReceiptGroup(receiptNum);
+      if (act === "print") return printReceiptGroup(receiptNum);
+      if (act === "delete") return deleteReceiptGroupFromHistory(receiptNum);
+    });
+  });
+
   wireHistoryBulkUI();
   updateHistoryBulkUI();
 
@@ -774,11 +846,16 @@ window.deleteReceiptGroupFromHistory = deleteReceiptGroupFromHistory;
 /* =========================================================
    CATEGORY SUMMARIES
    ========================================================= */
+
+/* Shared renderer for the History category summary (keeps the simple look) */
 function renderCategorySummaryInto(container, list, emptyText) {
   if (!container) return;
   const map = getSalesByCategory(list);
   const entries = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
-  if (!entries.length) { container.innerHTML = `<div class="cat-sum-card empty">${esc(emptyText)}</div>`; return; }
+  if (!entries.length) {
+    container.innerHTML = `<div class="cat-sum-card empty">${esc(emptyText)}</div>`;
+    return;
+  }
   container.innerHTML = entries.map(([cat, v]) => `
     <div class="cat-sum-card">
       <div class="cat-sum-name" title="${esc(cat)}">${esc(cat)}</div>
@@ -788,10 +865,83 @@ function renderCategorySummaryInto(container, list, emptyText) {
   `).join("");
 }
 
+/* =========================================================
+   SALES BY CATEGORY (POS) — modern, detailed cards
+   ========================================================= */
 export function renderSalesCategorySummary() {
-  renderCategorySummaryInto($("sales-category-summary"), state.sales, "No sales yet — make a sale to see category totals.");
+  const container = $("sales-category-summary");
+  if (!container) return;
+
+  const map = getSalesByCategory(state.sales);
+  const entries = Object.entries(map)
+    .map(([cat, v]) => ({
+      cat,
+      total: v.total,
+      count: v.count,
+      qty: v.qty,
+      avg: v.count ? v.total / v.count : 0
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  if (!entries.length) {
+    container.innerHTML = `<div class="cat-sum-card empty">No sales yet — make a sale to see category totals.</div>`;
+    return;
+  }
+
+  const grandTotal = entries.reduce((s, e) => s + e.total, 0);
+  const maxTotal = entries[0].total || 1;
+
+  container.innerHTML = entries.map((e, i) => {
+    const share = grandTotal > 0 ? (e.total / grandTotal) * 100 : 0;
+    const barPct = (e.total / maxTotal) * 100;
+    const rank = i + 1;
+
+    /* Top-3 get colored rank badges */
+    let rankClass = "";
+    if (i === 0) rankClass = "rank-1";
+    else if (i === 1) rankClass = "rank-2";
+    else if (i === 2) rankClass = "rank-3";
+
+    return `
+      <article class="cat-sum-card">
+        <header class="cat-sum-head">
+          <div class="cat-sum-badge ${rankClass}">${rank}</div>
+          <div class="cat-sum-title">
+            <div class="cat-sum-name" title="${esc(e.cat)}">${esc(e.cat)}</div>
+            <div class="cat-sum-sub">${share.toFixed(1)}% of sales</div>
+          </div>
+        </header>
+
+        <div class="cat-sum-amount">
+          <span class="cat-sum-currency">₱</span>${(e.total).toLocaleString("en-PH", {
+            minimumFractionDigits: 2, maximumFractionDigits: 2
+          })}
+        </div>
+
+        <div class="cat-sum-progress">
+          <div class="cat-sum-progress-bar" style="width:${barPct}%"></div>
+        </div>
+
+        <footer class="cat-sum-foot">
+          <div class="cat-sum-stat">
+            <span class="cat-sum-stat-num">${fmtInt(e.count)}</span>
+            <span class="cat-sum-stat-lab">Sale${e.count !== 1 ? "s" : ""}</span>
+          </div>
+          <div class="cat-sum-stat">
+            <span class="cat-sum-stat-num">${fmtInt(e.qty)}</span>
+            <span class="cat-sum-stat-lab">Unit${e.qty !== 1 ? "s" : ""}</span>
+          </div>
+          <div class="cat-sum-stat">
+            <span class="cat-sum-stat-num">${fmtMoney(e.avg)}</span>
+            <span class="cat-sum-stat-lab">Avg Sale</span>
+          </div>
+        </footer>
+      </article>
+    `;
+  }).join("");
 }
 
+/* History keeps the simpler layout */
 export function renderHistoryCategorySummary() {
   let list = state.sales;
   const range = valOf($("history-filter")) || "all";

@@ -84,23 +84,91 @@ function buildQrPayload({ number, name, amount, reference, note }) {
 }
 
 /* =========================================================
-   QR RENDER HELPER
+   QR RENDER HELPER — waits for library, retries, and falls back
    ========================================================= */
+let _qrReadyPromise = null;
+
+function waitForQrLibrary(timeoutMs = 12000) {
+  if (typeof window.QRCode !== "undefined" && typeof window.QRCode.toCanvas === "function") {
+    return Promise.resolve(window.QRCode);
+  }
+  if (_qrReadyPromise) return _qrReadyPromise;
+
+  _qrReadyPromise = new Promise((resolve, reject) => {
+    const started = Date.now();
+    const tick = () => {
+      if (typeof window.QRCode !== "undefined" && typeof window.QRCode.toCanvas === "function") {
+        return resolve(window.QRCode);
+      }
+      if (Date.now() - started > timeoutMs) {
+        _qrReadyPromise = null;
+        return reject(new Error("QRCode library never loaded"));
+      }
+      setTimeout(tick, 200);
+    };
+    tick();
+  });
+  return _qrReadyPromise;
+}
+
+function drawQrMessage(canvas, lines, opts = {}) {
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = opts.bg || "#F1F5F7";
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = opts.color || "#64748B";
+  ctx.font = "13px -apple-system, 'Segoe UI', Roboto, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const arr = Array.isArray(lines) ? lines : [lines];
+  const step = 20;
+  const startY = h / 2 - ((arr.length - 1) * step) / 2;
+  arr.forEach((line, i) => ctx.fillText(line, w / 2, startY + i * step));
+}
+
 async function renderQr(canvas, text, opts = {}) {
   if (!canvas) return;
-  if (typeof window.QRCode === "undefined") {
-    console.warn("[gcash qr] QRCode library not loaded");
+  const size = opts.width || 260;
+
+  canvas.width = size;
+  canvas.height = size;
+  canvas.style.width  = size + "px";
+  canvas.style.height = size + "px";
+  canvas.style.flexShrink = "0";
+
+  let QRCode;
+  try {
+    QRCode = await waitForQrLibrary();
+  } catch (err) {
+    console.error("[gcash qr]", err.message);
+    drawQrMessage(canvas, [
+      "QR library failed to load.",
+      "Check your internet connection",
+      "and reload the page."
+    ], { bg: "#FEF3C7", color: "#92400E" });
     return;
   }
+
   try {
-    await window.QRCode.toCanvas(canvas, text, {
-      width: opts.width || 260,
-      margin: opts.margin || 2,
-      color: opts.color || { dark: "#0B6FDE", light: "#FFFFFF" },
-      errorCorrectionLevel: "M"
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const done = (e) => { if (settled) return; settled = true; e ? reject(e) : resolve(); };
+      const maybePromise = QRCode.toCanvas(canvas, String(text), {
+        width: size,
+        margin: opts.margin ?? 2,
+        color: opts.color || { dark: "#0B6FDE", light: "#FFFFFF" },
+        errorCorrectionLevel: "M"
+      }, (err) => done(err));
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(() => done(null), done);
+      }
+      setTimeout(() => done(new Error("QR render timeout")), 5000);
     });
   } catch (e) {
-    console.error("[gcash qr] render:", e);
+    console.error("[gcash qr] render failed:", e);
+    drawQrMessage(canvas, ["QR generation failed."], { bg: "#FEE2E2", color: "#991B1B" });
   }
 }
 
@@ -139,9 +207,28 @@ function loadGcashSettingsIntoForm() {
 function wireGcashSettings() {
   loadGcashSettingsIntoForm();
 
-  // Live preview as user types
   $("gcash-number")?.addEventListener("input", debounce(renderSettingsPreview, 300));
   $("gcash-account-name")?.addEventListener("input", debounce(renderSettingsPreview, 300));
+
+  /* Manual retry if the library was slow */
+  $("gcash-qr-retry")?.addEventListener("click", async () => {
+    _qrReadyPromise = null;
+    try {
+      await waitForQrLibrary();
+      $("gcash-qr-retry")?.classList.add("hidden");
+      renderSettingsPreview();
+      showToast("QR library loaded ✅");
+    } catch {
+      showToast("Still can't reach the CDN ❌");
+    }
+  });
+
+  /* Auto-hide retry button once library loads */
+  waitForQrLibrary().then(() => {
+    $("gcash-qr-retry")?.classList.add("hidden");
+  }).catch(() => {
+    $("gcash-qr-retry")?.classList.remove("hidden");
+  });
 
   $("gcash-save-settings")?.addEventListener("click", () => {
     setGcashSettings({
@@ -585,6 +672,13 @@ export function initGcash() {
   wireGcashForm();
   wireGcashSettings();
   wireGcashPaymentModal();
+
+   /* NEW: re-render the settings preview as soon as the QR library
+     is available (in case the user opened the page before the CDN
+     script finished loading). */
+  waitForQrLibrary()
+    .then(() => { renderSettingsPreview(); })
+    .catch(() => { /* fallback already drawn inside renderQr */ });
 
   const filterType = $("gcash-filter-type");
   if (filterType) {

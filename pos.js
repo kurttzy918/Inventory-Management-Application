@@ -9,14 +9,15 @@ import {
   $, valOf, esc, debounce, safeRender, showToast,
   myWorkspace, movementDoc, customerTxDoc, settleWrite, fmtMoney, fmtInt,
   fallbackColorFor, productImageHTML, playSuccessSound, playErrorSound, playCashSound,
-  expiryStatus, getSoldMap, getFastSellingInfo
+  expiryStatus, getSoldMap, getFastSellingInfo,
+  roundMoney                                        // 👈 NEW
 } from "./utils.js";
 import { renderCustomerPickerOptions } from "./customers.js";
 
 const { NEW_ARRIVAL_WINDOW_MS } = CONSTANTS;
 
 /* =========================================================
-   DISCOUNT HELPER
+   DISCOUNT HELPER — single source of truth
    ========================================================= */
 function getDiscountedPrice(item) {
   const price = Number(item.price) || 0;
@@ -29,12 +30,39 @@ function getDiscountedPrice(item) {
     const percent = (d / price) * 100;
     return { original: price, final, discount: d, percent };
   }
-  // percent (default)
   const cappedPct = Math.min(100, d);
   const final = Math.max(0, price - (price * cappedPct / 100));
   return { original: price, final, discount: price - final, percent: cappedPct };
 }
 export { getDiscountedPrice };
+
+/* =========================================================
+   CART PRICE RESOLUTION
+   ========================================================= */
+
+/* Correct unit price for a cart line — ALWAYS derived from inventory.
+   If the item has no discount, this returns the original price.
+   If the item has a discount, this returns the discounted price. */
+function getCartUnitPrice(ci) {
+  const item = state.inventory.find(i => i.id === ci.itemId);
+  if (!item) return roundMoney(ci.price);   // fallback for missing item
+  return roundMoney(getDiscountedPrice(item).final);
+}
+
+/* Sync every cart line's stored price fields to the current discount.
+   Called before rendering + before checkout so the display can never
+   drift away from the actual payable amount. */
+function syncCartPrices() {
+  state.posCart.forEach(ci => {
+    const item = state.inventory.find(i => i.id === ci.itemId);
+    if (!item) return;
+    const disc = getDiscountedPrice(item);
+    ci.price           = roundMoney(disc.final);
+    ci.originalPrice   = roundMoney(disc.original);
+    ci.discount        = roundMoney(disc.discount);
+    ci.discountPercent = Number(disc.percent) || 0;
+  });
+}
 
 /* =========================================================
    CART
@@ -45,7 +73,6 @@ export function addToCart(itemId) {
   if (item.quantity <= 0) { playErrorSound(); showToast("Out of stock ❌"); return; }
 
   const disc = getDiscountedPrice(item);
-  const finalPrice = disc.final;
 
   const existing = state.posCart.find(c => c.itemId === itemId);
   if (existing) {
@@ -56,15 +83,17 @@ export function addToCart(itemId) {
     state.posCart.push({
       itemId,
       name: item.name,
-      price: finalPrice,
-      originalPrice: disc.original,
-      discount: disc.discount,
-      discountPercent: disc.percent,
+      price:           roundMoney(disc.final),
+      originalPrice:   roundMoney(disc.original),
+      discount:        roundMoney(disc.discount),
+      discountPercent: Number(disc.percent) || 0,
       qty: 1,
       stock: item.quantity
     });
   }
-  renderPosCart(); updateChange();
+  syncCartPrices();
+  renderPosCart();
+  updateChange();
 }
 
 function updateCartQty(itemId, delta) {
@@ -82,7 +111,14 @@ function removeFromCart(itemId) {
   state.posCart = state.posCart.filter(c => c.itemId !== itemId);
   renderPosCart(); updateChange();
 }
-function getCartTotal() { return state.posCart.reduce((s, c) => s + c.qty * c.price, 0); }
+
+/* ✅ Total always derived from current inventory prices */
+function getCartTotal() {
+  return roundMoney(
+    state.posCart.reduce((sum, c) => sum + c.qty * getCartUnitPrice(c), 0)
+  );
+}
+
 function clearCart() {
   state.posCart = [];
   if ($("pos-cash")) $("pos-cash").value = "";
@@ -91,6 +127,10 @@ function clearCart() {
 
 export function renderPosCart() {
   const el = $("pos-cart-items"); if (!el) return;
+
+  /* Keep stored prices in sync so display = payable */
+  syncCartPrices();
+
   if (!state.posCart.length) {
     el.innerHTML = `<div class="pos-cart-empty">Tap a product or scan a barcode to add.</div>`;
   } else {
@@ -110,23 +150,34 @@ export function renderPosCart() {
           <span class="pos-ci-qty-num">${c.qty}</span>
           <button type="button" class="pos-qty-btn" data-act="inc" data-id="${c.itemId}">+</button>
         </div>
-        <div class="pos-ci-sub">${fmtMoney(c.price * c.qty)}</div>
+        <div class="pos-ci-sub">${fmtMoney(roundMoney(c.price * c.qty))}</div>
         <button type="button" class="pos-ci-remove" data-act="rm" data-id="${c.itemId}" title="Remove">✕</button>
       </div>
       `;
     }).join("");
   }
+
+  /* Total uses the SAME source as updateChange */
   if ($("pos-total")) $("pos-total").textContent = fmtMoney(getCartTotal());
 }
 
+/* ✅ change = cash − finalDiscountedTotal, rounded */
 export function updateChange() {
   const el = $("pos-change"); if (!el) return;
-  const total = getCartTotal();
-  const cash = Number(valOf($("pos-cash"))) || 0;
-  const change = cash - total;
-  if (cash === 0) { el.textContent = fmtMoney(0); el.classList.remove("insufficient"); }
-  else if (change < 0) { el.textContent = "−" + fmtMoney(Math.abs(change)); el.classList.add("insufficient"); }
-  else { el.textContent = fmtMoney(change); el.classList.remove("insufficient"); }
+  const total  = getCartTotal();
+  const cash   = roundMoney(valOf($("pos-cash")));
+  const change = roundMoney(cash - total);
+
+  if (cash === 0) {
+    el.textContent = fmtMoney(0);
+    el.classList.remove("insufficient");
+  } else if (change < 0) {
+    el.textContent = "−" + fmtMoney(Math.abs(change));
+    el.classList.add("insufficient");
+  } else {
+    el.textContent = fmtMoney(change);
+    el.classList.remove("insufficient");
+  }
 }
 
 /* =========================================================
@@ -161,11 +212,9 @@ export function buildPosMiniSlides(item, sold) {
   const exp = expiryStatus(item.expiry);
   const disc = getDiscountedPrice(item);
 
-  // 1) Expiry — most urgent
   if (exp.level === "expired") slides.push({ cls: "expiry", text: `⛔ ${exp.label.toUpperCase()}` });
   else if (exp.level === "expiring") slides.push({ cls: "expiry", text: `⏰ ${exp.label.toUpperCase()}` });
 
-  // 2) 💥 Discount
   if (disc.discount > 0) {
     const pct = Math.round(disc.percent);
     const tag = item.discountType === "amount"
@@ -174,21 +223,16 @@ export function buildPosMiniSlides(item, sold) {
     slides.push({ cls: "discount", text: `💥 ${tag} · ${fmtMoney(disc.final)}` });
   }
 
-  // 3) New arrival
   if (isNew) slides.push({ cls: "new", text: "✨ NEW ARRIVAL" });
 
-  // 4) Sold / Fast selling
   if (fast.isFast) slides.push({ cls: "hot", text: `🔥 FAST SELLING · ${fast.perDay.toFixed(1)}/DAY` });
   else if (sold > 0) slides.push({ cls: "hot", text: `🔥 ${fmtInt(sold)} SOLD` });
 
-  // 5) Stock level
   if (isOut) slides.push({ cls: "low", text: "🚫 OUT OF STOCK" });
   else if (isLow) slides.push({ cls: "low", text: `⚠️ ONLY ${fmtInt(item.quantity)} LEFT` });
 
-  // 6) Revenue
   if (revenue > 0) slides.push({ cls: "ok", text: `💰 ${fmtMoney(revenue)} SALES` });
 
-  // 7) Always last — remaining stock
   slides.push({ cls: "ok", text: `📦 ${fmtInt(item.quantity)} IN STOCK` });
   return slides;
 }
@@ -258,14 +302,12 @@ export function renderPosProducts() {
   startPosMiniCarousels();
 }
 
-/* Runs on BOTH the POS page and the Dashboard (Live Inventory) */
 export function startPosMiniCarousels() {
   stopPosMiniCarousels();
   state.posMiniIndex = 0;
   state.posMiniTimer = setInterval(() => {
     const salesHidden = $("page-sales")?.classList.contains("hidden");
     const dashHidden  = $("page-dashboard")?.classList.contains("hidden");
-    // If neither page is visible, skip the tick
     if (salesHidden && dashHidden) return;
     if (!$("scanner-modal")?.classList.contains("hidden")) return;
 
@@ -284,7 +326,7 @@ export function stopPosMiniCarousels() {
 }
 
 /* =========================================================
-   CHECKOUT
+   CHECKOUT — the fixed version
    ========================================================= */
 function newReceiptNum() {
   const d = new Date();
@@ -294,30 +336,71 @@ function newReceiptNum() {
   return `INV-${ymd}-${sod}${rnd}`;
 }
 
+const CASH_SHORT_TOLERANCE = 0.005;   // half-cent float tolerance
+
 async function handleCheckout() {
   if (state.checkoutBusy) return;
   if (!state.posCart.length) { showToast("Cart is empty ❌"); return; }
   const wsId = myWorkspace();
   if (!wsId) { showToast("Workspace not ready ❌"); return; }
 
+  /* Always sync prices first so nothing can drift */
+  syncCartPrices();
+
+  /* ---------- 1) Build lines using the DISCOUNTED selling price ---------- */
   const lines = [];
   for (const ci of state.posCart) {
     const item = state.inventory.find(i => i.id === ci.itemId);
     if (!item) { playErrorSound(); showToast(`"${ci.name}" no longer exists ❌`); return; }
     if (ci.qty > item.quantity) { playErrorSound(); showToast(`Not enough stock for ${item.name} ❌`); return; }
-    ci.price = Number(item.price) || 0;
-    lines.push({ item, qty: ci.qty, price: ci.price });
+
+    /* ✅ Re-derive from CURRENT inventory — never overwrite with item.price */
+    const disc          = getDiscountedPrice(item);
+    const salePrice     = roundMoney(disc.final);
+    const originalPrice = roundMoney(disc.original);
+    const discountAmt   = roundMoney(disc.discount);
+    const discountPct   = Number(disc.percent) || 0;
+
+    /* Keep the cart line consistent — this is what fixes the -₱8 bug:
+       a failed checkout must never leave ci.price pointing at the original price */
+    ci.price           = salePrice;
+    ci.originalPrice   = originalPrice;
+    ci.discount        = discountAmt;
+    ci.discountPercent = discountPct;
+
+    lines.push({
+      item,
+      qty: ci.qty,
+      price: salePrice,
+      originalPrice,
+      discount: discountAmt,
+      discountPercent: discountPct
+    });
   }
-  const total = lines.reduce((s, l) => s + l.qty * l.price, 0);
+
+  /* ---------- 2) Final payable total — one source of truth ---------- */
+  const total = roundMoney(
+    lines.reduce((sum, line) => sum + line.qty * line.price, 0)
+  );
 
   const mode = $("pos-payment-mode")?.value || "cash";
   const customerId = valOf($("pos-customer"));
   let cash = 0, change = 0, customer = null;
 
   if (mode === "cash") {
-    cash = Number(valOf($("pos-cash"))) || 0;
-    if (cash < total) { playErrorSound(); showToast("Insufficient cash ❌"); return; }
-    change = cash - total;
+    cash = roundMoney(valOf($("pos-cash")));
+
+    /* ✅ Compare cash against the FINAL discounted total, with tolerance */
+    if (cash < total - CASH_SHORT_TOLERANCE) {
+      playErrorSound();
+      showToast(`Insufficient cash — need ${fmtMoney(total)} ❌`);
+      /* Re-render so the cart display stays in sync with the (now correct) cart */
+      renderPosCart();
+      updateChange();
+      return;
+    }
+
+    change = roundMoney(cash - total);
   } else {
     if (!customerId) { playErrorSound(); showToast("Select a customer for utang ❌"); return; }
     customer = state.customers.find(c => c.id === customerId);
@@ -327,8 +410,6 @@ async function handleCheckout() {
   const receiptNum = newReceiptNum();
   const now = new Date();
   const cashier = state.currentUser?.email || "-";
-
-  // Use ONE shared Timestamp for every write in this batch
   const nowTs = Timestamp.fromDate(now);
 
   state.checkoutBusy = true;
@@ -338,16 +419,26 @@ async function handleCheckout() {
     const batch = writeBatch(db);
     const saleIds = [];
 
-    lines.forEach(({ item, qty, price }) => {
+    /* ---------- 3) Write sale rows with the discounted unitPrice ---------- */
+    lines.forEach(({ item, qty, price, originalPrice, discount, discountPercent }) => {
       const saleRef = doc(collection(db, "sales"));
       saleIds.push(saleRef.id);
-      const lineTotal = qty * price;
-      const isCash = mode === "cash";
+
+      const lineTotal  = roundMoney(qty * price);
+      const unitCost   = Number(item.cost) || 0;
+      const lineProfit = roundMoney((price - unitCost) * qty);
+      const isCash     = mode === "cash";
+
       batch.set(saleRef, {
         itemId: item.id, itemName: item.name, category: item.category,
-        quantity: qty, unitPrice: price, total: lineTotal,
-        cost: Number(item.cost) || 0,
-        profit: (price - (Number(item.cost) || 0)) * qty,
+        quantity: qty,
+        unitPrice: price,                 // ✅ discounted price (used by reports)
+        originalUnitPrice: originalPrice, // 📝 audit-only
+        discountAmount: discount,         // 📝 audit-only
+        discountPercent: discountPercent, // 📝 audit-only
+        total: lineTotal,
+        cost: unitCost,
+        profit: lineProfit,
         workspaceId: wsId, receiptNum, cash, change,
         paymentMode: mode,
         customerId: customer?.id || null,
@@ -359,9 +450,11 @@ async function handleCheckout() {
         createdAt: nowTs,
         userId: state.currentUser?.uid || null
       });
+
       batch.update(doc(db, "inventory", item.id), {
         quantity: increment(-qty), updatedAt: nowTs
       });
+
       const mov = movementDoc({
         itemId: item.id, itemName: item.name,
         type: "out", quantity: qty, reason: "sale", note: `Receipt ${receiptNum}`
@@ -370,10 +463,14 @@ async function handleCheckout() {
       batch.set(doc(collection(db, "movements")), mov);
     });
 
+    /* ---------- 4) Credit / utang ---------- */
     if (mode === "credit" && customer) {
+      const customerTotal = roundMoney(
+        lines.reduce((sum, l) => sum + l.qty * l.price, 0)
+      );
       batch.update(doc(db, "customers", customer.id), {
-        balance: increment(total),
-        totalPurchases: increment(total),
+        balance: increment(customerTotal),
+        totalPurchases: increment(customerTotal),
         lastPurchaseAt: nowTs,
         updatedAt: nowTs
       });
@@ -381,7 +478,7 @@ async function handleCheckout() {
         customerId: customer.id,
         customerName: customer.name,
         type: "purchase",
-        amount: total,
+        amount: customerTotal,
         receiptNum,
         saleIds,
         note: "Credit sale"
@@ -392,12 +489,14 @@ async function handleCheckout() {
 
     await settleWrite(batch.commit(), "Sale");
 
+    /* ---------- 5) Receipt uses the same discounted values ---------- */
     showReceipt({
       items: lines.map(l => ({ name: l.item.name, qty: l.qty, price: l.price })),
       total, cash, change, receiptNum, date: now, cashier,
       paymentMode: mode,
       customerName: customer?.name || null
     });
+
     playCashSound();
     clearCart();
     if ($("pos-customer")) $("pos-customer").value = "";
@@ -429,7 +528,7 @@ export function showReceipt(data, groupInfo) {
     <div class="receipt-item">
       <div class="receipt-item-row1">
         <span>${esc(it.name)}</span>
-        <span>${money((Number(it.qty) || 0) * (Number(it.price) || 0))}</span>
+        <span>${money(roundMoney((Number(it.qty) || 0) * (Number(it.price) || 0)))}</span>
       </div>
       <div class="receipt-item-row2">
         <span>${Number(it.qty) || 0} × ${money(it.price)}</span>
@@ -480,9 +579,9 @@ export function viewSaleReceipt(saleId) {
   const receiptNum = sale.receiptNum;
   const lineItems = receiptNum ? state.sales.filter(s => s.receiptNum === receiptNum) : [sale];
   const items = lineItems.map(s => ({ name: s.itemName, qty: s.quantity, price: s.unitPrice || 0 }));
-  const total  = lineItems.reduce((sum, s) => sum + (s.total || 0), 0);
-  const cash   = sale.cash   || total;
-  const change = sale.change || 0;
+  const total  = roundMoney(lineItems.reduce((sum, s) => sum + (s.total || 0), 0));
+  const cash   = roundMoney(sale.cash   || total);
+  const change = roundMoney(sale.change || 0);
   const date   = sale.createdAt?.toDate?.() || new Date();
   showReceipt({
     items, total, cash, change,
@@ -542,7 +641,6 @@ export async function deleteReceiptGroup(saleIds, receiptNum) {
   } catch (err) { showToast(`Failed: ${err.code || err.message} ❌`); }
 }
 
-/* ---------- Bulk delete (History select-all) ---------- */
 export async function deleteSaleIds(saleIds, opts = {}) {
   if (!saleIds?.length) return;
   const { skipConfirm = false, label = "" } = opts;
@@ -564,32 +662,169 @@ export async function deleteSaleIds(saleIds, opts = {}) {
 }
 
 /* =========================================================
-   RENDER — Recent sales list
+   RENDER — Recent sales list (grouped by receipt, filterable)
    ========================================================= */
 export function renderSales() {
-  const list = $("sales-list"); if (!list) return;
-  if (!state.sales.length) { list.innerHTML = `<div class="empty-state"><p>🛒 No sales recorded yet.</p></div>`; return; }
-  list.innerHTML = state.sales.slice(0, 30).map(s => {
-    const item = state.inventory.find(i => i.id === s.itemId) || { name: s.itemName, image: null };
-    const date = s.createdAt?.toDate?.().toLocaleString() ?? "Just now";
-    const wasCredit = s.paymentMode === "credit";
-    const creditTag = wasCredit ? ` · <span class="sale-utang-badge">📝 Utang paid</span>` : "";
+  const list = $("sales-list");
+  if (!list) return;
+  /* Populate category filter options (only once per state change) */
+  const catSel = $("recent-sales-cat");
+  if (catSel) {
+    const cats = new Set();
+    state.sales.forEach(s => { if (s.category) cats.add(s.category); });
+    const sorted = [...cats].sort();
+    const cur = catSel.value;
+    const sig = sorted.join("|");
+    if (catSel.dataset.sig !== sig) {
+      catSel.dataset.sig = sig;
+      catSel.innerHTML = `<option value="">All Categories</option>` +
+        sorted.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+      if (cur && sorted.includes(cur)) catSel.value = cur;
+    }
+  }
+
+  if (!state.sales.length) {
+    list.innerHTML = `<div class="empty-state"><p>🛒 No sales recorded yet.</p></div>`;
+    return;
+  }
+
+  const term = valOf($("recent-sales-search")).toLowerCase().trim();
+  const catFilter = valOf($("recent-sales-cat")).trim().toLowerCase();
+
+  /* Group the last 150 line items into receipts */
+  const groups = new Map();
+  state.sales.slice(0, 150).forEach(s => {
+    const key = s.receiptNum || ("LEGACY-" + s.id);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        receiptNum: s.receiptNum || "—",
+        date: s.createdAt?.toDate?.() || new Date(),
+        paymentMode: s.paymentMode || "cash",
+        customerName: s.customerName || null,
+        items: [],
+        total: 0
+      });
+    }
+    const g = groups.get(key);
+    g.items.push(s);
+    g.total += Number(s.total) || 0;
+  });
+
+  /* Filter: keep receipts where AT LEAST ONE item matches */
+  let recent = [...groups.values()];
+  if (term || catFilter) {
+    recent = recent.filter(g => {
+      const receiptHit = term && g.receiptNum.toLowerCase().includes(term);
+      if (receiptHit) return true;
+      return g.items.some(it => {
+        const name = (it.itemName || "").toLowerCase();
+        const cat  = (it.category || "").toLowerCase();
+        const note = (it.note || "").toLowerCase();
+        const cashier = (state.currentUser?.email || "").toLowerCase();
+
+        const termOk = !term || name.includes(term) || cat.includes(term) || note.includes(term) || cashier.includes(term);
+        const catOk  = !catFilter || cat === catFilter;
+        return termOk && catOk;
+      });
+    });
+  }
+
+  recent = recent.slice(0, 12);
+
+  if (!recent.length) {
+    list.innerHTML = `<div class="empty-state"><p>🔍 No recent sales match your filter.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = recent.map(g => {
+    const qtyTotal = g.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+    const itemCount = g.items.length;
+    const timeStr = g.date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const dateStr = g.date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const isCredit = g.paymentMode === "credit";
+
+    const itemsHTML = g.items.map(it => {
+      const disc = Number(it.discountAmount) || 0;
+      const hasDisc = disc > 0;
+      return `
+        <div class="sale-item-line">
+          <span class="sale-item-name" title="${esc(it.itemName || "Item")}">
+            ${esc(it.itemName || "Item")}
+            ${Number(it.quantity) > 1 ? `<span class="sale-item-qty">×${fmtInt(it.quantity)}</span>` : ""}
+            ${hasDisc ? `<span class="sale-item-disc">💥</span>` : ""}
+          </span>
+          <span class="sale-item-cat">${esc(it.category || "")}</span>
+          <span class="sale-item-price">${fmtMoney(it.total)}</span>
+        </div>
+      `;
+    }).join("");
+
+    const firstId = g.items[0]?.id || "";
+    const idsJson = JSON.stringify(g.items.map(it => it.id)).replace(/'/g, "&#39;");
+
     return `
-      <div class="sale-row">
-        <div class="sale-info">
-          ${productImageHTML(item, "sm")}
-          <div class="sale-txt">
-            <div class="sale-name">${esc(s.itemName)} × ${fmtInt(s.quantity)}</div>
-            <div class="sale-date">${date}${s.receiptNum ? " · " + esc(s.receiptNum) : ""}${creditTag}</div>
+      <article class="sale-card">
+        <header class="sale-card-head">
+          <div class="sale-card-meta">
+            <span class="sale-receipt-num">${esc(g.receiptNum)}</span>
+            <span class="sale-time">${esc(timeStr)} · ${esc(dateStr)}</span>
           </div>
-        </div>
-        <div class="sale-total">${fmtMoney(s.total)}</div>
-        <div class="sale-actions">
-          <button type="button" class="sale-action-btn receipt" onclick="viewSaleReceipt('${s.id}')" title="View receipt">🧾</button>
-          <button type="button" class="sale-action-btn delete" onclick="deleteSale('${s.id}')" title="Delete sale">🗑️</button>
-        </div>
-      </div>`;
+          <span class="sale-badge ${isCredit ? "credit" : "cash"}">
+            ${isCredit ? "📝 Utang" : "💵 Cash"}
+          </span>
+        </header>
+
+        <div class="sale-card-items">${itemsHTML}</div>
+
+        <footer class="sale-card-foot">
+          <div class="sale-card-total">
+            <span class="sale-total-label">
+              ${itemCount} item${itemCount !== 1 ? "s" : ""} · ${fmtInt(qtyTotal)} pc
+            </span>
+            <span class="sale-total-amount">${fmtMoney(g.total)}</span>
+          </div>
+          <div class="sale-card-actions">
+            <button type="button" class="sale-btn-icon"
+                    data-action="view" data-first-id="${esc(firstId)}"
+                    title="View receipt" aria-label="View receipt">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 3 2V2l-3 2-3-2-3 2-3-2-3 2L4 2z"/>
+                <path d="M8 8h8M8 12h8M8 16h5"/>
+              </svg>
+            </button>
+            <button type="button" class="sale-btn-icon danger"
+                    data-action="delete" data-first-id="${esc(firstId)}"
+                    data-receipt="${esc(g.receiptNum)}"
+                    data-ids='${idsJson}'
+                    title="Delete" aria-label="Delete">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              </svg>
+            </button>
+          </div>
+        </footer>
+      </article>
+    `;
   }).join("");
+
+  list.querySelectorAll(".sale-btn-icon").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.action;
+      const firstId = btn.dataset.firstId;
+      const receiptNum = btn.dataset.receipt || "";
+      if (action === "view") { viewSaleReceipt(firstId); return; }
+      if (action === "delete") {
+        let ids = [];
+        try { ids = JSON.parse(btn.dataset.ids || "[]"); } catch { ids = [firstId]; }
+        if (ids.length > 1) deleteReceiptGroup(ids, receiptNum);
+        else deleteSale(firstId);
+      }
+    });
+  });
 }
 
 /* =========================================================
@@ -621,6 +856,10 @@ export function initPOS() {
     state.currentReceiptGroup = null;
     deleteReceiptGroup(group.saleIds, group.receiptNum);
   });
+   /* NEW: recent-sales search + category filter */
+  $("recent-sales-search")?.addEventListener("input", debounce(renderSales, 150));
+  $("recent-sales-cat")?.addEventListener("change", renderSales);
+
 }
 
 export function startSalesListener(onAfterSalesChange) {
@@ -636,12 +875,10 @@ export function startSalesListener(onAfterSalesChange) {
           return tb - ta;
         });
 
-      // Cash sales + already-paid credit sales count as revenue
       state.sales = all
         .filter(s => s.paymentMode !== "credit" || s.paid === true)
         .slice(0, 500);
 
-      // Unpaid credit sales — kept separate for payment distribution
       state.creditSales = all
         .filter(s => s.paymentMode === "credit" && s.paid !== true);
 

@@ -5,32 +5,32 @@ import {
 } from "./utils.js";
 
 /* =========================================================
-   PRESETS — page layout (mm) for common label sheets
+   PRESETS — page layout only (mm) for common label sheets
    ========================================================= */
 const LABEL_SIZES = {
   small: {
     name: "Small · 38×25mm · 65/page (Avery L7651)",
     w: 38, h: 25, cols: 5, rows: 13,
     gapX: 2.5, gapY: 0, marginTop: 21.5, marginLeft: 7,
-    showName: false, showSKU: false, nameSize: 6.5, priceSize: 10
+    nameSize: 6.5, priceSize: 10
   },
   medium: {
     name: "Medium · 50×30mm · 32/page",
     w: 50, h: 30, cols: 4, rows: 8,
     gapX: 2.5, gapY: 0, marginTop: 21.5, marginLeft: 6,
-    showName: true, showSKU: true, nameSize: 7, priceSize: 12
+    nameSize: 7, priceSize: 12
   },
   large: {
     name: "Large · 70×37mm · 21/page",
     w: 70, h: 37, cols: 3, rows: 7,
     gapX: 2.5, gapY: 0, marginTop: 21.5, marginLeft: 4,
-    showName: true, showSKU: true, nameSize: 9, priceSize: 14
+    nameSize: 9, priceSize: 14
   },
   thermal: {
     name: "Thermal · 58×40mm (roll, single column)",
     w: 58, h: 40, cols: 1, rows: 9999,
     gapX: 0, gapY: 2, marginTop: 3, marginLeft: 3,
-    showName: true, showSKU: true, nameSize: 9, priceSize: 14,
+    nameSize: 9, priceSize: 14,
     thermal: true
   }
 };
@@ -41,6 +41,62 @@ const BARCODE_FORMATS = {
   EAN13:   "EAN13",
   UPC:     "UPC"
 };
+
+/* =========================================================
+   DISPLAY OPTIONS — what to show on the printed label
+   Saved to localStorage so preferences persist
+   ========================================================= */
+const DISPLAY_KEY = "labelDisplayOpts";
+
+const DEFAULT_DISPLAY = {
+  showName:            true,
+  showSKU:             true,
+  showPrice:           true,
+  showOriginalPrice:   true,   // strikethrough original if discounted
+  showDiscountBadge:   true
+};
+
+let displayOpts = loadDisplayOpts();
+
+function loadDisplayOpts() {
+  try {
+    const raw = localStorage.getItem(DISPLAY_KEY);
+    if (!raw) return { ...DEFAULT_DISPLAY };
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_DISPLAY, ...parsed };
+  } catch {
+    return { ...DEFAULT_DISPLAY };
+  }
+}
+
+function saveDisplayOpts() {
+  try { localStorage.setItem(DISPLAY_KEY, JSON.stringify(displayOpts)); } catch {}
+}
+
+/* =========================================================
+   DISCOUNT HELPER — mirrors pos.js (self-contained)
+   ========================================================= */
+function getDiscountedPrice(item) {
+  const price = Number(item.price) || 0;
+  const d = Number(item.discount) || 0;
+
+  if (d <= 0 || price <= 0) {
+    return { original: price, final: price, discount: 0, percent: 0 };
+  }
+  if (item.discountType === "amount") {
+    const final = Math.max(0, price - d);
+    const percent = (price > 0) ? (d / price) * 100 : 0;
+    return { original: price, final, discount: d, percent };
+  }
+  const cappedPct = Math.min(100, d);
+  const final = Math.max(0, price - (price * cappedPct / 100));
+  return {
+    original: price,
+    final,
+    discount: price - final,
+    percent: cappedPct
+  };
+}
 
 /* =========================================================
    LOCAL STATE
@@ -69,6 +125,57 @@ function generateBarcodeSVG(value, format, opts = {}) {
     console.warn("[barcode] render failed:", err);
     return `<div class="bc-error">⚠️ ${format} invalid<br>"${esc(value)}"</div>`;
   }
+}
+
+/* =========================================================
+   DISPLAY OPTIONS UI — injected into .labels-controls
+   ========================================================= */
+function injectDisplayOptionsUI() {
+  const controls = document.querySelector(".labels-controls");
+  if (!controls) return;
+
+  // Don't inject twice
+  if (document.getElementById("labels-display-opts")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "labels-display-opts";
+  wrap.className = "labels-display-opts";
+  wrap.innerHTML = `
+    <div class="labels-display-title">Show on label</div>
+    <label class="labels-toggle">
+      <input type="checkbox" data-opt="showName" ${displayOpts.showName ? "checked" : ""} />
+      <span>Description (name)</span>
+    </label>
+    <label class="labels-toggle">
+      <input type="checkbox" data-opt="showSKU" ${displayOpts.showSKU ? "checked" : ""} />
+      <span>SKU / code</span>
+    </label>
+    <label class="labels-toggle">
+      <input type="checkbox" data-opt="showPrice" ${displayOpts.showPrice ? "checked" : ""} />
+      <span>Current price</span>
+    </label>
+    <label class="labels-toggle">
+      <input type="checkbox" data-opt="showOriginalPrice" ${displayOpts.showOriginalPrice ? "checked" : ""} />
+      <span>Original price (strikethrough)</span>
+    </label>
+    <label class="labels-toggle">
+      <input type="checkbox" data-opt="showDiscountBadge" ${displayOpts.showDiscountBadge ? "checked" : ""} />
+      <span>Discount % badge</span>
+    </label>
+  `;
+
+  controls.appendChild(wrap);
+
+  // Wire toggles
+  wrap.querySelectorAll('input[data-opt]').forEach(cb => {
+    cb.addEventListener("change", () => {
+      const key = cb.dataset.opt;
+      displayOpts[key] = cb.checked;
+      saveDisplayOpts();
+      // Live preview: re-render the product list so any inline preview stays in sync
+      renderLabelProductList();
+    });
+  });
 }
 
 /* =========================================================
@@ -191,6 +298,63 @@ function updateLabelSummary() {
 }
 
 /* =========================================================
+   LABEL CELL HTML — name on top, barcode middle, price bottom
+   ========================================================= */
+function buildLabelCellHTML(item, size, format) {
+  const code = item.barcode || item.sku || "";
+  const barcodeSVG = generateBarcodeSVG(code, format, {
+    width: size.thermal ? 1.6 : 1.3,
+    height: size.thermal ? 40 : 30
+  });
+
+  const disc = getDiscountedPrice(item);
+  const hasDiscount = disc.discount > 0 && disc.final < disc.original;
+
+  /* ---- Top: description ---- */
+  const nameHTML = displayOpts.showName
+    ? `<div class="lbl-name" style="font-size:${size.nameSize}pt">${esc(item.name || "")}</div>`
+    : "";
+
+  /* ---- Middle: barcode ---- */
+  const barcodeHTML = `<div class="lbl-barcode">${barcodeSVG}</div>`;
+
+  /* ---- SKU / code text under barcode ---- */
+  const skuHTML = displayOpts.showSKU
+    ? `<div class="lbl-code">${esc(code)}</div>`
+    : "";
+
+  /* ---- Bottom: price ---- */
+  let priceHTML = "";
+  if (displayOpts.showPrice) {
+    if (hasDiscount) {
+      // Current (discounted) price in bold, original strikethrough next to it
+      const origHTML = displayOpts.showOriginalPrice
+        ? `<span class="lbl-price-orig">${fmtMoney(disc.original)}</span>`
+        : "";
+      const badgeHTML = displayOpts.showDiscountBadge
+        ? `<span class="lbl-discount-badge">-${Math.round(disc.percent)}%</span>`
+        : "";
+      priceHTML = `
+        <div class="lbl-price" style="font-size:${size.priceSize}pt">
+          <span class="lbl-price-now">${fmtMoney(disc.final)}</span>
+          ${origHTML}
+          ${badgeHTML}
+        </div>`;
+    } else {
+      priceHTML = `<div class="lbl-price" style="font-size:${size.priceSize}pt">${fmtMoney(disc.original)}</div>`;
+    }
+  }
+
+  return `
+    <div class="label-cell">
+      ${nameHTML}
+      ${barcodeHTML}
+      ${skuHTML}
+      ${priceHTML}
+    </div>`;
+}
+
+/* =========================================================
    PRINT
    ========================================================= */
 function buildLabelsHTML() {
@@ -209,20 +373,9 @@ function buildLabelsHTML() {
 
   if (!labels.length) return null;
 
-  const labelHTML = labels.map(({ item, size, format }) => {
-    const code = item.barcode || item.sku || "";
-    const barcodeSVG = generateBarcodeSVG(code, format, {
-      width: size.thermal ? 1.6 : 1.3,
-      height: size.thermal ? 40 : 30
-    });
-    return `
-      <div class="label-cell">
-        ${size.showName ? `<div class="lbl-name" style="font-size:${size.nameSize}pt">${esc(item.name)}</div>` : ""}
-        <div class="lbl-barcode">${barcodeSVG}</div>
-        ${size.showSKU ? `<div class="lbl-code">${esc(code)}</div>` : ""}
-        <div class="lbl-price" style="font-size:${size.priceSize}pt">${fmtMoney(item.price)}</div>
-      </div>`;
-  }).join("");
+  const labelHTML = labels
+    .map(({ item, size, format }) => buildLabelCellHTML(item, size, format))
+    .join("");
 
   return { size, labelHTML, count: labels.length };
 }
@@ -272,6 +425,7 @@ function printLabels() {
   body { font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; color: #000; }
   ${pageStyle}
   ${gridStyle}
+
   .label-cell {
     background: #fff; padding: 1mm;
     display: flex; flex-direction: column;
@@ -280,17 +434,66 @@ function printLabels() {
     page-break-inside: avoid; break-inside: avoid;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
+
+  /* ---- Description at top ---- */
   .lbl-name {
     width: 100%; font-weight: 700; line-height: 1.1; text-align: center;
     overflow: hidden; display: -webkit-box;
     -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    word-break: break-word;
   }
-  .lbl-barcode { width: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; }
-  .lbl-barcode svg { max-width: 100%; height: auto; display: block; }
+
+  /* ---- Barcode in middle ---- */
+  .lbl-barcode {
+    width: 100%; display: flex; justify-content: center; align-items: center;
+    overflow: hidden; flex: 1 1 auto;
+  }
+  .lbl-barcode svg { max-width: 100%; max-height: 100%; height: auto; display: block; }
   .bc-error { font-size: 6pt; color: #b00; text-align: center; }
-  .lbl-code { font-family: 'Courier New', monospace; font-size: 6.5pt; letter-spacing: 0.3px; color: #333; }
-  .lbl-price { font-weight: 800; text-align: center; width: 100%; }
-  @media print { .label-cell { border-color: transparent; } }
+
+  /* ---- SKU / code text ---- */
+  .lbl-code {
+    font-family: 'Courier New', monospace;
+    font-size: 6.5pt;
+    letter-spacing: 0.3px;
+    color: #333;
+    text-align: center;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- Current price at bottom ---- */
+  .lbl-price {
+    width: 100%;
+    display: flex; align-items: baseline; justify-content: center;
+    gap: 4px; flex-wrap: wrap;
+    font-weight: 800;
+    text-align: center;
+    line-height: 1.1;
+  }
+  .lbl-price-now { font-weight: 800; }
+  .lbl-price-orig {
+    font-weight: 500;
+    color: #888;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    font-size: 0.72em;
+  }
+  .lbl-discount-badge {
+    background: #ef4444;
+    color: #fff;
+    font-size: 6pt;
+    font-weight: 800;
+    padding: 0 3px;
+    border-radius: 2px;
+    line-height: 1.2;
+  }
+
+  @media print {
+    .label-cell { border-color: transparent; }
+  }
 </style>
 </head><body>
 <div class="label-grid">${labelHTML}</div>
@@ -310,26 +513,20 @@ function printLabels() {
 /* =========================================================
    PUBLIC ENTRY POINTS
    ========================================================= */
-/* Called from the 🏷️ icon on each inventory item card */
 export function openLabelFor(productId) {
-  // Navigate to Labels page
   document.querySelector('[data-page="page-labels"]')?.click();
-  // Pre-select the product
   labelQueue = { [productId]: 1 };
   labelsSearchTerm = "";
   if ($("labels-search")) $("labels-search").value = "";
-  // Delay render a tick so the page is visible
   requestAnimationFrame(() => renderLabelProductList());
 }
 window.openLabelFor = openLabelFor;
 
-/* Called when the user just wants to open the Labels page */
 export function openLabelSheet() {
   document.querySelector('[data-page="page-labels"]')?.click();
 }
 window.openLabelSheet = openLabelSheet;
 
-/* Called by app.js when the Labels page becomes visible */
 export function renderLabelsPage() {
   if (!labelsInitialized) return;
   renderLabelProductList();
@@ -357,6 +554,9 @@ export function initLabels() {
     `;
     formatSel.value = "CODE128";
   }
+
+  /* Inject the new display-options checkboxes */
+  injectDisplayOptionsUI();
 
   $("labels-search")?.addEventListener("input", debounce((e) => {
     labelsSearchTerm = e.target.value || "";

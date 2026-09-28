@@ -1009,7 +1009,7 @@ function closeCategoryImagePicker() {
 }
 
 /* =========================================================
-   RENDER — Categories grid
+   RENDER — Categories grid (modern + bulk select)
    ========================================================= */
 function categoryThumbHTML(cat) {
   const src = cat.imageThumb || cat.image;
@@ -1021,47 +1021,191 @@ function categoryThumbHTML(cat) {
   `;
 }
 
-export function renderCategories() {
-  const grid = $("category-grid");
+/* ---------- Selection state ---------- */
+const selectedCategories = new Set();
+
+/* ---------- Bulk bar injection ---------- */
+function ensureCategoriesBulkBar() {
+  if (document.getElementById("categories-bulk-bar")) return;
+
+  const grid = document.getElementById("category-grid");
   if (!grid) return;
+
+  const bar = document.createElement("div");
+  bar.id = "categories-bulk-bar";
+  bar.className = "history-bulk-bar hidden";
+  bar.innerHTML = `
+    <label class="bulk-select-all">
+      <input type="checkbox" id="categories-select-all" />
+      <span>Select all</span>
+    </label>
+    <span id="categories-selected-count" class="bulk-count">0 selected</span>
+    <button type="button" class="btn danger sm" id="categories-delete-selected" disabled>🗑️ Delete selected</button>
+  `;
+  grid.insertAdjacentElement("beforebegin", bar);
+
+  /* Wire once */
+  bar.querySelector("#categories-select-all")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll("#category-grid .cat-row-checkbox").forEach(cb => {
+      cb.checked = checked;
+      const id = cb.dataset.catId;
+      if (checked) selectedCategories.add(id);
+      else         selectedCategories.delete(id);
+      cb.closest(".category-card")?.classList.toggle("is-selected", checked);
+    });
+    updateCategoriesBulkUI();
+  });
+
+  bar.querySelector("#categories-delete-selected")?.addEventListener("click", () => {
+    if (!selectedCategories.size) return;
+    deleteCategoriesBulk([...selectedCategories]);
+  });
+}
+
+function updateCategoriesBulkUI() {
+  const bar       = document.getElementById("categories-bulk-bar");
+  const countEl   = document.getElementById("categories-selected-count");
+  const delBtn    = document.getElementById("categories-delete-selected");
+  const selectAll = document.getElementById("categories-select-all");
+  const grid      = document.getElementById("category-grid");
+
+  const hasRows = !!(grid && grid.querySelector(".category-card"));
+  if (bar) bar.classList.toggle("hidden", !hasRows);
+
+  if (countEl) countEl.textContent = `${selectedCategories.size} selected`;
+  if (delBtn)  delBtn.disabled = selectedCategories.size === 0;
+
+  if (selectAll && grid) {
+    const cbs = [...grid.querySelectorAll(".cat-row-checkbox")];
+    const allChecked = cbs.length > 0 && cbs.every(cb => cb.checked);
+    const anyChecked = cbs.some(cb => cb.checked);
+    selectAll.checked = allChecked;
+    selectAll.indeterminate = !allChecked && anyChecked;
+  }
+}
+
+/* ---------- Bulk delete ---------- */
+async function deleteCategoriesBulk(ids) {
+  if (!ids?.length) return;
+  const n = ids.length;
+  if (!confirm(`Delete ${n} categor${n !== 1 ? "ies" : "y"}?\n\nItems currently assigned to them will keep their category name as plain text.`)) return;
+
+  const delBtn = document.getElementById("categories-delete-selected");
+  if (delBtn) delBtn.disabled = true;
+
+  try {
+    const batch = writeBatch(db);
+    ids.forEach(id => batch.delete(doc(db, "categories", id)));
+    await settleWrite(batch.commit(), "Delete categories");
+    selectedCategories.clear();
+    playSuccessSound();
+    showToast(`Deleted ${n} categor${n !== 1 ? "ies" : "y"} 🗑️`);
+  } catch (err) {
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  } finally {
+    updateCategoriesBulkUI();
+  }
+}
+
+/* ---------- Main render ---------- */
+export function renderCategories() {
+  const grid = document.getElementById("category-grid");
+  if (!grid) return;
+
+  /* Prune stale selections (deleted or filtered out) */
+  const currentIds = new Set(state.categories.map(c => c.id));
+  [...selectedCategories].forEach(id => {
+    if (!currentIds.has(id)) selectedCategories.delete(id);
+  });
 
   if (!state.categories.length) {
     grid.innerHTML = `<div class="empty-state"><p>🗂️ No categories yet — add one above.</p></div>`;
+    updateCategoriesBulkUI();
     return;
   }
 
   grid.innerHTML = state.categories.map(cat => {
     const count = state.inventory.filter(i => i.category === cat.name).length;
-    const creditHTML = cat.imageCredit
-      ? (cat.imageCreditUrl
-          ? `<a class="cat-credit" href="${esc(cat.imageCreditUrl)}" target="_blank" rel="noopener">📷 ${esc(cat.imageCredit)}</a>`
-          : `<span class="cat-credit">📷 ${esc(cat.imageCredit)}</span>`)
-      : "";
-    return `<div class="category-card">
-      <button type="button" class="cat-thumb" data-cat-id="${esc(cat.id)}" title="Change image">
-        ${categoryThumbHTML(cat)}
-        <span class="cat-thumb-edit">✎</span>
-      </button>
-      <div class="cat-info">
-        <div class="cat-name">${esc(cat.name)}</div>
-        <div class="cat-count">${fmtInt(count)} item${count !== 1 ? "s" : ""}</div>
-        ${creditHTML}
+    const isSelected = selectedCategories.has(cat.id);
+    const creditTitle = cat.imageCredit ? `Image: ${cat.imageCredit}` : "Change image";
+
+    return `
+      <div class="category-card ${isSelected ? "is-selected" : ""}" data-cat-id="${esc(cat.id)}">
+        <label class="cat-row-check" title="Select category">
+          <input type="checkbox"
+                 class="cat-row-checkbox"
+                 data-cat-id="${esc(cat.id)}"
+                 ${isSelected ? "checked" : ""} />
+        </label>
+
+        <button type="button" class="cat-thumb"
+                data-cat-id="${esc(cat.id)}"
+                title="${esc(creditTitle)}"
+                aria-label="Change image for ${esc(cat.name)}">
+          ${categoryThumbHTML(cat)}
+          <span class="cat-thumb-edit">✎</span>
+        </button>
+
+        <div class="cat-info">
+          <div class="cat-name" title="${esc(cat.name)}">${esc(cat.name)}</div>
+          <div class="cat-count">
+            ${fmtInt(count)} item${count !== 1 ? "s" : ""}
+            ${cat.imageCredit ? `<span class="cat-credit-inline">· 📷 ${esc(cat.imageCredit)}</span>` : ""}
+          </div>
+        </div>
+
+        <button type="button" class="cat-delete-btn"
+                data-cat-id="${esc(cat.id)}"
+                title="Delete category"
+                aria-label="Delete ${esc(cat.name)}">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+        </button>
       </div>
-      <div class="cat-actions">
-        <button type="button" class="btn danger" onclick="deleteCategory('${cat.id}')">✕</button>
-      </div>
-    </div>`;
+    `;
   }).join("");
 
+  /* Wire checkboxes */
+  grid.querySelectorAll(".cat-row-checkbox").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const id = cb.dataset.catId;
+      if (cb.checked) selectedCategories.add(id);
+      else            selectedCategories.delete(id);
+      cb.closest(".category-card")?.classList.toggle("is-selected", cb.checked);
+      updateCategoriesBulkUI();
+    });
+  });
+
+  /* Wire thumb → image picker */
   grid.querySelectorAll(".cat-thumb").forEach(btn => {
     btn.addEventListener("click", () => openCategoryImagePicker(btn.dataset.catId));
   });
+
+  /* Wire per-row delete */
+  grid.querySelectorAll(".cat-delete-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteCategory(btn.dataset.catId);
+    });
+  });
+
+  updateCategoriesBulkUI();
 }
 
 export async function deleteCategory(id) {
-  if (!confirm("Delete this category?")) return;
-  try { await deleteDoc(doc(db, "categories", id)); showToast("Category deleted 🗑️"); }
-  catch (err) { showToast(`Failed: ${err.code || err.message} ❌`); }
+  const cat = state.categories.find(c => c.id === id);
+  const label = cat?.name ? `"${cat.name}"` : "this category";
+  if (!confirm(`Delete ${label}?`)) return;
+  try {
+    await deleteDoc(doc(db, "categories", id));
+    selectedCategories.delete(id);
+    playSuccessSound();
+    showToast("Category deleted 🗑️");
+  } catch (err) { showToast(`Failed: ${err.code || err.message} ❌`); }
 }
 window.deleteCategory = deleteCategory;
 
@@ -1377,6 +1521,7 @@ export function initInventory() {
   wireCategoryForm();
   wireImport();
   wireAutoSync();
+  ensureCategoriesBulkBar();
   $("search-input")?.addEventListener("input", debounce(renderInventory, 150));
   $("filter-category")?.addEventListener("change", renderInventory);
   $("dash-search")?.addEventListener("input", debounce(renderDashboardInventory, 150));
@@ -1409,6 +1554,7 @@ function openImportModal() {
   if (confirmBtn) confirmBtn.disabled = true;
   $("import-modal")?.classList.remove("hidden");
   document.body.style.overflow = "hidden";
+  updateAutoSyncUI();          // ← refresh the autosync panel state
 }
 
 function closeImportModal() {
@@ -1723,12 +1869,24 @@ export function startInventoryListeners(onAfterInventoryChange) {
 }
 
 /* =========================================================
-   AUTO-SYNC — File System Access API
+   AUTO-SYNC — File System Access API (per-workspace)
    ========================================================= */
+
 const AUTOSYNC_DB     = "kurt-autosync";
 const AUTOSYNC_STORE  = "handles";
-const AUTOSYNC_KEY    = "inventory-file";
+const AUTOSYNC_LEGACY = "inventory-file";   // old global key — auto-migrated
 
+/* ---------- Per-workspace key (one linked file per login) ---------- */
+function autosyncKey() {
+  const ws = myWorkspace() || "default";
+  return `inventory-file:${ws}`;
+}
+
+/* ---------- In-memory handle cache ---------- */
+let _cachedHandle = undefined;   // undefined = not loaded yet, null = none stored
+let _cachedKey    = null;
+
+/* ---------- IndexedDB helpers ---------- */
 function _openIDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(AUTOSYNC_DB, 1);
@@ -1739,7 +1897,7 @@ function _openIDB() {
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror   = () => reject(req.error);
   });
 }
 async function _idbPut(key, val) {
@@ -1748,7 +1906,7 @@ async function _idbPut(key, val) {
     const tx = idb.transaction(AUTOSYNC_STORE, "readwrite");
     tx.objectStore(AUTOSYNC_STORE).put(val, key);
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.onerror    = () => reject(tx.error);
   });
 }
 async function _idbGet(key) {
@@ -1757,7 +1915,7 @@ async function _idbGet(key) {
     const tx = idb.transaction(AUTOSYNC_STORE, "readonly");
     const req = tx.objectStore(AUTOSYNC_STORE).get(key);
     req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
+    req.onerror   = () => reject(req.error);
   });
 }
 async function _idbDel(key) {
@@ -1766,14 +1924,64 @@ async function _idbDel(key) {
     const tx = idb.transaction(AUTOSYNC_STORE, "readwrite");
     tx.objectStore(AUTOSYNC_STORE).delete(key);
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.onerror    = () => reject(tx.error);
   });
 }
 
+/* ---------- Support check ---------- */
 function supportsFileSystemAccess() {
   return typeof window !== "undefined" && "showOpenFilePicker" in window;
 }
 
+/* ---------- Handle storage (with legacy migration) ---------- */
+async function getStoredHandle() {
+  const key = autosyncKey();
+  if (_cachedKey === key && _cachedHandle !== undefined) return _cachedHandle;
+
+  let handle = null;
+  try { handle = await _idbGet(key); } catch (e) {
+    console.warn("[autosync] idb read failed:", e);
+  }
+
+  /* One-time migration from the old global key */
+  if (!handle) {
+    try {
+      const legacy = await _idbGet(AUTOSYNC_LEGACY);
+      if (legacy) {
+        await _idbPut(key, legacy);
+        await _idbDel(AUTOSYNC_LEGACY);
+        handle = legacy;
+        console.log("[autosync] migrated legacy handle →", key);
+      }
+    } catch (e) { console.warn("[autosync] migration failed:", e); }
+  }
+
+  _cachedHandle = handle;
+  _cachedKey    = key;
+  return handle;
+}
+
+async function setStoredHandle(handle) {
+  const key = autosyncKey();
+  _cachedHandle = handle;
+  _cachedKey    = key;
+  if (handle) await _idbPut(key, handle);
+  else        await _idbDel(key);
+}
+
+/* ---------- Silent permission check (never prompts) ---------- */
+async function hasReadPermission(handle) {
+  if (!handle) return false;
+  try {
+    const p = await handle.queryPermission({ mode: "read" });
+    return p === "granted";
+  } catch (e) {
+    console.warn("[autosync] queryPermission:", e);
+    return false;
+  }
+}
+
+/* ---------- UI refresh ---------- */
 export async function updateAutoSyncUI() {
   const statusEl  = $("autosync-status");
   const linkBtn   = $("autosync-link-btn");
@@ -1790,30 +1998,75 @@ export async function updateAutoSyncUI() {
   }
   if (linkBtn) linkBtn.disabled = false;
 
-  let handle = null;
-  try { handle = await _idbGet(AUTOSYNC_KEY); } catch {}
+  const handle = await getStoredHandle();
 
   if (!handle) {
     statusEl.innerHTML = `No file linked yet. Click <b>🔗 Link File</b> to enable auto-sync.`;
     if (unlinkBtn) unlinkBtn.classList.add("hidden");
     if (syncBtn)   syncBtn.classList.add("hidden");
-    if (linkBtn)   linkBtn.textContent = "🔗 Link File";
+    if (linkBtn) {
+      linkBtn.textContent  = "🔗 Link File";
+      linkBtn.dataset.mode = "link";
+    }
     return;
   }
 
-  let perm = "denied";
-  try { perm = await handle.queryPermission({ mode: "read" }); } catch {}
-  const needPerm = perm !== "granted";
+  const granted = await hasReadPermission(handle);
 
-  statusEl.innerHTML = needPerm
-    ? `📁 <b>${esc(handle.name)}</b> — permission needed. Click <b>🔓 Re-grant</b>.`
-    : `<span class="autosync-pulse"></span><b>${esc(handle.name)}</b> — auto-sync ON`;
+  statusEl.innerHTML = granted
+    ? `<span class="autosync-pulse"></span><b>${esc(handle.name)}</b> — auto-sync ON`
+    : `📁 <b>${esc(handle.name)}</b> — click <b>🔓 Re-grant Access</b> to enable auto-sync.`;
 
   if (unlinkBtn) unlinkBtn.classList.remove("hidden");
   if (syncBtn)   syncBtn.classList.remove("hidden");
-  if (linkBtn)   linkBtn.textContent = needPerm ? "🔓 Re-grant Permission" : "🔗 Replace File";
+
+  if (linkBtn) {
+    if (granted) {
+      linkBtn.textContent  = "🔗 Replace File";
+      linkBtn.dataset.mode = "replace";
+    } else {
+      linkBtn.textContent  = "🔓 Re-grant Access";
+      linkBtn.dataset.mode = "regrant";
+    }
+  }
 }
 
+/* ---------- Regrant permission ----------
+   MUST be called directly from a click handler.
+   Do NOT add awaits before requestPermission().
+   -------------------------------------------- */
+async function regrantPermission() {
+  const handle = await getStoredHandle();
+  if (!handle) {
+    showToast("No file linked ❌");
+    await updateAutoSyncUI();
+    return;
+  }
+
+  let granted = false;
+  try {
+    // Called as early as possible — the click's user gesture is still alive
+    const perm = await handle.requestPermission({ mode: "read" });
+    granted = perm === "granted";
+  } catch (err) {
+    console.error("[autosync] requestPermission failed:", err);
+  }
+
+  if (!granted) {
+    showToast("Access not granted ⚠️");
+    await updateAutoSyncUI();
+    return;
+  }
+
+  playSuccessSound();
+  showToast("Access granted ✅");
+  await updateAutoSyncUI();
+
+  /* Immediately do a silent sync so the user sees it working */
+  await autoSyncFromFile({ silent: true });
+}
+
+/* ---------- Link a new file ---------- */
 export async function linkAutoSyncFile() {
   if (!supportsFileSystemAccess()) {
     showToast("Auto-sync needs Chrome / Edge desktop ⚠️");
@@ -1834,31 +2087,39 @@ export async function linkAutoSyncFile() {
     });
     if (!handle) return;
 
-    const perm = await handle.requestPermission({ mode: "read" });
-    if (perm !== "granted") { showToast("Permission denied ❌"); return; }
+    /* Explicit read grant — should succeed since the picker just ran */
+    try {
+      const perm = await handle.requestPermission({ mode: "read" });
+      if (perm !== "granted") { showToast("Access denied ❌"); return; }
+    } catch (err) {
+      console.warn("[autosync] requestPermission after picker:", err);
+    }
 
-    await _idbPut(AUTOSYNC_KEY, handle);
+    await setStoredHandle(handle);
     playSuccessSound();
     showToast(`Linked: ${handle.name} ✅`);
     await updateAutoSyncUI();
 
+    /* First sync so the user sees it work */
     await autoSyncFromFile({ silent: false });
   } catch (err) {
-    if (err && err.name === "AbortError") return;
+    if (err && err.name === "AbortError") return;   // user cancelled picker
     console.error("[autosync] link failed:", err);
     showToast(`Link failed: ${err.message} ❌`);
   }
 }
 
+/* ---------- Unlink ---------- */
 export async function unlinkAutoSyncFile() {
   if (!confirm("Unlink the file? Auto-sync will stop.")) return;
   try {
-    await _idbDel(AUTOSYNC_KEY);
+    await setStoredHandle(null);
     showToast("File unlinked 🗑️");
     await updateAutoSyncUI();
   } catch (err) { showToast(`Failed: ${err.message} ❌`); }
 }
 
+/* ---------- Row compare ---------- */
 function rowMatchesInventory(current, row) {
   if (!current) return false;
   return (
@@ -1875,6 +2136,10 @@ function rowMatchesInventory(current, row) {
   );
 }
 
+/* ---------- Core sync ----------
+   NEVER prompts for permission.
+   Call regrantPermission() from a click handler instead.
+   -------------------------------- */
 export async function autoSyncFromFile({ silent = false } = {}) {
   if (!state.currentUser) return;
   if (!supportsFileSystemAccess()) {
@@ -1882,23 +2147,21 @@ export async function autoSyncFromFile({ silent = false } = {}) {
     return;
   }
 
-  let handle;
-  try { handle = await _idbGet(AUTOSYNC_KEY); }
-  catch (e) { if (!silent) showToast(`Sync read failed: ${e.message} ❌`); return; }
-
+  const handle = await getStoredHandle();
   if (!handle) {
     if (!silent) showToast("No file linked. Click '🔗 Link File' first ⚠️");
     return;
   }
 
-  let perm = "denied";
-  try { perm = await handle.queryPermission({ mode: "read" }); } catch {}
-  if (perm !== "granted") {
-    if (silent) return;
-    perm = await handle.requestPermission({ mode: "read" });
-    if (perm !== "granted") { showToast("Permission denied ❌"); return; }
+  const granted = await hasReadPermission(handle);
+  if (!granted) {
+    /* No silent prompts — the user must click Re-grant */
+    if (!silent) showToast("Access needed — click '🔓 Re-grant Access' ⚠️");
+    await updateAutoSyncUI();
+    return;
   }
 
+  /* Read & parse */
   let raw;
   try {
     const file = await handle.getFile();
@@ -1915,6 +2178,7 @@ export async function autoSyncFromFile({ silent = false } = {}) {
   const valid      = planned.filter(p => !p._errors.length);
   if (!valid.length) { if (!silent) showToast("No valid rows to sync ❌"); return; }
 
+  /* Only changed rows */
   const changed = [];
   for (const row of valid) {
     const current = row._existingId ? state.inventory.find(i => i.id === row._existingId) : null;
@@ -1970,10 +2234,14 @@ export async function autoSyncFromFile({ silent = false } = {}) {
   }
 }
 
+/* ---------- Periodic ticker (permission-aware, never toasts) ---------- */
 let _autosyncInterval = null;
 export function startAutoSyncTicker() {
   stopAutoSyncTicker();
-  _autosyncInterval = setInterval(() => {
+  _autosyncInterval = setInterval(async () => {
+    const handle = await getStoredHandle();
+    if (!handle) return;
+    if (!(await hasReadPermission(handle))) return;
     autoSyncFromFile({ silent: true });
   }, 60 * 1000);
 }
@@ -1981,9 +2249,23 @@ export function stopAutoSyncTicker() {
   if (_autosyncInterval) { clearInterval(_autosyncInterval); _autosyncInterval = null; }
 }
 
+/* ---------- Wire the panel ---------- */
 export function wireAutoSync() {
-  $("autosync-link-btn")?.addEventListener("click", linkAutoSyncFile);
-  $("autosync-sync-btn")?.addEventListener("click", () => autoSyncFromFile({ silent: false }));
+  /* One button, three modes: link / replace / regrant */
+  $("autosync-link-btn")?.addEventListener("click", async (e) => {
+    const mode = e.currentTarget.dataset.mode || "link";
+    if (mode === "regrant") {
+      await regrantPermission();
+    } else {
+      await linkAutoSyncFile();
+    }
+  });
+
+  $("autosync-sync-btn")?.addEventListener("click", () => {
+    autoSyncFromFile({ silent: false });
+  });
+
   $("autosync-unlink-btn")?.addEventListener("click", unlinkAutoSyncFile);
+
   updateAutoSyncUI();
 }

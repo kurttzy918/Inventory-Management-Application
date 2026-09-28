@@ -11,8 +11,8 @@
   <title>Kurt Inventory · Smart Stock &amp; Sales</title>
 
   <link rel="manifest" href="manifest.json" />
-  <link rel="icon" type="image/png" href="Kurt.png" />
-  <link rel="apple-touch-icon" href="Kurt.png" />
+  <link rel="icon" type="image/png" href="inv.png" />
+  <link rel="apple-touch-icon" href="inv.png" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,8 +23,20 @@
   <!-- External libraries (loaded synchronously so app.js can rely on them) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"
+        onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.js';"></script>
+<script>
+  // Second-level fallback: if jsdelivr is entirely blocked, try unpkg
+  if (typeof window.QRCode === "undefined") {
+    document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.js"><\/script>');
+  }
+</script>
+
+  <!-- Option B (unpkg mirror) -->
+  <script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
+
+  <!-- Option C (explicit non-minified — always present in the tarball) -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
@@ -50,7 +62,7 @@
   <div class="auth-card">
     <div class="brand-mark">
       <div class="brand-ring"></div>
-      <img src="Kurt.png" alt="Kurt Inventory" class="brand-logo" id="brand-logo" />
+      <img src="inv.png" alt="Kurt Inventory" class="brand-logo" id="brand-logo" />
     </div>
     <div class="logo">My Sari-Sari Store</div>
 
@@ -152,7 +164,7 @@
     </button>
 
     <div class="brand-mini">
-      <img src="Kurt.png" alt="Kurt Inventory" class="brand-mini-logo" id="logo-img" />
+      <img src="inv.png" alt="Kurt Inventory" class="brand-mini-logo" id="logo-img" />
       <div class="brand-mini-text">
         <div class="logo">My Sari-Sari Store</div>
         <div class="brand-tagline-carousel">
@@ -191,12 +203,12 @@
        ======================================================== -->
   <nav class="bottom-nav">
     <div class="sidebar-brand">
-      <img src="Kurt.png" alt="Kurt Inventory" class="sidebar-brand-logo" id="brand-logo" />
+      <img src="inv.png" alt="Kurt Inventory" class="sidebar-brand-logo" id="brand-logo" />
       <div class="sidebar-brand-text">
         <strong>My Sari-Sari Store</strong>
         <div class="brand-tagline-carousel">
           <span class="brand-tagline">Smart Stock &amp; Sales</span>
-          <span class="brand-tagline">Track · Sell · Grow</span>
+          <span class="brand-tagline">Track · Automate · Optimize</span>
           <span class="brand-tagline">Powered by Kurt POS</span>
         </div>
       </div>
@@ -534,7 +546,24 @@
 
     <!-- Recent sales -->
     <div class="section-heading-row">
-      <h3 class="section-heading">🧾 Recent Sales</h3>
+  <h3 class="section-heading">🧾 Recent Sales</h3>
+  <div class="export-btns">
+    <button type="button" class="btn ghost sm" id="export-sales-excel">📊 Excel</button>
+    <button type="button" class="btn ghost sm" id="export-sales-pdf">📄 PDF</button>
+  </div>
+</div>
+
+<!-- NEW: search bar -->
+<div class="sales-toolbar">
+  <input type="search" id="recent-sales-search" placeholder="Search by receipt, item, category, note…" />
+  <select id="recent-sales-cat">
+    <option value="">All Categories</option>
+  </select>
+</div>
+
+<div class="sales-list" id="sales-list"></div>
+    <div class="section-heading-row">
+      <h3 class="section-heading">🧾 Export to</h3>
       <div class="export-btns">
         <button type="button" class="btn ghost sm" id="export-sales-excel">📊 Excel</button>
         <button type="button" class="btn ghost sm" id="export-sales-pdf">📄 PDF</button>
@@ -849,12 +878,15 @@
         </label>
       </div>
       <div class="gcash-settings-preview">
-        <span class="gcash-settings-preview-label">Live Preview</span>
-        <canvas id="gcash-settings-canvas" class="gcash-settings-canvas"></canvas>
-        <p class="gcash-settings-preview-hint">
-          Customers scan this QR to see amount, number, and reference.
-        </p>
-      </div>
+  <span class="gcash-settings-preview-label">Live Preview</span>
+  <canvas id="gcash-settings-canvas" class="gcash-settings-canvas"></canvas>
+  <button type="button" id="gcash-qr-retry" class="gcash-qr-retry hidden">
+    🔄 Retry loading QR library
+  </button>
+  <p class="gcash-settings-preview-hint">
+    Customers scan this QR to see amount, number, and reference.
+  </p>
+</div>
       <button type="button" class="btn primary" id="gcash-save-settings">💾 Save Settings</button>
     </div>
 
