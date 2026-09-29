@@ -12,7 +12,7 @@ import {
   playSuccessSound, playErrorSound,
   fmtInt, fmtMoney, downloadXLSX, getSoldMap
 } from "./utils.js";
-/* NEW: shared helpers from pos.js so the Dashboard reuses the exact same cards */
+/* Shared helpers from pos.js so the Dashboard reuses the exact same cards */
 import {
   buildPosMiniSlides, getDiscountedPrice, startPosMiniCarousels
 } from "./pos.js";
@@ -1554,7 +1554,7 @@ function openImportModal() {
   if (confirmBtn) confirmBtn.disabled = true;
   $("import-modal")?.classList.remove("hidden");
   document.body.style.overflow = "hidden";
-  updateAutoSyncUI();          // ← refresh the autosync panel state
+  updateAutoSyncUI();
 }
 
 function closeImportModal() {
@@ -1572,87 +1572,219 @@ async function parseExcelFile(file) {
   return XLSX.utils.sheet_to_json(ws, { defval: "" });
 }
 
-/* Smart column matcher — case/symbol-insensitive */
-function findColumnKey(raw, candidates) {
+/* =========================================================
+   SMART COLUMN MATCHER — with optional exclusion patterns
+   ---------------------------------------------------------
+   Exact match first, then partial. The optional `exclude`
+   list prevents columns like "Discount price" from being
+   matched when the caller is looking for "Price".
+   ========================================================= */
+function findColumnKey(raw, candidates, excludeSubstrings = []) {
   const keys = Object.keys(raw || {});
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const excludes = excludeSubstrings.map(norm).filter(Boolean);
+
+  const isExcluded = (k) => {
+    const kn = norm(k);
+    return excludes.some(ex => kn.includes(ex));
+  };
+
+  // 1) Exact match
   for (const cand of candidates) {
     const n = norm(cand);
     if (!n) continue;
-    const exact = keys.find(k => norm(k) === n);
+    const exact = keys.find(k => !isExcluded(k) && norm(k) === n);
     if (exact) return exact;
   }
+
+  // 2) Partial match — still respects the exclusion list
   for (const cand of candidates) {
     const n = norm(cand);
     if (!n) continue;
-    const partial = keys.find(k => norm(k).includes(n));
+    const partial = keys.find(k => !isExcluded(k) && norm(k).includes(n));
     if (partial) return partial;
   }
   return null;
 }
 
+/* =========================================================
+   DISCOUNT PERCENTAGE COLUMN MATCHER
+   ---------------------------------------------------------
+   Explicit. Never fuzzy-matches "Discount price" because
+   that header always contains "price" / "amount" / currency
+   and is rejected by the guard below.
+   ========================================================= */
+function findDiscountPercentColumn(raw) {
+  if (!raw) return null;
+  const keys = Object.keys(raw);
+  const norm = (s) => String(s || "").trim().toLowerCase();
+
+  // ---- 1) Exact whitelist ----
+  const wanted = [
+    "%", "pct", "percent", "% off", "percent off",
+    "disc%", "disc %", "disc.%", "disc. %",
+    "discount%", "discount %", "discount.%", "discount. %",
+    "discount percent", "discountpercent", "discount_percent",
+    "discount rate", "discountrate", "discount_rate",
+    "disc pct", "discount pct", "disc_pct", "discount_pct",
+    "disc pct.", "discount pct.",
+    "discount (%)", "disc (%)", "discount(%)", "disc(%)",
+    "discount percentage", "disc percentage"
+  ];
+  for (const w of wanted) {
+    const hit = keys.find(k => norm(k) === w);
+    if (hit) return hit;
+  }
+
+  // ---- 2) Regex fallback — strictly excludes anything
+  //        that could be a "price" / "amount" / currency column.
+  for (const k of keys) {
+    const t = norm(k);
+
+    // Reject price/amount/peso/₱/php columns first
+    if (/(price|amount|peso|php|₱)/i.test(t)) continue;
+
+    // Starts with disc/discount AND contains %/percent/rate/pct
+    if (/^(disc|discount)\b/.test(t) && /(%|percent|rate|pct)/.test(t)) return k;
+
+    // Bare "%" or "% off"
+    if (/^%/.test(t)) return k;
+
+    // Starts with percent/pct
+    if (/^(percent|pct)\b/.test(t)) return k;
+  }
+
+  return null;
+}
+
+/* =========================================================
+   NORMALIZE IMPORT ROW
+   ---------------------------------------------------------
+   - Price is the base selling price (never a discounted one).
+   - Discount is derived ONLY from the % column.
+   - Handles Excel percentage cells stored as decimals
+     (0.1 → 10%, 0.25 → 25%) so a "10%" cell never becomes
+     a 0.1% discount.
+   - If the % column is missing, blank, null, or 0, both
+     discount and discountPrice are set to 0 explicitly —
+     this clears any previous discount on update.
+   ========================================================= */
 function normalizeImportRow(raw) {
-  const getByCandidates = (candidates) => {
-    const key = findColumnKey(raw, candidates);
+  const getByCandidates = (candidates, exclude = []) => {
+    const key = findColumnKey(raw, candidates, exclude);
     return key != null ? raw[key] : "";
   };
 
-  const name      = String(getByCandidates(["Name", "Product", "Product Name", "Item"]) || "").trim();
-  const sku       = String(getByCandidates(["SKU", "Sku", "Code", "Item Code"]) || "").trim();
-  const barcode   = String(getByCandidates(["Barcode", "Bar Code", "EAN", "UPC", "GTIN"]) || "").trim();
-  const category  = String(getByCandidates(["Category", "Cat"]) || "").trim();
-  const quantity  = Number(getByCandidates(["Quantity", "Qty", "Stock", "On Hand"])) || 0;
-  const cost      = Number(getByCandidates(["Cost", "Cost Price", "Puhunan", "Buy Price"])) || 0;
-  const price     = Number(getByCandidates(["Selling Price", "SellingPrice", "Selling", "Price", "SRP"])) || 0;
-  const expiry    = String(getByCandidates(["Expiry", "Expiry Date", "Expiration", "Best Before"]) || "").trim();
-  const threshold = Number(getByCandidates(["Threshold", "Min Stock", "Low Stock", "Reorder Point"])) || 5;
-
-  const discPriceRaw = getByCandidates([
-    "Discount price", "Discount Price", "Discountprice",
-    "Discounted Price", "DiscountedPrice",
-    "Final Price", "FinalPrice",
-    "Sale Price", "SalePrice", "Net Price"
-  ]);
-
-  const discPctRaw = getByCandidates([
-    "Discount%", "Discount %", "Discount Percent", "DiscountPercent",
-    "Disc%", "Disc %", "Discount Rate"
-  ]);
-
+  /* Parse numbers, handling Excel decimals & thousand separators */
   const numOf = (v) => {
     if (v === "" || v == null) return null;
-    const cleaned = String(v).replace(/[^0-9.\-]/g, "");
+    if (typeof v === "number" && isFinite(v)) return v;
+    const cleaned = String(v).replace(/,/g, "").replace(/[^0-9.\-]/g, "");
+    if (cleaned === "" || cleaned === "-" || cleaned === ".") return null;
     const n = Number(cleaned);
     return isNaN(n) ? null : n;
   };
 
-  const dpVal = numOf(discPriceRaw);
-  const pctVal = numOf(discPctRaw);
+  /* Percentage parser:
+       number 0.10  → 10     (Excel decimal form)
+       string "10%" → 10
+       string "0.1" → 10     (assume decimal form)
+       number 10    → 10
+       number 0     → 0
+       blank/null   → null   (no discount) */
+  const pctOf = (v) => {
+    const rawN = numOf(v);
+    if (rawN == null) return null;
+    if (rawN === 0) return 0;
+    /* If the parsed value is strictly between 0 and 1, Excel is
+       almost certainly handing us the decimal form of a percent. */
+    if (rawN > 0 && rawN < 1) return Number((rawN * 100).toFixed(4));
+    return rawN;
+  };
 
-  let discountPrice = 0;
+  /* ---------- Core fields ---------- */
+  const name      = String(getByCandidates(["Name", "Product", "Product Name", "Item"]) || "").trim();
+  const sku       = String(getByCandidates(["SKU", "Sku", "Code", "Item Code"]) || "").trim();
+  const barcode   = String(getByCandidates(["Barcode", "Bar Code", "EAN", "UPC", "GTIN"]) || "").trim();
+  const category  = String(getByCandidates(["Category", "Cat"]) || "").trim();
+  const quantity  = numOf(getByCandidates(["Quantity", "Qty", "Stock", "On Hand"])) || 0;
+  const cost      = numOf(getByCandidates(["Cost", "Cost Price", "Puhunan", "Buy Price"])) || 0;
+
+  /* ---------------------------------------------------------
+     PRICE — explicitly reject any column containing
+     "discount", "disc", "sale", or "promo". This guarantees
+     we never read the discounted price as the base price.
+     --------------------------------------------------------- */
+  const price = numOf(getByCandidates(
+    [
+      "Selling Price", "SellingPrice", "Selling",
+      "Price", "SRP",
+      "Orig Price", "OrigPrice",
+      "Original Price", "OriginalPrice"
+    ],
+    ["discount", "disc", "discounted", "sale", "promo"]
+  )) || 0;
+
+  const expiry    = String(getByCandidates(["Expiry", "Expiry Date", "Expiration", "Best Before"]) || "").trim();
+  const threshold = numOf(getByCandidates(["Threshold", "Min Stock", "Low Stock", "Reorder Point"])) || 5;
+
+  /* ---------------------------------------------------------
+     DISCOUNT — the % column is authoritative.
+     --------------------------------------------------------- */
+  const discPctKey = findDiscountPercentColumn(raw);
+  const rawPct = discPctKey != null ? raw[discPctKey] : "";
+  const pctVal = pctOf(rawPct);
+
   let discount = 0;
+  let discountPrice = 0;
 
-  if (dpVal != null && dpVal > 0 && price > 0 && dpVal < price) {
-    discountPrice = dpVal;
-    discount = computeDiscountPercent(price, dpVal);
-  } else if (pctVal != null && pctVal > 0 && price > 0) {
-    const capped = Math.min(100, pctVal);
-    discountPrice = price * (1 - capped / 100);
-    discount = capped;
+  if (pctVal != null && pctVal > 0 && price > 0) {
+    const cappedPct = Math.min(100, pctVal);
+    discount = Number(cappedPct.toFixed(4));
+    discountPrice = Number((price * (1 - cappedPct / 100)).toFixed(2));
   }
+  /* else: discount / discountPrice remain 0 → clears any previous discount */
+
+  /* Debug — visible in browser console */
+  try {
+    if (console?.debug) {
+      console.debug("[import] row:", name || "(no name)",
+        "| pctKey:", discPctKey,
+        "| rawPct:", JSON.stringify(rawPct),
+        "| pctVal:", pctVal,
+        "| price:", price,
+        "| discount:", discount,
+        "| discountPrice:", discountPrice);
+    }
+  } catch {}
 
   return {
     name, sku, barcode, category, quantity, cost, price,
-    discount: Number(discount.toFixed(4)),
+    discount,
     discountType: "percent",
-    discountPrice: Number(discountPrice.toFixed(2)),
+    discountPrice,
     expiry, threshold
   };
 }
 
+/* =========================================================
+   PLAN IMPORT
+   ---------------------------------------------------------
+   Matches existing items by SKU, then Barcode, then Name.
+   This ensures rows without a SKU still update the existing
+   Firestore document instead of creating a duplicate — which
+   is what left the old discount in place previously.
+   ========================================================= */
 function planImport(rows) {
-  const skuMap = new Map();
-  state.inventory.forEach(i => { if (i.sku) skuMap.set(String(i.sku).trim(), i); });
+  const skuMap     = new Map();
+  const barcodeMap = new Map();
+  const nameMap    = new Map();
+
+  state.inventory.forEach(i => {
+    if (i.sku)     skuMap.set(String(i.sku).trim().toLowerCase(), i);
+    if (i.barcode) barcodeMap.set(String(i.barcode).trim().toLowerCase(), i);
+    if (i.name)    nameMap.set(String(i.name).trim().toLowerCase(), i);
+  });
 
   return rows.map((r, idx) => {
     const errors = [];
@@ -1660,11 +1792,35 @@ function planImport(rows) {
     if (!r.category) errors.push("Category required");
     if (!r.price || r.price <= 0) errors.push("Price must be > 0");
 
-    const existing = r.sku ? skuMap.get(r.sku) : null;
-    const action = existing ? "update" : "create";
-    if (!r.sku && action === "create") errors.push("SKU required for new items");
+    let existing = null;
+    let matchType = "";
 
-    return { ...r, _row: idx + 2, _action: action, _errors: errors, _existingId: existing?.id || null };
+    if (r.sku) {
+      const hit = skuMap.get(r.sku.toLowerCase());
+      if (hit) { existing = hit; matchType = "sku"; }
+    }
+    if (!existing && r.barcode) {
+      const hit = barcodeMap.get(r.barcode.toLowerCase());
+      if (hit) { existing = hit; matchType = "barcode"; }
+    }
+    if (!existing && r.name) {
+      const hit = nameMap.get(r.name.toLowerCase());
+      if (hit) { existing = hit; matchType = "name"; }
+    }
+
+    const action = existing ? "update" : "create";
+    if (!existing && !r.sku && !r.barcode && !r.name) {
+      errors.push("Need SKU, Barcode, or Name");
+    }
+
+    return {
+      ...r,
+      _row: idx + 2,
+      _action: action,
+      _errors: errors,
+      _existingId: existing?.id || null,
+      _matchType: matchType
+    };
   });
 }
 
@@ -1816,6 +1972,47 @@ function wireImport() {
   $("import-confirm-btn")?.addEventListener("click", commitImport);
   $("import-download-template")?.addEventListener("click", downloadImportTemplate);
 }
+
+/* =========================================================
+   OPTIONAL HELPER — clear ALL discounts in the workspace
+   ---------------------------------------------------------
+   Run once from the browser console after this fix ships:
+       window.clearAllDiscounts()
+   Wipes `discount` and `discountPrice` to 0 on every item so
+   any stale values left behind by the old importer are gone.
+   ========================================================= */
+export async function clearAllDiscounts() {
+  const wsId = myWorkspace();
+  if (!wsId) { showToast("Workspace not ready ❌"); return; }
+  if (!confirm("Clear ALL discounts from every item in this workspace?")) return;
+
+  const BATCH_LIMIT = 200;
+  const items = state.inventory.slice();
+  if (!items.length) { showToast("No items to update"); return; }
+
+  let done = 0;
+  try {
+    for (let i = 0; i < items.length; i += BATCH_LIMIT) {
+      const chunk = items.slice(i, i + BATCH_LIMIT);
+      const batch = writeBatch(db);
+      chunk.forEach(item => {
+        batch.update(doc(db, "inventory", item.id), {
+          discount: 0,
+          discountPrice: 0,
+          updatedAt: serverTimestamp()
+        });
+      });
+      await settleWrite(batch.commit(), "Clear discounts");
+      done += chunk.length;
+      showToast(`Cleared ${done}/${items.length}…`);
+    }
+    playSuccessSound();
+    showToast(`Cleared discounts on ${items.length} items ✅`);
+  } catch (err) {
+    showToast(`Failed: ${err.code || err.message} ❌`);
+  }
+}
+window.clearAllDiscounts = clearAllDiscounts;
 
 /* =========================================================
    LISTENERS

@@ -7,6 +7,7 @@ import { state, CONSTANTS } from "./state.js";
 import {
   $, valOf, esc, safeRender, showToast, debounce,
   fmtMoney, fmtInt, fmtShort, productImageHTML, thumbHTML,
+  fallbackColorFor,                                              // ✅ ADDED
   getSoldMap, getSoldMapLastDays, getSalesByCategory, monthKey, monthLabel,
   getCSSVar, printHTML, downloadXLSX, downloadPDF,
   expiryStatus
@@ -121,16 +122,27 @@ export function renderSalesOverview() {
   const listEl = $("so-daily-list"), totalEl = $("so-daily-total");
   if (totalEl) totalEl.textContent = fmtMoney(monthTotal);
   if (!listEl) return;
-  if (!days.length) { listEl.innerHTML = `<div class="empty-state"><p>No sales in this period.</p></div>`; return; }
+  if (!days.length) {
+    listEl.innerHTML = `<div class="empty-state"><p>No sales in this period.</p></div>`;
+    return;
+  }
 
   listEl.innerHTML = days.map(([k, v]) => {
     const d = new Date(k + "T00:00:00");
     const label = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     const best = maxDay > 0 && v === maxDay && days.length > 1;
-    return `<div class="so-day-row ${best ? "best" : ""}">
-      <span>${esc(label)}${best ? " 🏆" : ""}</span>
-      <strong>${fmtMoney(v)}</strong>
-    </div>`;
+    const pct = maxDay > 0 ? (v / maxDay) * 100 : 0;
+    return `
+      <div class="daily-row ${best ? "is-best" : ""}">
+        <span class="daily-row-date">
+          ${esc(label)}${best ? `<span class="daily-row-badge">🏆</span>` : ""}
+        </span>
+        <span class="daily-row-bar">
+          <span class="daily-row-bar-fill" style="width:${pct}%"></span>
+        </span>
+        <span class="daily-row-amount">${fmtMoney(v)}</span>
+      </div>
+    `;
   }).join("");
 }
 
@@ -183,18 +195,30 @@ function buildLast30DaySeries(getValue) {
     const k = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
     if (k in sums) sums[k] += getValue(s);
   });
-  return { labels: days.map(d => d.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })),
-           values: days.map(d => sums[d.key]) };
+  return {
+    labels: days.map(d => d.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })),
+    values: days.map(d => sums[d.key])
+  };
 }
 
+/* =========================================================
+   TREND CHARTS — Last 30 Days (Sales + Profit)
+   Modern minimalist: dashed horizontal gridlines, thin
+   axis border, no vertical grid, clean tooltips.
+   ========================================================= */
 export function renderTrendCharts() {
-  const salesCanvas = $("sales-trend-chart");
+  const salesCanvas  = $("sales-trend-chart");
   const profitCanvas = $("profit-trend-chart");
   if (!salesCanvas || !profitCanvas) return;
 
-  const textColor = getCSSVar("--text") || "#1e293b";
-  const grid = getCSSVar("--border") || "#e2e8f0";
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+
+  /* ---- Palette tuned for each theme ---- */
+  const tickColor   = isDark ? "#9DB3B0" : "#64748B";
+  const gridColor   = isDark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.10)";
+  const axisColor   = isDark ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.18)";
+  const tooltipBg   = isDark ? "#1E2D34" : "#0F172A";
+  const zeroLine    = isDark ? "rgba(255,255,255,0.20)" : "rgba(15,23,42,0.22)";
 
   const salesSeries = buildLast30DaySeries(s => Number(s.total) || 0);
   const profitSeries = buildLast30DaySeries(s => {
@@ -208,33 +232,68 @@ export function renderTrendCharts() {
     responsive: true,
     maintainAspectRatio: false,
     animation: { duration: 500, easing: "easeOutQuart" },
+    layout: { padding: { top: 8, right: 8, bottom: 0, left: 0 } },
+    interaction: { mode: "index", intersect: false },
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: isDark ? "#1E2D34" : "#0F172A",
+        backgroundColor: tooltipBg,
         titleColor: "#fff",
         bodyColor: "#fff",
-        padding: 10,
-        cornerRadius: 8,
+        padding: 12,
+        cornerRadius: 10,
         displayColors: false,
-        callbacks: { label: (c) => `${label}: ${fmtMoney(c.parsed.y)}` }
+        titleFont: { size: 11, weight: "700" },
+        bodyFont: { size: 12, weight: "600" },
+        callbacks: {
+          label: (c) => `${label}: ${fmtMoney(c.parsed.y)}`
+        }
       }
     },
     scales: {
       x: {
-        ticks: { color: textColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
-        grid: { display: false },
-        border: { display: false }
+        ticks: {
+          color: tickColor,
+          font: { size: 10, weight: "600" },
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 8,
+          padding: 6
+        },
+        /* Vertical gridlines off — cleaner */
+        grid: { display: false, drawTicks: false },
+        /* Thin axis line at the bottom */
+        border: { display: true, color: axisColor, width: 1 }
       },
       y: {
         beginAtZero: true,
-        ticks: { color: textColor, font: { size: 10 }, callback: (v) => fmtShort(v) },
-        grid: { color: grid, drawTicks: false },
-        border: { display: false }
+        ticks: {
+          color: tickColor,
+          font: { size: 10, weight: "600" },
+          padding: 8,
+          maxTicksLimit: 5,
+          callback: (v) => fmtShort(v)
+        },
+        /* ✅ Visible horizontal gridlines, dashed, thin */
+        grid: {
+          color: gridColor,
+          drawTicks: false,
+          drawBorder: false,
+          lineWidth: 1,
+          borderDash: [4, 4]
+        },
+        /* Thin axis line at the left */
+        border: {
+          display: true,
+          color: axisColor,
+          width: 1,
+          dash: [0, 0]
+        }
       }
     }
   });
 
+  /* ---------- Sales ---------- */
   const sData = {
     labels: salesSeries.labels,
     datasets: [{
@@ -251,9 +310,14 @@ export function renderTrendCharts() {
   };
   if (state.salesTrendChart?.canvas?.isConnected) state.salesTrendChart.destroy();
   try {
-    state.salesTrendChart = new Chart(salesCanvas, { type: "bar", data: sData, options: barOpts("Sales") });
+    state.salesTrendChart = new Chart(salesCanvas, {
+      type: "bar",
+      data: sData,
+      options: barOpts("Sales")
+    });
   } catch (e) { console.error("[bar chart sales]", e); }
 
+  /* ---------- Profit ---------- */
   const pData = {
     labels: profitSeries.labels,
     datasets: [{
@@ -270,16 +334,22 @@ export function renderTrendCharts() {
   };
   if (state.profitTrendChart?.canvas?.isConnected) state.profitTrendChart.destroy();
   try {
-    state.profitTrendChart = new Chart(profitCanvas, { type: "bar", data: pData, options: barOpts("Profit") });
+    state.profitTrendChart = new Chart(profitCanvas, {
+      type: "bar",
+      data: pData,
+      options: barOpts("Profit")
+    });
   } catch (e) { console.error("[bar chart profit]", e); }
 }
 
 export function renderTopProfitAndRevenue() {
-  const listProfit = $("top-profit-list");
+  const listProfit  = $("top-profit-list");
   const listRevenue = $("top-revenue-list");
   if (!listProfit && !listRevenue) return;
 
-  const byProfit = {}, byRevenue = {};
+  const byProfit  = {};
+  const byRevenue = {};
+
   state.sales.forEach(s => {
     const profit = typeof s.profit === "number"
       ? s.profit
@@ -291,44 +361,111 @@ export function renderTopProfitAndRevenue() {
     const rev = Number(s.total) || 0;
     const invItem = state.inventory.find(i => i.id === s.itemId);
     const image = invItem?.image || s.image || null;
+    const cat = s.category || invItem?.category || "Uncategorized";
 
-    if (!byProfit[s.itemId]) byProfit[s.itemId] = { itemId: s.itemId, name: s.itemName, image, profit: 0, qty: 0 };
-    byProfit[s.itemId].profit += profit;
-    byProfit[s.itemId].qty += Number(s.quantity) || 0;
+    if (!byProfit[s.itemId]) {
+      byProfit[s.itemId] = { itemId: s.itemId, name: s.itemName, image, category: cat, profit: 0, qty: 0, revenue: 0 };
+    }
+    byProfit[s.itemId].profit  += profit;
+    byProfit[s.itemId].qty     += Number(s.quantity) || 0;
+    byProfit[s.itemId].revenue += rev;
 
-    if (!byRevenue[s.itemId]) byRevenue[s.itemId] = { itemId: s.itemId, name: s.itemName, image, revenue: 0, qty: 0 };
+    if (!byRevenue[s.itemId]) {
+      byRevenue[s.itemId] = { itemId: s.itemId, name: s.itemName, image, category: cat, revenue: 0, qty: 0, profit: 0 };
+    }
     byRevenue[s.itemId].revenue += rev;
-    byRevenue[s.itemId].qty += Number(s.quantity) || 0;
+    byRevenue[s.itemId].qty     += Number(s.quantity) || 0;
+    byRevenue[s.itemId].profit  += profit;
   });
 
-  const rankHTML = (arr, valueKey, label) => {
-    if (!arr.length) return `<div class="empty-state"><p>No ${label} data yet.</p></div>`;
+  const buildRows = (arr, valueKey, valueLabel, barClass) => {
+    if (!arr.length) {
+      return `<div class="rk-empty">No data yet — make a sale to see rankings.</div>`;
+    }
     const maxVal = arr[0][valueKey] || 1;
+
     return arr.slice(0, 5).map((it, idx) => {
       const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
       const pct = (it[valueKey] / maxVal) * 100;
       const invItem = state.inventory.find(i => i.id === it.itemId) || {
         id: it.itemId, name: it.name, image: it.image || null
       };
+      const imgHTML = invItem.image
+        ? `<img src="${esc(invItem.image)}" alt="" loading="lazy" onerror="this.style.display='none'" />`
+        : `<div class="rk-fallback" style="background:${fallbackColorFor(invItem.name)}">${esc((invItem.name || "?").charAt(0).toUpperCase())}</div>`;
+
       return `
-        <div class="rank-row">
-          <div class="rank-badge ${rankClass}">${idx + 1}</div>
-          ${productImageHTML(invItem, "sm")}
-          <div class="rank-main">
-            <div class="rank-name">${esc(it.name)}</div>
-            <div class="rank-sub">${fmtInt(it.qty)} unit${it.qty !== 1 ? "s" : ""} sold</div>
-            <div class="progress slim"><div class="progress-bar high" style="width:${pct}%"></div></div>
+        <div class="rk-row ${idx === 0 ? "is-top" : ""}">
+          <div class="rk-rank ${rankClass}">${idx + 1}</div>
+          <div class="rk-img">${imgHTML}</div>
+          <div class="rk-body">
+            <div class="rk-name" title="${esc(it.name)}">${esc(it.name)}</div>
+            <div class="rk-sub">
+              ${fmtInt(it.qty)} sold · ${esc(it.category || "")}
+            </div>
+            <div class="rk-bar">
+              <div class="rk-bar-fill ${barClass}" style="width:${pct}%"></div>
+            </div>
           </div>
-          <div class="rank-qty">${fmtMoney(it[valueKey])}<span>${label}</span></div>
-        </div>`;
+          <div class="rk-value ${barClass}">
+            ${fmtMoney(it[valueKey])}
+            <span class="rk-unit">${valueLabel}</span>
+          </div>
+        </div>
+      `;
     }).join("");
   };
 
-  const profitArr = Object.values(byProfit).sort((a, b) => b.profit - a.profit);
+  const profitArr  = Object.values(byProfit).sort((a, b) => b.profit - a.profit);
   const revenueArr = Object.values(byRevenue).sort((a, b) => b.revenue - a.revenue);
-  if (listProfit) listProfit.innerHTML = rankHTML(profitArr, "profit", "profit");
-  if (listRevenue) listRevenue.innerHTML = rankHTML(revenueArr, "revenue", "revenue");
+
+  if (listProfit)  listProfit.innerHTML  = buildRows(profitArr,  "profit",  "Profit",  "profit");
+  if (listRevenue) listRevenue.innerHTML = buildRows(revenueArr, "revenue", "Revenue", "");
 }
+
+
+/* =========================================================
+   CHART CENTER TEXT PLUGIN
+   ---------------------------------------------------------
+   Draws a large amount + small label inside any doughnut.
+   Configurable via `options.plugins.centerText` on the chart.
+   ========================================================= */
+const centerTextPlugin = {
+  id: "centerText",
+  afterDraw(chart) {
+    const opts = chart.options?.plugins?.centerText;
+    if (!opts || !opts.text) return;
+
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return;
+
+    /* Half-doughnut: pivot at bottom center.
+       Full doughnut: pivot at true center. */
+    const isHalf = opts.half === true;
+    const centerX = (chartArea.left + chartArea.right) / 2;
+    const centerY = isHalf
+      ? chartArea.bottom - 6
+      : (chartArea.top + chartArea.bottom) / 2;
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    /* Main amount */
+    ctx.font = `800 ${opts.size || 20}px 'Plus Jakarta Sans', -apple-system, sans-serif`;
+    ctx.fillStyle = opts.color || "#0F172A";
+    ctx.fillText(opts.text, centerX, isHalf ? centerY - 34 : centerY - 8);
+
+    /* Sub-label */
+    if (opts.subtext) {
+      ctx.font = `700 ${opts.subSize || 10}px 'Plus Jakarta Sans', -apple-system, sans-serif`;
+      ctx.fillStyle = opts.subColor || "#64748B";
+      ctx.fillText(opts.subtext, centerX, isHalf ? centerY - 16 : centerY + 14);
+    }
+
+    ctx.restore();
+  }
+};
 
 /* =========================================================
    CHARTS — Sales vs Cost + Sales by Category
@@ -350,10 +487,21 @@ export function renderCharts(retries = 0) {
   }
 
   const textColor = getCSSVar("--text") || "#1e293b";
+  const subtleColor = getCSSVar("--text-secondary") || "#64748b";
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
-  /* ---- 1) SALES vs COST (half pie) ---- */
+   /* =========================================================
+     1) WHERE YOUR SALES WENT — for items already sold
+     =========================================================
+     Sales Revenue  = ₱ you charged customers for sold items
+     Cost of Those  = ₱ you originally paid for those items
+     Profit         = Sales Revenue − Cost
+
+     This chart is COMPLETELY SEPARATE from "Stock Value",
+     which shows the retail value of items still on shelves.
+     ========================================================= */
   try {
+    /* -------- Sold items only -------- */
     const totalSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
     const totalCost = state.sales.reduce((s, x) => {
       const unitCost = Number(x.cost) || 0;
@@ -362,46 +510,123 @@ export function renderCharts(retries = 0) {
     }, 0);
     const totalProfit = totalSales - totalCost;
     const profitMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-    const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0;
+    const costPct   = totalSales > 0 ? (totalCost / totalSales) * 100 : 0;
     const profitPct = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
 
-    const svcData = {
-      labels: ["Cost", "Profit"],
-      datasets: [{
-        data: [Math.max(0, totalCost), Math.max(0, totalProfit)],
-        backgroundColor: ["#3B82F6", "#10B981"],
-        hoverBackgroundColor: ["#2563EB", "#059669"],
-        borderWidth: 0,
-        hoverOffset: 4
-      }]
-    };
+    /* -------- Stock still on shelves (unrelated to sales) -------- */
+    const stockValue  = state.inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
+    const stockCost   = state.inventory.reduce((s, i) => s + (i.quantity * (i.cost || 0)), 0);
+    const stockProfit = stockValue - stockCost;
+    const stockCount  = state.inventory.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
 
+    /* -------- Info panel below the chart -------- */
     const infoEl = $("sales-vs-cost-info");
     if (infoEl) {
       infoEl.innerHTML = `
-        <div class="svc-row"><span class="svc-label">Total Sales</span><strong class="svc-value sales">${fmtMoney(totalSales)}</strong></div>
-        <div class="svc-row"><span class="svc-label">Cost</span><strong class="svc-value cost">${fmtMoney(totalCost)} · ${costPct.toFixed(1)}%</strong></div>
-        <div class="svc-row"><span class="svc-label">Profit</span><strong class="svc-value profit">${fmtMoney(totalProfit)} · ${profitPct.toFixed(1)}%</strong></div>
-        <div class="svc-row highlight"><span class="svc-label">Profit Margin</span><strong class="svc-value margin">${profitMargin.toFixed(1)}%</strong></div>
+        <div class="svc-split">
+          <div class="svc-side">
+            <div class="svc-side-title">🔵 From items you sold</div>
+
+            <div class="svc-row">
+              <span class="svc-label">Sales Revenue</span>
+              <strong class="svc-value sales">${fmtMoney(totalSales)}</strong>
+            </div>
+
+            <div class="svc-row">
+              <span class="svc-label">Cost of those items</span>
+              <strong class="svc-value cost">− ${fmtMoney(totalCost)}</strong>
+            </div>
+
+            <div class="svc-divider"></div>
+
+            <div class="svc-row highlight">
+              <span class="svc-label">Your Profit</span>
+              <strong class="svc-value profit">${fmtMoney(totalProfit)}</strong>
+            </div>
+
+            <div class="svc-row">
+              <span class="svc-label">Profit margin</span>
+              <strong class="svc-value margin">${profitMargin.toFixed(1)}%</strong>
+            </div>
+          </div>
+
+          <div class="svc-side separate">
+            <div class="svc-side-title">🟢 Still on your shelves</div>
+
+            <div class="svc-row">
+              <span class="svc-label">Stock Value</span>
+              <strong class="svc-value stock">${fmtMoney(stockValue)}</strong>
+            </div>
+
+            <div class="svc-row">
+              <span class="svc-label">Stock Cost</span>
+              <strong class="svc-value stock-cost">− ${fmtMoney(stockCost)}</strong>
+            </div>
+
+            <div class="svc-divider"></div>
+
+            <div class="svc-row highlight stock">
+              <span class="svc-label">Potential profit if all sold</span>
+              <strong class="svc-value stock-profit">${fmtMoney(stockProfit)}</strong>
+            </div>
+
+            <div class="svc-row">
+              <span class="svc-label">Items on shelf</span>
+              <strong class="svc-value margin">${fmtInt(stockCount)} pcs</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="svc-note">
+          💡 Left side = what already happened (sold items). Right side = what's still waiting to be sold. They are not added together.
+        </div>
       `;
     }
 
     if (state.salesVsCostChart?.canvas?.isConnected) state.salesVsCostChart.destroy();
     state.salesVsCostChart = new Chart(svcCanvas, {
-      type: "doughnut", data: svcData,
+      type: "doughnut",
+      data: {
+        labels: ["Cost of Sold Items", "Profit Earned"],
+        datasets: [{
+          data: [Math.max(0, totalCost), Math.max(0, totalProfit)],
+          backgroundColor: ["#3B82F6", "#10B981"],
+          hoverBackgroundColor: ["#2563EB", "#059669"],
+          borderWidth: 0,
+          hoverOffset: 6
+        }]
+      },
+      plugins: [centerTextPlugin],
       options: {
-        responsive: true, maintainAspectRatio: false,
-        rotation: -90, circumference: 180, cutout: "65%",
-        animation: { duration: 450 },
+        responsive: true,
+        maintainAspectRatio: false,
+        rotation: -90,
+        circumference: 180,
+        cutout: "62%",
+        animation: { duration: 500, easing: "easeOutQuart" },
+        layout: { padding: { top: 8, bottom: 20, left: 12, right: 12 } },
         plugins: {
           legend: { display: false },
+          centerText: {
+            half: true,
+            text: fmtMoney(totalSales),
+            subtext: "TOTAL SALES REVENUE",
+            color: isDark ? "#E7F3F1" : "#0F172A",
+            subColor: subtleColor,
+            size: 22,
+            subSize: 10
+          },
           tooltip: {
             backgroundColor: isDark ? "#1E2D34" : "#0F172A",
-            padding: 10, cornerRadius: 8, displayColors: false,
+            titleColor: "#fff",
+            bodyColor: "#fff",
+            padding: 12,
+            cornerRadius: 10,
+            displayColors: true,
             callbacks: {
               label: (c) => {
                 const pct = totalSales > 0 ? ((c.parsed / totalSales) * 100).toFixed(1) : "0.0";
-                return `${c.label}: ${fmtMoney(c.parsed)} (${pct}%)`;
+                return `  ${c.label}: ${fmtMoney(c.parsed)}  (${pct}%)`;
               }
             }
           }
@@ -410,10 +635,13 @@ export function renderCharts(retries = 0) {
     });
   } catch (e) { console.error("[chart] sales vs cost:", e); }
 
-  /* ---- 2) SALES BY CATEGORY (drill-down) ---- */
+  /* =========================================================
+     2) SALES BY CATEGORY — drill-down doughnut
+     ========================================================= */
   try {
     const catFilter = (valOf($("sales-cat-analytics-filter")) || "").trim();
-    let labels = [], values = [];
+    let labels = [];
+    let values = [];
 
     const summaryEl = $("sales-cat-summary");
     const catEl     = $("scs-category");
@@ -429,68 +657,143 @@ export function renderCharts(retries = 0) {
       : state.sales;
 
     if (catFilter) {
+      /* -------- Drill-down: show products inside this category -------- */
       const productMap = {};
       filteredSales.forEach(s => {
         const key = s.itemName || "Unknown";
-        productMap[key] = (productMap[key] || 0) + (Number(s.total) || 0);
+        if (!productMap[key]) productMap[key] = { total: 0, qty: 0, txns: 0 };
+        productMap[key].total += Number(s.total) || 0;
+        productMap[key].qty   += Number(s.quantity) || 0;
+        productMap[key].txns  += 1;
       });
-      const entries = Object.entries(productMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+      const entries = Object.entries(productMap)
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, 8);
+
       labels = entries.map(e => e[0]);
-      values = entries.map(e => e[1]);
+      values = entries.map(e => e[1].total);
 
       const totalAmount = filteredSales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
       const totalUnits  = filteredSales.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
       const totalTxns   = filteredSales.length;
+      const productCount = Object.keys(productMap).length;
 
       if (catEl)   catEl.textContent   = catFilter;
       if (totalEl) totalEl.textContent = fmtMoney(totalAmount);
       if (txnsEl)  txnsEl.textContent  = fmtInt(totalTxns);
       if (unitsEl) unitsEl.textContent = fmtInt(totalUnits);
+
+      /* Extra line for the "top products" summary */
+      const extraEl = $("scs-products");
+      if (extraEl) {
+        extraEl.innerHTML = `🏷️ <strong>${fmtInt(productCount)}</strong> product${productCount !== 1 ? "s" : ""} in this category`;
+      }
+
       summaryEl?.classList.remove("hidden");
     } else {
+      /* -------- Overview: show all categories -------- */
       const catMap = {};
       state.sales.forEach(s => {
         const k = s.category || "Uncategorized";
-        catMap[k] = (catMap[k] || 0) + (Number(s.total) || 0);
+        if (!catMap[k]) catMap[k] = { total: 0, qty: 0, txns: 0 };
+        catMap[k].total += Number(s.total) || 0;
+        catMap[k].qty   += Number(s.quantity) || 0;
+        catMap[k].txns  += 1;
       });
-      const entries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+      const entries = Object.entries(catMap).sort((a, b) => b[1].total - a[1].total);
       labels = entries.map(e => e[0]);
-      values = entries.map(e => e[1]);
+      values = entries.map(e => e[1].total);
       summaryEl?.classList.add("hidden");
     }
 
-    const colors = labels.length
-      ? labels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length])
-      : ["#e2e8f0"];
+    /* If there are no sales at all, show a placeholder slice */
+    if (!labels.length) {
+      labels = ["No sales yet"];
+      values = [1];
+    }
 
-    const salesCatData = {
-      labels: labels.length ? labels : ["No sales yet"],
-      datasets: [{
-        data: values.length ? values : [1],
-        backgroundColor: colors,
-        borderWidth: 0,
-        hoverOffset: 6
-      }]
-    };
+    const colors = labels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]);
 
     const totalValues = values.reduce((a, b) => a + b, 0);
 
     if (state.salesCategoryChart?.canvas?.isConnected) state.salesCategoryChart.destroy();
     state.salesCategoryChart = new Chart(salesCatCanvas, {
-      type: "pie", data: salesCatData,
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: colors,
+          hoverBackgroundColor: colors,
+          borderWidth: 2,
+          borderColor: isDark ? "#162228" : "#FFFFFF",
+          hoverOffset: 8
+        }]
+      },
+      plugins: [centerTextPlugin],
       options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: { duration: 400 },
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "60%",
+        animation: { duration: 500, easing: "easeOutQuart" },
+        layout: { padding: { top: 8, bottom: 8, left: 4, right: 4 } },
         plugins: {
           legend: {
             position: "bottom",
-            labels: { color: textColor, padding: 10, font: { size: 11 }, boxWidth: 12, usePointStyle: true }
+            align: "center",
+            labels: {
+              color: textColor,
+              padding: 10,
+              font: { size: 11, weight: "600" },
+              boxWidth: 10,
+              boxHeight: 10,
+              usePointStyle: true,
+              pointStyle: "circle",
+              generateLabels: (chart) => {
+                const data = chart.data;
+                const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                return data.labels.map((label, i) => {
+                  const val = data.datasets[0].data[i] || 0;
+                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : "0.0";
+                  /* Shorten long labels so they don't blow up the legend */
+                  const shortLabel = label.length > 18 ? label.slice(0, 17) + "…" : label;
+                  return {
+                    text: `${shortLabel}  ·  ${pct}%`,
+                    fillStyle: data.datasets[0].backgroundColor[i],
+                    strokeStyle: data.datasets[0].backgroundColor[i],
+                    lineWidth: 0,
+                    fontColor: textColor,
+                    pointStyle: "circle",
+                    hidden: false,
+                    index: i
+                  };
+                });
+              }
+            }
+          },
+          centerText: {
+            half: false,
+            text: catFilter ? fmtMoney(totalValues) : fmtMoney(totalValues),
+            subtext: catFilter ? catFilter.toUpperCase() : `${labels.length} CATEGOR${labels.length === 1 ? "Y" : "IES"}`,
+            color: isDark ? "#E7F3F1" : "#0F172A",
+            subColor: subtleColor,
+            size: 20,
+            subSize: 9
           },
           tooltip: {
+            backgroundColor: isDark ? "#1E2D34" : "#0F172A",
+            titleColor: "#fff",
+            bodyColor: "#fff",
+            padding: 12,
+            cornerRadius: 10,
+            displayColors: true,
             callbacks: {
+              title: (items) => items[0]?.label || "",
               label: (c) => {
-                const pct = totalValues > 0 ? ((c.parsed / totalValues) * 100).toFixed(1) : "0.0";
-                return `${c.label}: ${fmtMoney(c.parsed)} (${pct}%)`;
+                const total = c.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total > 0 ? ((c.parsed / total) * 100).toFixed(1) : "0.0";
+                return `  ${fmtMoney(c.parsed)}  (${pct}%)`;
               }
             }
           }
@@ -847,7 +1150,7 @@ window.deleteReceiptGroupFromHistory = deleteReceiptGroupFromHistory;
    CATEGORY SUMMARIES
    ========================================================= */
 
-/* Shared renderer for the History category summary (keeps the simple look) */
+/* Shared renderer for the History category summary (simple look) */
 function renderCategorySummaryInto(container, list, emptyText) {
   if (!container) return;
   const map = getSalesByCategory(list);
@@ -896,7 +1199,6 @@ export function renderSalesCategorySummary() {
     const barPct = (e.total / maxTotal) * 100;
     const rank = i + 1;
 
-    /* Top-3 get colored rank badges */
     let rankClass = "";
     if (i === 0) rankClass = "rank-1";
     else if (i === 1) rankClass = "rank-2";
@@ -941,7 +1243,6 @@ export function renderSalesCategorySummary() {
   }).join("");
 }
 
-/* History keeps the simpler layout */
 export function renderHistoryCategorySummary() {
   let list = state.sales;
   const range = valOf($("history-filter")) || "all";
@@ -964,27 +1265,46 @@ export function renderHistoryCategorySummary() {
 export function renderFastMoving() {
   const list = $("fast-moving-list"); if (!list) return;
   const soldMap = getSoldMap();
+
   const ranked = [...state.inventory]
     .map(i => ({ ...i, sold: soldMap[i.id] || 0 }))
     .filter(i => i.sold > 0)
     .sort((a, b) => b.sold - a.sold)
     .slice(0, 5);
-  if (!ranked.length) { list.innerHTML = `<div class="empty-state"><p>No sales yet.</p></div>`; return; }
-  const maxSold = ranked[0].sold;
+
+  if (!ranked.length) {
+    list.innerHTML = `<div class="rk-empty">No sales yet — sell an item to see trends.</div>`;
+    return;
+  }
+
+  const maxSold = ranked[0].sold || 1;
+
   list.innerHTML = ranked.map((item, idx) => {
     const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
-    const percent = (item.sold / maxSold) * 100;
+    const pct = (item.sold / maxSold) * 100;
+    const imgHTML = item.image
+      ? `<img src="${esc(item.image)}" alt="" loading="lazy" onerror="this.style.display='none'" />`
+      : `<div class="rk-fallback" style="background:${fallbackColorFor(item.name)}">${esc((item.name || "?").charAt(0).toUpperCase())}</div>`;
+
     return `
-      <div class="rank-row">
-        <div class="rank-badge ${rankClass}">${idx + 1}</div>
-        ${productImageHTML(item, "sm")}
-        <div class="rank-main">
-          <div class="rank-name">${esc(item.name)}</div>
-          <div class="rank-sub">SKU: ${esc(item.sku)} · ${fmtMoney(item.price)}</div>
-          <div class="progress slim"><div class="progress-bar high" style="width:${percent}%"></div></div>
+      <div class="rk-row ${idx === 0 ? "is-top" : ""}">
+        <div class="rk-rank ${rankClass}">${idx + 1}</div>
+        <div class="rk-img">${imgHTML}</div>
+        <div class="rk-body">
+          <div class="rk-name" title="${esc(item.name)}">${esc(item.name)}</div>
+          <div class="rk-sub">
+            SKU ${esc(item.sku)} · ${fmtMoney(item.price)}
+          </div>
+          <div class="rk-bar">
+            <div class="rk-bar-fill" style="width:${pct}%"></div>
+          </div>
         </div>
-        <div class="rank-qty">${fmtInt(item.sold)}<span>sold</span></div>
-      </div>`;
+        <div class="rk-value">
+          ${fmtInt(item.sold)}
+          <span class="rk-unit">sold</span>
+        </div>
+      </div>
+    `;
   }).join("");
 }
 
@@ -1001,31 +1321,59 @@ function getLastSoldMs(itemId) {
 export function renderSlowMoving() {
   const list = $("slow-moving-list"); if (!list) return;
   const sold30 = getSoldMapLastDays(30);
+
   const ranked = [...state.inventory]
     .map(i => ({ ...i, sold30: sold30[i.id] || 0, lastSold: getLastSoldMs(i.id) }))
     .filter(i => i.quantity > 0)
-    .sort((a, b) => { if (a.sold30 !== b.sold30) return a.sold30 - b.sold30; return b.quantity - a.quantity; })
+    .sort((a, b) => {
+      if (a.sold30 !== b.sold30) return a.sold30 - b.sold30;
+      return b.quantity - a.quantity;
+    })
     .slice(0, 5);
-  if (!ranked.length) { list.innerHTML = `<div class="empty-state"><p>No slow-moving items.</p></div>`; return; }
+
+  if (!ranked.length) {
+    list.innerHTML = `<div class="rk-empty">No slow-moving items.</div>`;
+    return;
+  }
+
+  const maxStock = Math.max(1, ...ranked.map(i => i.quantity));
+
   list.innerHTML = ranked.map((item, idx) => {
     const lastSoldTxt = item.lastSold
       ? `${Math.floor((Date.now() - item.lastSold) / (24 * 60 * 60 * 1000))}d ago`
       : "Never sold";
+    const pct = (item.quantity / maxStock) * 100;
+    const imgHTML = item.image
+      ? `<img src="${esc(item.image)}" alt="" loading="lazy" onerror="this.style.display='none'" />`
+      : `<div class="rk-fallback" style="background:${fallbackColorFor(item.name)}">${esc((item.name || "?").charAt(0).toUpperCase())}</div>`;
+
     return `
-      <div class="rank-row slow">
-        <div class="rank-badge slow">${idx + 1}</div>
-        ${productImageHTML(item, "sm")}
-        <div class="rank-main">
-          <div class="rank-name">${esc(item.name)}</div>
-          <div class="rank-sub">SKU: ${esc(item.sku)} · Last sold: ${lastSoldTxt}</div>
+      <div class="rk-row">
+        <div class="rk-rank slow">${idx + 1}</div>
+        <div class="rk-img">${imgHTML}</div>
+        <div class="rk-body">
+          <div class="rk-name" title="${esc(item.name)}">${esc(item.name)}</div>
+          <div class="rk-sub">
+            Last sold: ${lastSoldTxt} · Stock ${fmtInt(item.quantity)}
+          </div>
+          <div class="rk-bar">
+            <div class="rk-bar-fill slow" style="width:${pct}%"></div>
+          </div>
         </div>
-        <div class="rank-qty">${fmtInt(item.sold30)}<span>sold/30d</span></div>
-      </div>`;
+        <div class="rk-value slow">
+          ${fmtInt(item.sold30)}
+          <span class="rk-unit">/30d</span>
+        </div>
+      </div>
+    `;
   }).join("");
 }
 
 /* =========================================================
-   SPOTLIGHT CAROUSEL
+   SPOTLIGHT CAROUSEL (legacy — kept harmless)
+   ---------------------------------------------------------
+   The dashboard no longer has a #carousel-track, so
+   renderCarousel() returns early without doing anything.
    ========================================================= */
 function buildSlides() {
   const slides = [];
@@ -1132,16 +1480,30 @@ export function renderCarousel() {
   });
   updateCarouselPosition(); restartCarousel();
 }
+
 function updateCarouselPosition() {
   const track = $("carousel-track"), dots = $("carousel-dots");
   if (!state.carouselSlides.length || !track) return;
   track.style.transform = `translateX(-${state.carouselIndex * 100}%)`;
   dots?.querySelectorAll(".dot").forEach((d, i) => d.classList.toggle("active", i === state.carouselIndex));
 }
-function nextSlide() { if (!state.carouselSlides.length) return; state.carouselIndex = (state.carouselIndex + 1) % state.carouselSlides.length; updateCarouselPosition(); }
-function prevSlide() { if (!state.carouselSlides.length) return; state.carouselIndex = (state.carouselIndex - 1 + state.carouselSlides.length) % state.carouselSlides.length; updateCarouselPosition(); }
-export function restartCarousel() { stopCarousel(); if (state.carouselSlides.length > 1) state.carouselInterval = setInterval(nextSlide, 5000); }
-export function stopCarousel() { if (state.carouselInterval) { clearInterval(state.carouselInterval); state.carouselInterval = null; } }
+function nextSlide() {
+  if (!state.carouselSlides.length) return;
+  state.carouselIndex = (state.carouselIndex + 1) % state.carouselSlides.length;
+  updateCarouselPosition();
+}
+function prevSlide() {
+  if (!state.carouselSlides.length) return;
+  state.carouselIndex = (state.carouselIndex - 1 + state.carouselSlides.length) % state.carouselSlides.length;
+  updateCarouselPosition();
+}
+export function restartCarousel() {
+  stopCarousel();
+  if (state.carouselSlides.length > 1) state.carouselInterval = setInterval(nextSlide, 5000);
+}
+export function stopCarousel() {
+  if (state.carouselInterval) { clearInterval(state.carouselInterval); state.carouselInterval = null; }
+}
 
 /* =========================================================
    EXPORTS (Excel / PDF)

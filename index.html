@@ -68,8 +68,8 @@
 
     <div class="subtitle-carousel">
       <span class="carousel-text">Smart Stock &amp; Sales</span>
-      <span class="carousel-text">Track · Sell · Grow</span>
-      <span class="carousel-text">Your sari-sari store, upgraded ✨</span>
+      <span class="carousel-text">Track · Automate · Optimize</span>
+      <span class="carousel-text">Powered By Kurt POS✨</span>
     </div>
 
     <div class="auth-tabs" id="auth-tabs">
@@ -169,7 +169,7 @@
         <div class="logo">My Sari-Sari Store</div>
         <div class="brand-tagline-carousel">
           <span class="brand-tagline">Smart Stock &amp; Sales</span>
-          <span class="brand-tagline">Track · Sell · Grow</span>
+          <span class="brand-tagline">Track · Automate · Optimize</span>
           <span class="brand-tagline">Powered by Kurt POS</span>
         </div>
       </div>
@@ -251,230 +251,262 @@
        PAGE — DASHBOARD
        ======================================================== -->
   <main id="page-dashboard" class="page">
-    <div class="dash-top">
-      <h2 class="page-title">Dashboard</h2>
-      <div class="dash-top-actions">
-        <span class="dash-live-badge">● Live</span>
-        <button type="button" id="dash-refresh-btn" class="dash-refresh-btn" title="Refresh">
-          <span class="dash-refresh-icon">🔄</span>
-          <span class="dash-refresh-label">Refresh</span>
-        </button>
-      </div>
+  <div class="dash-top">
+    <h2 class="page-title">Dashboard</h2>
+    <div class="dash-top-actions">
+      <span class="dash-live-badge">● Live</span>
+      <button type="button" id="dash-refresh-btn" class="dash-refresh-btn" title="Refresh">
+        <span class="dash-refresh-icon">🔄</span>
+        <span class="dash-refresh-label">Refresh</span>
+      </button>
     </div>
+  </div>
 
-    <!-- Stat cards -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <span class="stat-label">Running Sales</span>
-        <span class="stat-value" id="stat-sales">₱0.00</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">Stock Value</span>
-        <span class="stat-value" id="stat-value">₱0.00</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">Profit</span>
-        <span class="stat-value" id="stat-profit">₱0.00</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">Total Items</span>
-        <span class="stat-value" id="stat-total">0</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">Low Stock</span>
-        <span class="stat-value" id="stat-low">0</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-label">Categories</span>
-        <span class="stat-value" id="stat-cats">0</span>
-      </div>
+  <!-- ============ STAT CARDS ============ -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <span class="stat-label">Running Sales</span>
+      <span class="stat-value" id="stat-sales">₱0.00</span>
     </div>
+    <div class="stat-card">
+      <span class="stat-label">Stock Value</span>
+      <span class="stat-value" id="stat-value">₱0.00</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Profit</span>
+      <span class="stat-value" id="stat-profit">₱0.00</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Total Items</span>
+      <span class="stat-value" id="stat-total">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Low Stock</span>
+      <span class="stat-value" id="stat-low">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Categories</span>
+      <span class="stat-value" id="stat-cats">0</span>
+    </div>
+  </div>
 
-    <!-- Sales overview -->
-    <section class="sales-overview-card">
+  <!-- ============ SALES OVERVIEW + DAILY BREAKDOWN ============ -->
+  <div class="dash-hero">
+    <section class="so-panel">
       <div class="so-head">
         <h3 class="so-title">Sales Overview</h3>
         <select id="month-filter" class="so-month-select">
           <option value="">All Time</option>
         </select>
       </div>
-      <div class="so-stats">
-        <div class="so-stat">
-          <span class="so-label">Today</span>
-          <span class="so-value" id="so-today">₱0.00</span>
+
+      <div class="so-tiles">
+        <div class="so-tile">
+          <span class="so-tile-label">Today</span>
+          <span class="so-tile-value" id="so-today">₱0.00</span>
         </div>
-        <div class="so-stat">
-          <span class="so-label">This Week</span>
-          <span class="so-value" id="so-week">₱0.00</span>
+        <div class="so-tile">
+          <span class="so-tile-label">This Week</span>
+          <span class="so-tile-value" id="so-week">₱0.00</span>
         </div>
-        <div class="so-stat">
-          <span class="so-label">Selected Month</span>
-          <span class="so-value" id="so-month">₱0.00</span>
+        <div class="so-tile">
+          <span class="so-tile-label">Selected Month</span>
+          <span class="so-tile-value" id="so-month">₱0.00</span>
         </div>
-        <div class="so-stat highlight">
-          <span class="so-label">Running Total</span>
-          <span class="so-value" id="so-running">₱0.00</span>
+        <div class="so-tile highlight">
+          <span class="so-tile-label">Running Total</span>
+          <span class="so-tile-value" id="so-running">₱0.00</span>
         </div>
-      </div>
-      <div class="so-daily-wrap">
-        <div class="so-daily-head">
-          <span class="so-daily-title">Daily Breakdown</span>
-          <span class="so-daily-total" id="so-daily-total">₱0.00</span>
-        </div>
-        <div class="so-daily-list" id="so-daily-list"></div>
       </div>
     </section>
 
-    <!-- KPI cards -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <span class="kpi-label">Avg Order Value</span>
-        <span class="kpi-value" id="kpi-aov">₱0.00</span>
+    <section class="daily-panel">
+      <div class="daily-head">
+        <h3 class="daily-title">Daily Breakdown</h3>
+        <span class="daily-total" id="so-daily-total">₱0.00</span>
       </div>
-      <div class="kpi-card">
-        <span class="kpi-label">Items Sold</span>
-        <span class="kpi-value" id="kpi-items">0</span>
+      <div class="daily-list" id="so-daily-list"></div>
+    </section>
+  </div>
+
+  <!-- ============ KPI CARDS ============ -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <span class="kpi-label">Avg Order Value</span>
+      <span class="kpi-value" id="kpi-aov">₱0.00</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Items Sold</span>
+      <span class="kpi-value" id="kpi-items">0</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Peak Hour</span>
+      <span class="kpi-value" id="kpi-peak">–</span>
+    </div>
+    <div class="kpi-card profit">
+      <span class="kpi-label">Profit Margin</span>
+      <span class="kpi-value" id="kpi-margin">0%</span>
+    </div>
+  </div>
+
+    <!-- ============ MAIN CHARTS ============ -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h3 class="card-title">Where Your Sales Went</h3>
+        <span class="chart-hint">Sold items only</span>
       </div>
-      <div class="kpi-card">
-        <span class="kpi-label">Peak Hour</span>
-        <span class="kpi-value" id="kpi-peak">–</span>
+      <div class="chart-wrapper half-pie-wrapper">
+        <canvas id="sales-vs-cost-chart"></canvas>
       </div>
-      <div class="kpi-card profit">
-        <span class="kpi-label">Profit Margin</span>
-        <span class="kpi-value" id="kpi-margin">0%</span>
-      </div>
+      <div class="svc-info" id="sales-vs-cost-info"></div>
     </div>
 
-    <!-- Charts row -->
-    <div class="charts-grid">
-      <div class="chart-card">
-        <h3 class="card-title">Sales vs Cost</h3>
-        <div class="chart-wrapper half-pie-wrapper">
-          <canvas id="sales-vs-cost-chart"></canvas>
-        </div>
-        <div class="svc-info" id="sales-vs-cost-info"></div>
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h3 class="card-title">Sales by Category</h3>
+        <select id="sales-cat-analytics-filter" class="cat-analytics-select">
+          <option value="">All Categories</option>
+        </select>
       </div>
-
-      <div class="chart-card">
-        <div class="chart-card-head">
-          <h3 class="card-title">Sales by Category</h3>
-          <select id="sales-cat-analytics-filter" class="cat-analytics-select">
-            <option value="">All Categories</option>
-          </select>
+      <div class="sales-cat-summary hidden" id="sales-cat-summary">
+        <div class="scs-row">
+          <span class="scs-label">Category</span>
+          <span class="scs-value" id="scs-category">—</span>
         </div>
-        <div class="sales-cat-summary hidden" id="sales-cat-summary">
-          <div class="scs-row">
-            <span class="scs-label">Category</span>
-            <span class="scs-value" id="scs-category">—</span>
-          </div>
-          <div class="scs-row highlight">
-            <span class="scs-label">Total</span>
-            <span class="scs-value amount" id="scs-total">₱0.00</span>
-          </div>
-          <div class="scs-meta">
-            <span>🧾 <strong id="scs-txns">0</strong> transactions</span>
-            <span>📦 <strong id="scs-units">0</strong> units</span>
-          </div>
+        <div class="scs-row highlight">
+          <span class="scs-label">Total</span>
+          <span class="scs-value amount" id="scs-total">₱0.00</span>
         </div>
-        <div class="chart-wrapper">
-          <canvas id="sales-category-chart"></canvas>
+        <div class="scs-meta">
+          <span>🧾 <strong id="scs-txns">0</strong> transactions</span>
+          <span>📦 <strong id="scs-units">0</strong> units</span>
         </div>
+      </div>
+      <div class="chart-wrapper pie-wrapper">
+        <canvas id="sales-category-chart"></canvas>
       </div>
     </div>
+  </div>
 
-    <!-- Trend charts -->
-    <div class="charts-grid">
-      <div class="chart-card">
+  <!-- ============ TREND CHARTS ============ -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-card-head">
         <h3 class="card-title">Sales — Last 30 Days</h3>
-        <div class="chart-wrapper">
-          <canvas id="sales-trend-chart"></canvas>
-        </div>
+        <span class="chart-hint">Daily total</span>
       </div>
-      <div class="chart-card">
+      <div class="chart-wrapper">
+        <canvas id="sales-trend-chart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-head">
         <h3 class="card-title">Profit — Last 30 Days</h3>
-        <div class="chart-wrapper">
-          <canvas id="profit-trend-chart"></canvas>
+        <span class="chart-hint">Daily profit</span>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="profit-trend-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TOP PERFORMERS ============ -->
+  <div class="section-heading-row">
+    <h3 class="section-heading">🏆 Top Performers</h3>
+  </div>
+  <div class="rank-panels">
+    <div class="rank-panel">
+      <header class="rank-panel-head">
+        <div>
+          <div class="rank-panel-title">💰 Top Revenue</div>
+          <div class="rank-panel-sub">Best sellers by money earned</div>
         </div>
-      </div>
+        <span class="rank-panel-chip">Top 5</span>
+      </header>
+      <div class="rank-panel-list" id="top-revenue-list"></div>
     </div>
 
-    <!-- Spotlight carousel -->
-    <div class="spotlight-head">
-      <h3 class="section-heading">✨ Spotlight</h3>
-      <div class="carousel-nav">
-        <button type="button" id="carousel-prev" class="carousel-arrow" aria-label="Previous">‹</button>
-        <button type="button" id="carousel-next" class="carousel-arrow" aria-label="Next">›</button>
-      </div>
+    <div class="rank-panel">
+      <header class="rank-panel-head">
+        <div>
+          <div class="rank-panel-title">🏆 Top Profit</div>
+          <div class="rank-panel-sub">Best sellers by margin</div>
+        </div>
+        <span class="rank-panel-chip">Top 5</span>
+      </header>
+      <div class="rank-panel-list" id="top-profit-list"></div>
     </div>
-    <div class="carousel">
-      <div class="carousel-track" id="carousel-track"></div>
-    </div>
-    <div class="carousel-dots" id="carousel-dots"></div>
+  </div>
 
-    <!-- Top profit + Top revenue -->
-    <div class="dash-2col">
-      <div class="card compact">
-        <h3 class="card-title">🏆 Top Profit</h3>
-        <div class="rank-list compact" id="top-profit-list"></div>
-      </div>
-      <div class="card compact">
-        <h3 class="card-title">💰 Top Revenue</h3>
-        <div class="rank-list compact" id="top-revenue-list"></div>
-      </div>
-    </div>
-
-    <!-- Fast + Slow moving -->
-    <div class="dash-2col">
-      <div class="card compact">
-        <h3 class="card-title">🔥 Fast Moving</h3>
-        <div class="rank-list compact" id="fast-moving-list"></div>
-      </div>
-      <div class="card compact">
-        <h3 class="card-title">🐢 Slow Moving</h3>
-        <div class="rank-list compact" id="slow-moving-list"></div>
-      </div>
+  <!-- ============ MOVEMENT TRENDS ============ -->
+  <div class="section-heading-row">
+    <h3 class="section-heading">📈 Product Movement</h3>
+  </div>
+  <div class="rank-panels">
+    <div class="rank-panel">
+      <header class="rank-panel-head">
+        <div>
+          <div class="rank-panel-title">🔥 Fast Moving</div>
+          <div class="rank-panel-sub">Highest quantity sold</div>
+        </div>
+        <span class="rank-panel-chip">Top 5</span>
+      </header>
+      <div class="rank-panel-list" id="fast-moving-list"></div>
     </div>
 
-    <!-- Live inventory (POS-style cards + mini carousel) -->
-    <h3 class="section-heading">📦 Live Inventory</h3>
-    <div class="toolbar compact">
-      <input type="search" id="dash-search" placeholder="Search name, SKU, or barcode…" />
+    <div class="rank-panel">
+      <header class="rank-panel-head">
+        <div>
+          <div class="rank-panel-title">🐢 Slow Moving</div>
+          <div class="rank-panel-sub">Least sold in the last 30 days</div>
+        </div>
+        <span class="rank-panel-chip">Bottom 5</span>
+      </header>
+      <div class="rank-panel-list" id="slow-moving-list"></div>
     </div>
-    <div class="inventory-list compact" id="dashboard-inventory"></div>
+  </div>
 
-    <!-- Low stock alerts -->
-    <h3 class="section-heading">⚠️ Low Stock Alerts</h3>
-    <div class="inventory-list compact" id="low-stock-list"></div>
+  <!-- ============ LIVE INVENTORY ============ -->
+  <h3 class="section-heading">📦 Live Inventory</h3>
+  <div class="toolbar compact">
+    <input type="search" id="dash-search" placeholder="Search name, SKU, or barcode…" />
+  </div>
+  <div class="inventory-list compact" id="dashboard-inventory"></div>
 
-    <!-- Expiry -->
-    <div id="expiry-banner" class="expiry-banner hidden">
-      <span class="expiry-banner-icon">⏰</span>
-      <span class="expiry-banner-text" id="expiry-banner-text"></span>
-      <button type="button" class="btn sm" id="expiry-banner-btn">View</button>
-    </div>
-    <h3 class="section-heading">⏰ Expiring Soon</h3>
-    <div class="inventory-list compact" id="expiring-list"></div>
+  <!-- ============ LOW STOCK ============ -->
+  <h3 class="section-heading">⚠️ Low Stock Alerts</h3>
+  <div class="inventory-list compact" id="low-stock-list"></div>
 
-    <!-- Recent movements -->
-    <h3 class="section-heading">🔁 Recent Movements</h3>
-    <div class="movement-toolbar compact">
-      <input type="search" id="movement-search" placeholder="Search movements…" />
-      <select id="movement-filter">
-        <option value="">All Types</option>
-        <option value="in">IN (+)</option>
-        <option value="out">OUT (−)</option>
-      </select>
-      <select id="movement-range">
-        <option value="">All Time</option>
-        <option value="today">Today</option>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-      </select>
-      <button type="button" class="btn ghost sm" id="print-movements">🖨️ Print</button>
-      <button type="button" class="btn ghost sm" id="export-movements">📊 Excel</button>
-    </div>
-    <div class="movements-list" id="movements-list"></div>
-  </main>
+  <!-- ============ EXPIRY ============ -->
+  <div id="expiry-banner" class="expiry-banner hidden">
+    <span class="expiry-banner-icon">⏰</span>
+    <span class="expiry-banner-text" id="expiry-banner-text"></span>
+    <button type="button" class="btn sm" id="expiry-banner-btn">View</button>
+  </div>
+  <h3 class="section-heading">⏰ Expiring Soon</h3>
+  <div class="inventory-list compact" id="expiring-list"></div>
+
+  <!-- ============ MOVEMENTS ============ -->
+  <h3 class="section-heading">🔁 Recent Movements</h3>
+  <div class="movement-toolbar compact">
+    <input type="search" id="movement-search" placeholder="Search movements…" />
+    <select id="movement-filter">
+      <option value="">All Types</option>
+      <option value="in">IN (+)</option>
+      <option value="out">OUT (−)</option>
+    </select>
+    <select id="movement-range">
+      <option value="">All Time</option>
+      <option value="today">Today</option>
+      <option value="7">Last 7 days</option>
+      <option value="30">Last 30 days</option>
+    </select>
+    <button type="button" class="btn ghost sm" id="print-movements">🖨️ Print</button>
+    <button type="button" class="btn ghost sm" id="export-movements">📊 Excel</button>
+  </div>
+  <div class="movements-list" id="movements-list"></div>
+</main>
 
   <!-- ========================================================
        PAGE — POINT OF SALE
