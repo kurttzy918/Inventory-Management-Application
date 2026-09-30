@@ -828,6 +828,143 @@ export function renderSales() {
 }
 
 /* =========================================================
+   EXTERNAL BARCODE SCANNER SUPPORT
+   ---------------------------------------------------------
+   USB / Bluetooth HID scanners type the barcode rapidly
+   and end with Enter. We detect that pattern globally and
+   auto-add the matched item to the cart — no need to focus
+   any input first.
+
+   Tuning:
+     - GAP_RESET_MS      : a pause longer than this resets the buffer
+     - MIN_LENGTH        : shortest code we accept as a scan
+     - MAX_MS_PER_CHAR   : avg ms/char threshold for "scanner speed"
+   ========================================================= */
+const EXT_SCAN = {
+  keys: [],                  // [{ key, time }]
+  GAP_RESET_MS: 120,
+  MIN_LENGTH: 4,
+  MAX_MS_PER_CHAR: 60,
+  MAX_BUFFER: 100
+};
+
+function resetExtScanBuffer() {
+  EXT_SCAN.keys = [];
+}
+
+function handleExtScanKeydown(e) {
+  // Ignore modifier combos and IME composition
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.isComposing) return;
+
+  /* ---------- Enter → finalize ---------- */
+  if (e.key === "Enter") {
+    const keys = EXT_SCAN.keys;
+    resetExtScanBuffer();
+
+    if (keys.length < EXT_SCAN.MIN_LENGTH) return;
+
+    // Reject if any internal gap looks like human typing
+    for (let i = 1; i < keys.length; i++) {
+      if (keys[i].time - keys[i - 1].time > EXT_SCAN.GAP_RESET_MS) return;
+    }
+
+    // Reject if overall speed is too slow for a scanner
+    const total = keys[keys.length - 1].time - keys[0].time;
+    const perChar = total / Math.max(1, keys.length - 1);
+    if (perChar > EXT_SCAN.MAX_MS_PER_CHAR) return;
+
+    const code = keys.map(k => k.key).join("").trim();
+    if (!code) return;
+
+    handleExtScanCode(code, e);
+    return;
+  }
+
+  /* ---------- Single printable character ---------- */
+  if (e.key.length !== 1) return;
+
+  const now = Date.now();
+  const last = EXT_SCAN.keys[EXT_SCAN.keys.length - 1];
+
+  // Any pause longer than GAP_RESET_MS means "new burst"
+  if (last && (now - last.time) > EXT_SCAN.GAP_RESET_MS) {
+    EXT_SCAN.keys = [];
+  }
+
+  EXT_SCAN.keys.push({ key: e.key, time: now });
+  if (EXT_SCAN.keys.length > EXT_SCAN.MAX_BUFFER) EXT_SCAN.keys.shift();
+}
+
+function findItemByExternalCode(code) {
+  const norm = String(code || "").trim();
+  if (!norm) return null;
+  const lower = norm.toLowerCase();
+
+  // Exact match: barcode → SKU
+  let item = state.inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
+  if (item) return item;
+
+  item = state.inventory.find(i => i.sku && String(i.sku).trim() === norm);
+  if (item) return item;
+
+  // Case-insensitive fallback
+  item = state.inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
+  if (item) return item;
+
+  item = state.inventory.find(i => i.sku && String(i.sku).trim().toLowerCase() === lower);
+  return item || null;
+}
+
+function handleExtScanCode(code, evt) {
+  // Only act while the POS page is visible
+  const posPage = $("page-sales");
+  if (!posPage || posPage.classList.contains("hidden")) return;
+
+  // Don't hijack scans while any modal is open
+  const openModal = document.querySelector(
+    ".modal:not(.hidden), .scanner-modal:not(.hidden), .install-modal:not(.hidden)"
+  );
+  if (openModal) return;
+
+  // Swallow Enter so nothing else reacts to it
+  evt.preventDefault();
+  evt.stopPropagation();
+
+  // The scanner typed into whatever was focused — clean it up
+  const active = document.activeElement;
+  if (active && active !== document.body) {
+    if (active.matches("input, textarea")) {
+      active.value = "";
+      if (active.id === "sales-search") safeRender(renderPosProducts);
+    }
+    if (active.matches("input, textarea, select, [contenteditable]")) {
+      active.blur();
+    }
+  }
+
+  const item = findItemByExternalCode(code);
+  if (item) {
+    if (item.quantity <= 0) {
+      playErrorSound();
+      showToast(`"${item.name}" is out of stock ❌`);
+      return;
+    }
+    addToCart(item.id);
+    playSuccessSound();
+    showToast(`✅ Added: ${item.name}`);
+  } else {
+    playErrorSound();
+    showToast(`❌ No item found for "${code}"`);
+  }
+}
+
+function wireExternalScanner() {
+  // Capture phase so we see keys before any input can react
+  document.addEventListener("keydown", handleExtScanKeydown, true);
+}
+
+/* =========================================================
    INIT + LISTENERS
    ========================================================= */
 export function initPOS() {
@@ -859,6 +996,8 @@ export function initPOS() {
    /* NEW: recent-sales search + category filter */
   $("recent-sales-search")?.addEventListener("input", debounce(renderSales, 150));
   $("recent-sales-cat")?.addEventListener("change", renderSales);
+
+  wireExternalScanner();
 
 }
 
