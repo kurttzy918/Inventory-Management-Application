@@ -2462,7 +2462,8 @@ function rowMatchesInventory(current, row) {
     (current.barcode || "")        === (row.barcode || "") &&
     Number(current.price || 0)     === Number(row.price || 0) &&
     Number(current.cost || 0)      === Number(row.cost || 0) &&
-    Number(current.quantity || 0)  === Number(row.quantity || 0) &&
+    // 👇 QUANTITY IS IGNORED HERE so it never triggers an update
+    // Number(current.quantity || 0)  === (row.quantity || 0) && 
     Number(current.discountPrice || 0) === Number(row.discountPrice || 0) &&
     Number(current.discount || 0)  === Number(row.discount || 0) &&
     (current.expiry || "")         === (row.expiry || "") &&
@@ -2527,29 +2528,39 @@ export async function autoSyncFromFile({ silent = false } = {}) {
   const wsId = myWorkspace();
   if (!wsId) { if (!silent) showToast("Workspace not ready ❌"); return; }
 
-  const BATCH_LIMIT = 200;
+    const BATCH_LIMIT = 200;
   let updated = 0, created = 0;
   try {
     for (let i = 0; i < changed.length; i += BATCH_LIMIT) {
       const chunk = changed.slice(i, i + BATCH_LIMIT);
       const batch = writeBatch(db);
+      
       for (const row of chunk) {
+        // Find the live item in the app to get its current quantity
+        const currentItem = row._existingId ? state.inventory.find(i => i.id === row._existingId) : null;
+
+        // Handle discount logic: If Excel has 0 or blank, reset the discount
+        const finalDiscount = row.discount > 0 ? row.discount : 0;
+        const finalDiscountPrice = row.discount > 0 ? (row.discountPrice || 0) : 0;
+
         const data = {
           name: row.name,
           sku: row.sku,
           barcode: row.barcode,
           category: row.category,
-          quantity: row.quantity,
+          // 👇 PRESERVE APP QUANTITY: If item exists, keep the app's live quantity.
+          quantity: currentItem ? currentItem.quantity : row.quantity, 
           cost: row.cost,
           price: row.price,
-          discount: row.discount || 0,
+          discount: finalDiscount,
           discountType: "percent",
-          discountPrice: row.discountPrice || 0,
+          discountPrice: finalDiscountPrice,
           expiry: row.expiry,
           threshold: row.threshold,
           workspaceId: wsId,
           updatedAt: serverTimestamp()
         };
+        
         if (row._action === "update" && row._existingId) {
           batch.update(doc(db, "inventory", row._existingId), data);
           updated++;
