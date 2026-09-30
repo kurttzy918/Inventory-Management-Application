@@ -578,7 +578,7 @@ export function renderCharts(retries = 0) {
         </div>
 
         <div class="svc-note">
-          💡 Left side = what already happened (sold items). Right side = what's still waiting to be sold. They are not added together.
+          💡 These are the breakdown for Sales Vs Cost
         </div>
       `;
     }

@@ -27,7 +27,7 @@
   <!-- Required for the built-in Camera Scanner -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   
-  <!-- Fixed: Single, working QR code library for GCash -->
+  <!-- Fixed: Single, working QR code library for GCash / Maya -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -231,6 +231,10 @@
     <button type="button" class="nav-btn" data-page="page-gcash">
       <span class="nav-icon-gcash"><img src="gcash.png" alt="GCash" /></span>
       <span>GCash</span>
+    </button>
+    <button type="button" class="nav-btn" data-page="page-maya">
+      <span class="nav-icon-maya"><img src="Maya.jpg" alt="Pay Maya" /></span>
+      <span>Pay Maya</span>
     </button>
     <button type="button" class="nav-btn hidden" id="nav-admin" data-page="page-admin">
       <span class="nav-icon">🛡️</span><span>Admin</span>
@@ -569,32 +573,28 @@
       </aside>
     </div>
 
-    <!-- Recent sales -->
+      <!-- Recent sales -->
     <div class="section-heading-row">
-  <h3 class="section-heading">🧾 Recent Sales</h3>
-  <div class="export-btns">
-    <button type="button" class="btn ghost sm" id="export-sales-excel">📊 Excel</button>
-    <button type="button" class="btn ghost sm" id="export-sales-pdf">📄 PDF</button>
-  </div>
-</div>
-
-<!-- NEW: search bar -->
-<div class="sales-toolbar">
-  <input type="search" id="recent-sales-search" placeholder="Search by receipt, item, category, note…" />
-  <select id="recent-sales-cat">
-    <option value="">All Categories</option>
-  </select>
-</div>
-
-<div class="sales-list" id="sales-list"></div>
-    <div class="section-heading-row">
-      <h3 class="section-heading">🧾 Export to</h3>
+      <h3 class="section-heading">🧾 Recent Sales</h3>
       <div class="export-btns">
         <button type="button" class="btn ghost sm" id="export-sales-excel">📊 Excel</button>
         <button type="button" class="btn ghost sm" id="export-sales-pdf">📄 PDF</button>
       </div>
     </div>
+
+    <!-- Search bar -->
+    <div class="sales-toolbar">
+      <input type="search" id="recent-sales-search" placeholder="Search by receipt, item, category, note…" />
+      <select id="recent-sales-cat">
+        <option value="">All Categories</option>
+      </select>
+    </div>
+
     <div class="sales-list" id="sales-list"></div>
+
+    <!-- Category summary -->
+    <h3 class="section-heading">📂 Sales by Category</h3>
+    <div class="category-summary" id="sales-category-summary"></div>
 
     <!-- Category summary -->
     <h3 class="section-heading">📂 Sales by Category</h3>
@@ -644,6 +644,68 @@
        ======================================================== -->
   <main id="page-add" class="page hidden">
     <h2 class="page-title">➕ Add / Edit Item</h2>
+
+    <!-- ============ INVENTORY ANALYTICS DASHBOARD ============ -->
+    <div class="inv-analytics-panel">
+      <div class="inv-analytics-header">
+        <h3 class="section-heading" style="margin:0;">📊 Inventory Overview</h3>
+        <span class="inv-analytics-badge">Live Data</span>
+      </div>
+      <div class="inv-analytics-grid">
+        <div class="inv-stat-card value">
+          <div class="inv-stat-icon">💰</div>
+          <div class="inv-stat-info">
+            <span class="inv-stat-label">Total Stock Value (Retail)</span>
+            <strong class="inv-stat-value" id="inv-total-retail">₱0.00</strong>
+          </div>
+        </div>
+        <div class="inv-stat-card cost">
+          <div class="inv-stat-icon">📉</div>
+          <div class="inv-stat-info">
+            <span class="inv-stat-label">Total Stock Cost</span>
+            <strong class="inv-stat-value" id="inv-total-cost">₱0.00</strong>
+          </div>
+        </div>
+        <div class="inv-stat-card profit">
+          <div class="inv-stat-icon">📈</div>
+          <div class="inv-stat-info">
+            <span class="inv-stat-label">Potential Profit</span>
+            <strong class="inv-stat-value" id="inv-total-potential-profit">₱0.00</strong>
+          </div>
+        </div>
+        <div class="inv-stat-card items">
+          <div class="inv-stat-icon">📦</div>
+          <div class="inv-stat-info">
+            <span class="inv-stat-label">Total Items on Shelf</span>
+            <strong class="inv-stat-value" id="inv-total-items">0</strong>
+          </div>
+        </div>
+      </div>
+      <div class="inv-analytics-split">
+        <div class="inv-alerts-panel">
+          <h4 class="inv-alerts-title">⚠️ Stock Alerts</h4>
+          <div class="inv-alert-row" id="inv-alert-low-stock">
+            <span class="inv-alert-dot low"></span>
+            <span class="inv-alert-label">Low Stock Items</span>
+            <strong class="inv-alert-count" id="inv-count-low">0</strong>
+          </div>
+          <div class="inv-alert-row" id="inv-alert-out-stock">
+            <span class="inv-alert-dot out"></span>
+            <span class="inv-alert-label">Out of Stock</span>
+            <strong class="inv-alert-count" id="inv-count-out">0</strong>
+          </div>
+          <div class="inv-alert-row" id="inv-alert-expiring">
+            <span class="inv-alert-dot expiring"></span>
+            <span class="inv-alert-label">Expiring Soon</span>
+            <strong class="inv-alert-count" id="inv-count-expiring">0</strong>
+          </div>
+        </div>
+        <div class="inv-category-panel">
+          <h4 class="inv-alerts-title">🗂️ Top Categories by Value</h4>
+          <div class="inv-category-list" id="inv-category-breakdown"></div>
+        </div>
+      </div>
+    </div>
 
     <div class="card">
       <form id="item-form">
@@ -971,6 +1033,126 @@
       <button type="button" class="btn ghost sm" id="gcash-export-pdf">📄 PDF</button>
     </div>
     <div class="gcash-list" id="gcash-list"></div>
+  </main>
+
+  <!-- ========================================================
+       PAGE — PAY MAYA
+       ======================================================== -->
+  <main id="page-maya" class="page hidden">
+    <h2 class="page-title maya-page-title">
+      <img src="Maya.jpg" alt="" class="maya-title-logo" />
+      Pay Maya Tracker
+    </h2>
+
+    <!-- Summary -->
+    <div class="maya-summary">
+      <div class="maya-stat in">
+        <span class="maya-stat-label">Cash In — Today</span>
+        <strong id="maya-in-today">₱0.00</strong>
+        <small id="maya-in-count">0 transactions</small>
+      </div>
+      <div class="maya-stat out">
+        <span class="maya-stat-label">Cash Out — Today</span>
+        <strong id="maya-out-today">₱0.00</strong>
+        <small id="maya-out-count">0 transactions</small>
+      </div>
+      <div class="maya-stat fee">
+        <span class="maya-stat-label">Fees — Today</span>
+        <strong id="maya-fee-today">₱0.00</strong>
+        <small id="maya-fee-month">This month: ₱0.00</small>
+      </div>
+      <div class="maya-stat balance">
+        <span class="maya-stat-label">Balance</span>
+        <strong id="maya-balance">₱0.00</strong>
+        <button type="button" class="maya-set-opening" id="maya-set-opening">Set Opening</button>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card compact maya-settings-card">
+      <h3 class="card-title">⚙️ Pay Maya Settings</h3>
+      <p class="maya-settings-hint">
+        Enter your Pay Maya number and account name. A payment QR code is auto-generated for each transaction.
+      </p>
+      <div class="maya-settings-grid">
+        <label>
+          Pay Maya Number
+          <input type="tel" id="maya-number" placeholder="09XXXXXXXXX" />
+        </label>
+        <label>
+          Account Name
+          <input type="text" id="maya-account-name" placeholder="Juan Dela Cruz" />
+        </label>
+      </div>
+      <div class="maya-settings-preview">
+        <span class="maya-settings-preview-label">Live Preview</span>
+        <canvas id="maya-settings-canvas" class="maya-settings-canvas"></canvas>
+        <button type="button" id="maya-qr-retry" class="maya-qr-retry hidden">
+          🔄 Retry loading QR library
+        </button>
+        <p class="maya-settings-preview-hint">
+          Customers scan this QR to see amount, number, and reference.
+        </p>
+      </div>
+      <button type="button" class="btn primary" id="maya-save-settings">💾 Save Settings</button>
+    </div>
+
+    <!-- Form -->
+    <div class="card compact">
+      <h3 class="card-title" id="maya-form-title">Record Pay Maya Transaction</h3>
+      <form id="maya-form">
+        <input type="hidden" id="maya-id" />
+        <div class="dash-2col">
+          <label>
+            Type
+            <select id="maya-type"></select>
+          </label>
+          <label>
+            Amount (₱) *
+            <input type="number" id="maya-amount" min="0" step="0.01" required />
+          </label>
+        </div>
+        <div class="dash-2col">
+          <label>
+            Service Fee (₱)
+            <input type="number" id="maya-fee" min="0" step="0.01" value="0" />
+          </label>
+          <label>
+            Customer
+            <input type="text" id="maya-customer" placeholder="Optional" />
+          </label>
+        </div>
+        <div class="dash-2col">
+          <label>
+            Reference #
+            <input type="text" id="maya-reference" placeholder="Optional" />
+          </label>
+          <label>
+            Note
+            <input type="text" id="maya-note" placeholder="Optional" />
+          </label>
+        </div>
+        <div class="section-heading-row" style="margin-top:6px;">
+          <button type="submit" class="btn primary">💾 Save</button>
+          <button type="button" class="btn ghost hidden" id="maya-cancel-edit">Cancel edit</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Toolbar + list -->
+    <div class="maya-toolbar">
+      <input type="search" id="maya-search" placeholder="Search customer, ref, note…" />
+      <select id="maya-filter-type"><option value="">All Types</option></select>
+      <select id="maya-filter-range">
+        <option value="">All Time</option>
+        <option value="today">Today</option>
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+      </select>
+      <button type="button" class="btn ghost sm" id="maya-export-excel">📊 Excel</button>
+      <button type="button" class="btn ghost sm" id="maya-export-pdf">📄 PDF</button>
+    </div>
+    <div class="maya-list" id="maya-list"></div>
   </main>
 
   <!-- ========================================================

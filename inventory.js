@@ -144,7 +144,6 @@ function wirePhotoInputs() {
   const photoCameraBtn = $("photo-camera-btn"), photoPickBtn = $("photo-pick-btn");
   const photoPreview = $("photo-preview"), photoRemoveBtn = $("photo-remove-btn");
 
-  // Camera button now opens the webcam modal instead of file picker
   photoCameraBtn?.addEventListener("click", openCameraModal);
   $("camera-close")?.addEventListener("click", closeCameraModal);
   $("camera-capture")?.addEventListener("click", captureFromCamera);
@@ -152,13 +151,11 @@ function wirePhotoInputs() {
     if (e.target === $("camera-modal")) closeCameraModal();
   });
 
-  // Gallery button keeps the file picker
   photoPickBtn?.addEventListener("click", () => itemImage?.click());
   itemImage?.addEventListener("change", (e) => {
     handlePhotoFile(e.target.files?.[0]); e.target.value = "";
   });
 
-  // Keep the hidden camera input for mobile devices (if needed)
   itemImageCamera?.addEventListener("change", (e) => {
     handlePhotoFile(e.target.files?.[0]); e.target.value = "";
   });
@@ -485,6 +482,85 @@ export function renderInventory() {
     renderInventory();
     document.querySelector('[data-page="page-add"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
+}
+
+/* =========================================================
+   INVENTORY ANALYTICS DASHBOARD
+   ========================================================= */
+export function renderInventoryAnalytics() {
+  if (!state.inventory || !state.inventory.length) return;
+
+  /* ---- Totals ---- */
+  let totalRetail = 0;
+  let totalCost = 0;
+  let totalItems = 0;
+  let lowCount = 0;
+  let outCount = 0;
+  let expiringCount = 0;
+
+  /* ---- Category Map ---- */
+  const catMap = {};
+
+  state.inventory.forEach(item => {
+    const qty = Number(item.quantity) || 0;
+    const price = Number(item.price) || 0;
+    const cost = Number(item.cost) || 0;
+    const threshold = item.threshold ?? 5;
+
+    totalRetail += qty * price;
+    totalCost += qty * cost;
+    totalItems += qty;
+
+    if (qty <= 0) outCount++;
+    else if (qty <= threshold) lowCount++;
+
+    const exp = expiryStatus(item.expiry);
+    if (exp.level === "expiring" || exp.level === "expired") expiringCount++;
+
+    /* Category Breakdown */
+    const cat = item.category || "Uncategorized";
+    if (!catMap[cat]) catMap[cat] = 0;
+    catMap[cat] += qty * price;
+  });
+
+  const potentialProfit = totalRetail - totalCost;
+
+  /* ---- Update DOM ---- */
+  if ($("inv-total-retail")) $("inv-total-retail").textContent = fmtMoney(totalRetail);
+  if ($("inv-total-cost")) $("inv-total-cost").textContent = fmtMoney(totalCost);
+  if ($("inv-total-potential-profit")) $("inv-total-potential-profit").textContent = fmtMoney(potentialProfit);
+  if ($("inv-total-items")) $("inv-total-items").textContent = fmtInt(totalItems);
+
+  if ($("inv-count-low")) $("inv-count-low").textContent = fmtInt(lowCount);
+  if ($("inv-count-out")) $("inv-count-out").textContent = fmtInt(outCount);
+  if ($("inv-count-expiring")) $("inv-count-expiring").textContent = fmtInt(expiringCount);
+
+  /* ---- Category Breakdown List ---- */
+  const catListEl = $("inv-category-breakdown");
+  if (catListEl) {
+    const entries = Object.entries(catMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5); // Top 5
+
+    const maxVal = entries.length ? entries[0][1] : 1;
+
+    if (!entries.length) {
+      catListEl.innerHTML = `<div class="empty-state" style="padding:10px;"><p>No categories yet.</p></div>`;
+    } else {
+      catListEl.innerHTML = entries.map(([cat, val]) => {
+        const pct = (val / maxVal) * 100;
+        return `
+          <div class="inv-cat-item">
+            <div class="inv-cat-row">
+              <span class="inv-cat-name" title="${esc(cat)}">${esc(cat)}</span>
+              <span class="inv-cat-value">${fmtMoney(val)}</span>
+            </div>
+            <div class="inv-cat-bar"><div class="inv-cat-bar-fill" style="width:${pct}%"></div></div>
+          </div>
+        `;
+      }).join("");
+    }
+  }
 }
 
 /* Pagination bar helper (shared with history) */
@@ -2091,6 +2167,7 @@ export function startInventoryListeners(onAfterInventoryChange) {
       safeRender(renderExpiring);
       safeRender(renderDashboardInventory);
       safeRender(autoFillSku);
+      safeRender(renderInventoryAnalytics); // 👈 ADD THIS LINE
       onAfterInventoryChange?.();
     },
     (err) => { console.error("[Inventory listener]", err.code, err.message); showToast("Inventory sync failed ❌"); }

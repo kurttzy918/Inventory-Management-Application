@@ -5,7 +5,7 @@ import { initAuthUI, initAuthHandlers, buildAuthBackground, startAuthBgCarousel,
 import {
   initInventory, startInventoryListeners, renderInventory, renderDashboardInventory,
   renderLowStockAlerts, renderExpiring, renderMovements, renderCategories, autoFillSku,
-  forceCloseScanner,
+  forceCloseScanner, renderInventoryAnalytics,
   autoSyncFromFile, startAutoSyncTicker, stopAutoSyncTicker, updateAutoSyncUI
 } from "./inventory.js";
 import {
@@ -24,6 +24,7 @@ import {
 } from "./customers.js";
 import { initLabels, renderLabelsPage } from "./labels.js";
 import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
+import { initMaya, startMayaListeners, renderMayaPage } from "./maya.js";
 
 /* =========================================================
    POPULATE CATEGORY OPTIONS — local function
@@ -275,6 +276,7 @@ function wireNav() {
       if (btn.dataset.page === "page-add") {
         safeRender(autoFillSku);
         safeRender(populateCategoryOptions);
+        safeRender(renderInventoryAnalytics); // 👈 Render analytics when opening Add Item
       }
       if (btn.dataset.page === "page-categories") {
         safeRender(renderCategories);
@@ -287,6 +289,9 @@ function wireNav() {
       }
       if (btn.dataset.page === "page-gcash") {
         safeRender(renderGcashPage);
+      }
+      if (btn.dataset.page === "page-maya") {
+        safeRender(renderMayaPage);
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
@@ -386,6 +391,7 @@ function wireDashboardRefresh() {
     safeRender(renderPosCart);
     safeRender(renderCustomerPickerOptions);
     safeRender(renderCharts);
+    safeRender(renderInventoryAnalytics); // 👈 Add to refresh
 
     showToast("Dashboard refreshed ✅");
 
@@ -404,7 +410,7 @@ function startAllListeners() {
     safeRender(updateStats);
     safeRender(populateMonthFilter);
     safeRender(populateSalesCategoryFilter);
-    safeRender(populateCategoryOptions);      // 👈 CRITICAL: refresh datalist + filters
+    safeRender(populateCategoryOptions);
     safeRender(renderSalesOverview);
     safeRender(renderKPIs);
     safeRender(renderTopProfitAndRevenue);
@@ -414,11 +420,13 @@ function startAllListeners() {
     safeRender(renderPosProducts);
     safeRender(renderCustomerPickerOptions);
     safeRender(renderCharts);
+    safeRender(renderInventoryAnalytics); // 👈 Ensure it refreshes on data change
   };
   startInventoryListeners(onAfter);
   startSalesListener(onAfter);
   startCustomersListeners(onAfter);
   startGcashListeners(onAfter);
+  startMayaListeners(onAfter);
 }
 
 function stopAllListeners() {
@@ -537,7 +545,7 @@ function onLoggedOut() {
   startAuthBgCarousel("auth-bg-slides");
   forceCloseScanner();
   stopGreetingTicker();
-  stopAutoSyncTicker();      // 👈 NEW
+  stopAutoSyncTicker();
 }
 
 function onPending() {
@@ -545,7 +553,7 @@ function onPending() {
   stopAuthBgCarousel();
   startAuthBgCarousel("pending-bg-slides");
   stopGreetingTicker();
-  stopAutoSyncTicker();      // 👈 NEW
+  stopAutoSyncTicker();
 }
 
 function onApproved(userData) {
@@ -554,8 +562,6 @@ function onApproved(userData) {
   syncThemeToggleUI();
   syncSoundToggleUI();
 
-  // 🔄 Auto-sync: refresh the linked file handle UI, then
-  // try a silent sync (runs after Firestore has loaded inventory)
   updateAutoSyncUI();
   setTimeout(() => {
     autoSyncFromFile({ silent: true });
@@ -575,7 +581,7 @@ function onApproved(userData) {
     safeRender(renderPosProducts);
     safeRender(renderPosCart);
     safeRender(renderCustomerPickerOptions);
-    safeRender(populateCategoryOptions);      // 👈 refresh datalist after login
+    safeRender(populateCategoryOptions);
     safeRender(updateStats);
     safeRender(populateMonthFilter);
     safeRender(populateSalesCategoryFilter);
@@ -589,6 +595,7 @@ function onApproved(userData) {
     safeRender(renderHistoryCategorySummary);
     safeRender(renderSalesCategorySummary);
     safeRender(renderCharts);
+    safeRender(renderInventoryAnalytics); // 👈 Initial render
   }, 200);
 }
 
@@ -716,6 +723,7 @@ function boot() {
   initCustomers();
   initLabels();
   initGcash();
+  initMaya();
   wireNav();
   wireMobileNav();
   wireDashboardRefresh();
@@ -732,7 +740,7 @@ function boot() {
       stopAllListeners();
       forceCloseScanner();
       stopGreetingTicker();
-      stopAutoSyncTicker();  // 👈 NEW
+      stopAutoSyncTicker();
     }
   });
 }
