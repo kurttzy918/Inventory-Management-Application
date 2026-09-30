@@ -426,6 +426,15 @@ function printLabels() {
   ${pageStyle}
   ${gridStyle}
 
+  .print-btn {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    padding: 12px 24px; background: #12544F; color: #fff;
+    border: none; border-radius: 8px; font-weight: 800; font-size: 16px;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+  }
+  .print-btn:hover { transform: scale(1.05); background: #0C3E3A; }
+
   .label-cell {
     background: #fff; padding: 1mm;
     display: flex; flex-direction: column;
@@ -435,7 +444,6 @@ function printLabels() {
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
 
-  /* ---- Description at top ---- */
   .lbl-name {
     width: 100%; font-weight: 700; line-height: 1.1; text-align: center;
     overflow: hidden; display: -webkit-box;
@@ -443,7 +451,6 @@ function printLabels() {
     word-break: break-word;
   }
 
-  /* ---- Barcode in middle ---- */
   .lbl-barcode {
     width: 100%; display: flex; justify-content: center; align-items: center;
     overflow: hidden; flex: 1 1 auto;
@@ -451,7 +458,6 @@ function printLabels() {
   .lbl-barcode svg { max-width: 100%; max-height: 100%; height: auto; display: block; }
   .bc-error { font-size: 6pt; color: #b00; text-align: center; }
 
-  /* ---- SKU / code text ---- */
   .lbl-code {
     font-family: 'Courier New', monospace;
     font-size: 6.5pt;
@@ -464,7 +470,6 @@ function printLabels() {
     white-space: nowrap;
   }
 
-  /* ---- Current price at bottom ---- */
   .lbl-price {
     width: 100%;
     display: flex; align-items: baseline; justify-content: center;
@@ -475,28 +480,32 @@ function printLabels() {
   }
   .lbl-price-now { font-weight: 800; }
   .lbl-price-orig {
-    font-weight: 500;
-    color: #888;
-    text-decoration: line-through;
-    text-decoration-thickness: 1px;
+    font-weight: 500; color: #888;
+    text-decoration: line-through; text-decoration-thickness: 1px;
     font-size: 0.72em;
   }
   .lbl-discount-badge {
-    background: #ef4444;
-    color: #fff;
-    font-size: 6pt;
-    font-weight: 800;
-    padding: 0 3px;
-    border-radius: 2px;
-    line-height: 1.2;
+    background: #ef4444; color: #fff;
+    font-size: 6pt; font-weight: 800;
+    padding: 0 3px; border-radius: 2px; line-height: 1.2;
   }
 
   @media print {
+    .print-btn { display: none !important; }
     .label-cell { border-color: transparent; }
   }
 </style>
 </head><body>
+<button class="print-btn" onclick="window.print()">🖨️ Print Labels</button>
 <div class="label-grid">${labelHTML}</div>
+<script>
+  // Auto-trigger print dialog once loaded
+  window.onload = function() {
+    setTimeout(function() {
+      try { window.print(); } catch (e) { console.log("Auto-print blocked, please click the button."); }
+    }, 500);
+  };
+<\/script>
 </body></html>`;
 
   const w = window.open("", "_blank", "width=900,height=700");
@@ -504,9 +513,6 @@ function printLabels() {
   w.document.write(html);
   w.document.close();
   w.focus();
-  setTimeout(() => {
-    try { w.print(); } catch (e) { console.warn("[labels] print failed:", e); }
-  }, 400);
   showToast(`Preparing ${count} label${count !== 1 ? "s" : ""} 🖨️`);
 }
 

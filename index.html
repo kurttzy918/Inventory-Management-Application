@@ -23,21 +23,13 @@
   <!-- External libraries (loaded synchronously so app.js can rely on them) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"
-        onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.js';"></script>
-<script>
-  // Second-level fallback: if jsdelivr is entirely blocked, try unpkg
-  if (typeof window.QRCode === "undefined") {
-    document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.js"><\/script>');
-  }
-</script>
-
-  <!-- Option B (unpkg mirror) -->
-  <script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
-
-  <!-- Option C (explicit non-minified — always present in the tarball) -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.js"></script>
+  
+  <!-- Required for the built-in Camera Scanner -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  
+  <!-- Fixed: Single, working QR code library for GCash -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
@@ -1153,6 +1145,23 @@
       <button type="button" class="btn ghost" id="import-download-template">📋 Template</button>
       <button type="button" class="btn primary" id="import-confirm-btn" disabled>Import</button>
     </div>
+  </div>
+</div>
+
+<!-- Camera Capture Modal for Add Item -->
+<div id="camera-modal" class="modal hidden">
+  <div class="modal-card" style="max-width: 500px;">
+    <div class="modal-head">
+      <h3>📷 Take Photo</h3>
+      <button type="button" class="btn icon-btn" id="camera-close" aria-label="Close">✕</button>
+    </div>
+    <div style="position:relative; background:#000; border-radius:12px; overflow:hidden; aspect-ratio: 4/3;">
+      <video id="camera-video" autoplay playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+    </div>
+    <div style="margin-top:12px; display:flex; gap:8px;">
+      <button type="button" class="btn primary block" id="camera-capture">📸 Capture Photo</button>
+    </div>
+    <canvas id="camera-canvas" style="display:none;"></canvas>
   </div>
 </div>
 

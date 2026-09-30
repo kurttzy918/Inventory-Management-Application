@@ -88,21 +88,81 @@ async function handlePhotoFile(file) {
   } catch (err) { console.error("[photo]", err); showToast("Failed to process photo ❌"); }
 }
 
+let _cameraStream = null;
+
+function openCameraModal() {
+  const modal = $("camera-modal");
+  const video = $("camera-video");
+  if (!modal || !video) return;
+
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+    .then(stream => {
+      _cameraStream = stream;
+      video.srcObject = stream;
+    })
+    .catch(err => {
+      console.error("[camera]", err);
+      showToast("Camera access denied or not available ❌");
+      modal.classList.add("hidden");
+      document.body.style.overflow = "";
+    });
+}
+
+function closeCameraModal() {
+  if (_cameraStream) {
+    _cameraStream.getTracks().forEach(t => t.stop());
+    _cameraStream = null;
+  }
+  const video = $("camera-video");
+  if (video) video.srcObject = null;
+  $("camera-modal")?.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function captureFromCamera() {
+  const video = $("camera-video");
+  const canvas = $("camera-canvas");
+  if (!video || !canvas) return;
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+
+  canvas.toBlob(blob => {
+    if (!blob) { showToast("Failed to capture photo ❌"); return; }
+    const file = new File([blob], "camera-photo.jpg", { type: "image/jpeg" });
+    handlePhotoFile(file);
+    closeCameraModal();
+  }, "image/jpeg", 0.85);
+}
+
 function wirePhotoInputs() {
   const itemImage = $("item-image"), itemImageCamera = $("item-image-camera");
   const photoCameraBtn = $("photo-camera-btn"), photoPickBtn = $("photo-pick-btn");
   const photoPreview = $("photo-preview"), photoRemoveBtn = $("photo-remove-btn");
 
-  photoCameraBtn?.addEventListener("click", () => {
-    if (itemImageCamera) itemImageCamera.click(); else itemImage?.click();
+  // Camera button now opens the webcam modal instead of file picker
+  photoCameraBtn?.addEventListener("click", openCameraModal);
+  $("camera-close")?.addEventListener("click", closeCameraModal);
+  $("camera-capture")?.addEventListener("click", captureFromCamera);
+  $("camera-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("camera-modal")) closeCameraModal();
   });
-  itemImageCamera?.addEventListener("change", (e) => {
-    handlePhotoFile(e.target.files?.[0]); e.target.value = "";
-  });
+
+  // Gallery button keeps the file picker
   photoPickBtn?.addEventListener("click", () => itemImage?.click());
   itemImage?.addEventListener("change", (e) => {
     handlePhotoFile(e.target.files?.[0]); e.target.value = "";
   });
+
+  // Keep the hidden camera input for mobile devices (if needed)
+  itemImageCamera?.addEventListener("change", (e) => {
+    handlePhotoFile(e.target.files?.[0]); e.target.value = "";
+  });
+
   photoPreview?.addEventListener("click", () => itemImage?.click());
   photoRemoveBtn?.addEventListener("click", () => {
     if (itemImage) itemImage.value = "";
