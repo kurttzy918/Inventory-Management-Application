@@ -1568,28 +1568,10 @@ function onScanSuccess(decodedText) {
   finally { setTimeout(() => { state.scanner.scanHandling = false; }, 350); }
 }
 
-function findItemByCode(code) {
-  if (!code) return null;
-  const norm = String(code).trim().replace(/\s+/g, "");
-  if (!norm) return null;
-  const lower = norm.toLowerCase();
-  let item = state.inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
-  if (item) return item;
-  item = state.inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
-  if (item) return item;
-  item = state.inventory.find(i => i.sku && String(i.sku).trim() === norm);
-  if (item) return item;
-  item = state.inventory.find(i => i.sku && String(i.sku).trim().toLowerCase() === lower);
-  if (item) return item;
-  return state.inventory.find(i =>
-    (i.barcode && String(i.barcode).trim().toLowerCase().includes(lower)) ||
-    (i.sku && String(i.sku).trim().toLowerCase().includes(lower))
-  ) || null;
-}
-
 function handleScanResult(text) {
   const code = String(text || "").trim();
   if (!code) return;
+
   if (state.scanner.target === "barcode") {
     if ($("item-barcode")) $("item-barcode").value = code;
     playSuccessSound();
@@ -1597,14 +1579,30 @@ function handleScanResult(text) {
     setTimeout(() => forceCloseScanner(), 500);
     return;
   }
+
   if (state.scanner.target === "sale") {
-    if (!state.inventory.length) { playErrorSound(); setScannerStatus("⚠️ Inventory still loading.", "error"); return; }
-    const item = findItemByCode(code);
-    if (!item) { playErrorSound(); setScannerStatus(`❌ No match for: ${code}`, "error"); return; }
-    import("./pos.js").then(mod => mod.addToCart(item.id));
-    playSuccessSound();
-    const cartCount = state.posCart.reduce((s, c) => s + c.qty, 0);
-    setScannerStatus(`✅ Added: ${item.name} · Cart: ${cartCount} item${cartCount !== 1 ? "s" : ""}`, "success");
+    // Route the mobile scanner through the SAME handler as the external scanner.
+    import("./pos.js").then(({ handleBarcodeScan }) => {
+      const result = handleBarcodeScan(code, { silent: true });
+
+      if (!result.ok) {
+        playErrorSound();
+        let msg = "❌ Scan failed";
+        if (result.reason === "not_found")          msg = `❌ No match for: ${code}`;
+        else if (result.reason === "out_of_stock")  msg = `⚠️ Out of stock: ${result.item?.name || code}`;
+        else if (result.reason === "insufficient_stock") msg = `⚠️ Not enough stock: ${result.item?.name || code}`;
+        else if (result.reason === "loading")       msg = "⚠️ Inventory still loading.";
+        setScannerStatus(msg, "error");
+        return;
+      }
+
+      playSuccessSound();
+      const cartCount = state.posCart.reduce((s, c) => s + c.qty, 0);
+      setScannerStatus(
+        `✅ Added: ${result.item.name} · Cart: ${cartCount} item${cartCount !== 1 ? "s" : ""}`,
+        "success"
+      );
+    });
   }
 }
 

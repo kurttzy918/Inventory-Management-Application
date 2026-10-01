@@ -10,7 +10,7 @@ import {
   myWorkspace, movementDoc, customerTxDoc, settleWrite, fmtMoney, fmtInt,
   fallbackColorFor, productImageHTML, playSuccessSound, playErrorSound, playCashSound,
   expiryStatus, getSoldMap, getFastSellingInfo,
-  roundMoney                                        // 👈 NEW
+  roundMoney, findItemByCode
 } from "./utils.js";
 import { renderCustomerPickerOptions } from "./customers.js";
 
@@ -37,21 +37,136 @@ function getDiscountedPrice(item) {
 export { getDiscountedPrice };
 
 /* =========================================================
+   SHARED BARCODE HANDLER
+   ========================================================= */
+export function handleBarcodeScan(code, opts = {}) {
+  const { silent = false } = opts;
+  const trimmed = String(code || "").trim();
+  if (!trimmed) return { ok: false, reason: "empty" };
+
+  if (!state.inventory.length) {
+    if (!silent) { playErrorSound(); showToast("⚠️ Inventory still loading"); }
+    return { ok: false, reason: "loading" };
+  }
+
+  const item = findItemByCode(trimmed);
+  if (!item) {
+    if (!silent) { playErrorSound(); showToast(`Product not found: ${trimmed}`); }
+    return { ok: false, reason: "not_found", code: trimmed };
+  }
+
+  if (item.quantity <= 0) {
+    if (!silent) { playErrorSound(); showToast(`Out of stock: ${item.name}`); }
+    return { ok: false, reason: "out_of_stock", item };
+  }
+
+  const inCart = state.posCart.find(c => c.itemId === item.id);
+  const currentQty = inCart ? inCart.qty : 0;
+  if (currentQty >= item.quantity) {
+    if (!silent) { playErrorSound(); showToast(`Insufficient stock for ${item.name}`); }
+    return { ok: false, reason: "insufficient_stock", item };
+  }
+
+  addToCart(item.id);
+  if (!silent) {
+    playSuccessSound();
+    showToast(`✓ ${item.name} added`);
+  }
+  return { ok: true, item };
+}
+
+/* =========================================================
+   EXTERNAL SCANNER — keyboard-wedge integration
+   (Single source: the dedicated #external-barcode-input)
+   ========================================================= */
+let _extScanLock = false;
+
+function focusExternalScanner() {
+  const inp = document.getElementById("external-barcode-input");
+  if (!inp) return;
+
+  // Don't steal focus while a modal / camera scanner is open
+  if (document.querySelector(
+    ".modal:not(.hidden), .scanner-modal:not(.hidden), .install-modal:not(.hidden)"
+  )) return;
+
+  // Don't steal focus while the cashier is typing in another field
+  const active = document.activeElement;
+  if (active && active !== inp && active !== document.body) {
+    const tag = active.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (active.isContentEditable) return;
+  }
+
+  try { inp.focus({ preventScroll: true }); } catch { inp.focus(); }
+}
+
+function wireExternalScanner() {
+  const inp = document.getElementById("external-barcode-input");
+  if (!inp) return;
+
+  const dot = document.getElementById("ext-scan-dot");
+
+  const syncDot = () => {
+    if (!dot) return;
+    dot.classList.toggle("ready", document.activeElement === inp);
+  };
+  inp.addEventListener("focus", syncDot);
+  inp.addEventListener("blur", syncDot);
+  syncDot();
+
+  // Handles both Enter AND Tab (many USB scanners use Tab as suffix).
+  inp.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== "Tab") return;
+    e.preventDefault();
+
+    const code = String(inp.value || "").trim();
+    inp.value = "";
+
+    // Guard against scanners that fire the suffix twice
+    if (!code || _extScanLock) return;
+    _extScanLock = true;
+    setTimeout(() => { _extScanLock = false; }, 160);
+
+    handleBarcodeScan(code);
+
+    // Keep the field ready for the next scan
+    requestAnimationFrame(() => {
+      try { inp.focus({ preventScroll: true }); } catch { inp.focus(); }
+      syncDot();
+    });
+  });
+
+  // Some scanners fire NumpadEnter which triggers keypress as well
+  inp.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") e.preventDefault();
+  });
+
+  // Auto-focus when the cashier clicks an empty area of the POS page
+  const page = document.getElementById("page-sales");
+  page?.addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.closest("input, textarea, select, button, a, .pos-card, [role='button']")) return;
+    focusExternalScanner();
+  });
+
+  // Auto-focus when navigating to POS via sidebar / bottom nav
+  document.querySelectorAll('.nav-btn[data-page="page-sales"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      setTimeout(focusExternalScanner, 120);
+    });
+  });
+}
+
+/* =========================================================
    CART PRICE RESOLUTION
    ========================================================= */
-
-/* Correct unit price for a cart line — ALWAYS derived from inventory.
-   If the item has no discount, this returns the original price.
-   If the item has a discount, this returns the discounted price. */
 function getCartUnitPrice(ci) {
   const item = state.inventory.find(i => i.id === ci.itemId);
-  if (!item) return roundMoney(ci.price);   // fallback for missing item
+  if (!item) return roundMoney(ci.price);
   return roundMoney(getDiscountedPrice(item).final);
 }
 
-/* Sync every cart line's stored price fields to the current discount.
-   Called before rendering + before checkout so the display can never
-   drift away from the actual payable amount. */
 function syncCartPrices() {
   state.posCart.forEach(ci => {
     const item = state.inventory.find(i => i.id === ci.itemId);
@@ -112,7 +227,6 @@ function removeFromCart(itemId) {
   renderPosCart(); updateChange();
 }
 
-/* ✅ Total always derived from current inventory prices */
 function getCartTotal() {
   return roundMoney(
     state.posCart.reduce((sum, c) => sum + c.qty * getCartUnitPrice(c), 0)
@@ -128,7 +242,6 @@ function clearCart() {
 export function renderPosCart() {
   const el = $("pos-cart-items"); if (!el) return;
 
-  /* Keep stored prices in sync so display = payable */
   syncCartPrices();
 
   if (!state.posCart.length) {
@@ -157,11 +270,9 @@ export function renderPosCart() {
     }).join("");
   }
 
-  /* Total uses the SAME source as updateChange */
   if ($("pos-total")) $("pos-total").textContent = fmtMoney(getCartTotal());
 }
 
-/* ✅ change = cash − finalDiscountedTotal, rounded */
 export function updateChange() {
   const el = $("pos-change"); if (!el) return;
   const total  = getCartTotal();
@@ -326,7 +437,7 @@ export function stopPosMiniCarousels() {
 }
 
 /* =========================================================
-   CHECKOUT — the fixed version
+   CHECKOUT
    ========================================================= */
 function newReceiptNum() {
   const d = new Date();
@@ -336,7 +447,7 @@ function newReceiptNum() {
   return `INV-${ymd}-${sod}${rnd}`;
 }
 
-const CASH_SHORT_TOLERANCE = 0.005;   // half-cent float tolerance
+const CASH_SHORT_TOLERANCE = 0.005;
 
 async function handleCheckout() {
   if (state.checkoutBusy) return;
@@ -344,25 +455,20 @@ async function handleCheckout() {
   const wsId = myWorkspace();
   if (!wsId) { showToast("Workspace not ready ❌"); return; }
 
-  /* Always sync prices first so nothing can drift */
   syncCartPrices();
 
-  /* ---------- 1) Build lines using the DISCOUNTED selling price ---------- */
   const lines = [];
   for (const ci of state.posCart) {
     const item = state.inventory.find(i => i.id === ci.itemId);
     if (!item) { playErrorSound(); showToast(`"${ci.name}" no longer exists ❌`); return; }
     if (ci.qty > item.quantity) { playErrorSound(); showToast(`Not enough stock for ${item.name} ❌`); return; }
 
-    /* ✅ Re-derive from CURRENT inventory — never overwrite with item.price */
     const disc          = getDiscountedPrice(item);
     const salePrice     = roundMoney(disc.final);
     const originalPrice = roundMoney(disc.original);
     const discountAmt   = roundMoney(disc.discount);
     const discountPct   = Number(disc.percent) || 0;
 
-    /* Keep the cart line consistent — this is what fixes the -₱8 bug:
-       a failed checkout must never leave ci.price pointing at the original price */
     ci.price           = salePrice;
     ci.originalPrice   = originalPrice;
     ci.discount        = discountAmt;
@@ -378,7 +484,6 @@ async function handleCheckout() {
     });
   }
 
-  /* ---------- 2) Final payable total — one source of truth ---------- */
   const total = roundMoney(
     lines.reduce((sum, line) => sum + line.qty * line.price, 0)
   );
@@ -390,11 +495,9 @@ async function handleCheckout() {
   if (mode === "cash") {
     cash = roundMoney(valOf($("pos-cash")));
 
-    /* ✅ Compare cash against the FINAL discounted total, with tolerance */
     if (cash < total - CASH_SHORT_TOLERANCE) {
       playErrorSound();
       showToast(`Insufficient cash — need ${fmtMoney(total)} ❌`);
-      /* Re-render so the cart display stays in sync with the (now correct) cart */
       renderPosCart();
       updateChange();
       return;
@@ -419,7 +522,6 @@ async function handleCheckout() {
     const batch = writeBatch(db);
     const saleIds = [];
 
-    /* ---------- 3) Write sale rows with the discounted unitPrice ---------- */
     lines.forEach(({ item, qty, price, originalPrice, discount, discountPercent }) => {
       const saleRef = doc(collection(db, "sales"));
       saleIds.push(saleRef.id);
@@ -432,10 +534,10 @@ async function handleCheckout() {
       batch.set(saleRef, {
         itemId: item.id, itemName: item.name, category: item.category,
         quantity: qty,
-        unitPrice: price,                 // ✅ discounted price (used by reports)
-        originalUnitPrice: originalPrice, // 📝 audit-only
-        discountAmount: discount,         // 📝 audit-only
-        discountPercent: discountPercent, // 📝 audit-only
+        unitPrice: price,
+        originalUnitPrice: originalPrice,
+        discountAmount: discount,
+        discountPercent: discountPercent,
         total: lineTotal,
         cost: unitCost,
         profit: lineProfit,
@@ -463,7 +565,6 @@ async function handleCheckout() {
       batch.set(doc(collection(db, "movements")), mov);
     });
 
-    /* ---------- 4) Credit / utang ---------- */
     if (mode === "credit" && customer) {
       const customerTotal = roundMoney(
         lines.reduce((sum, l) => sum + l.qty * l.price, 0)
@@ -489,7 +590,6 @@ async function handleCheckout() {
 
     await settleWrite(batch.commit(), "Sale");
 
-    /* ---------- 5) Receipt uses the same discounted values ---------- */
     showReceipt({
       items: lines.map(l => ({ name: l.item.name, qty: l.qty, price: l.price })),
       total, cash, change, receiptNum, date: now, cashier,
@@ -667,7 +767,6 @@ export async function deleteSaleIds(saleIds, opts = {}) {
 export function renderSales() {
   const list = $("sales-list");
   if (!list) return;
-  /* Populate category filter options (only once per state change) */
   const catSel = $("recent-sales-cat");
   if (catSel) {
     const cats = new Set();
@@ -691,7 +790,6 @@ export function renderSales() {
   const term = valOf($("recent-sales-search")).toLowerCase().trim();
   const catFilter = valOf($("recent-sales-cat")).trim().toLowerCase();
 
-  /* Group the last 150 line items into receipts */
   const groups = new Map();
   state.sales.slice(0, 150).forEach(s => {
     const key = s.receiptNum || ("LEGACY-" + s.id);
@@ -710,21 +808,23 @@ export function renderSales() {
     g.total += Number(s.total) || 0;
   });
 
-  /* Filter: keep receipts where AT LEAST ONE item matches */
+  /* Filter: receipt number OR any item matches (term + category) */
   let recent = [...groups.values()];
   if (term || catFilter) {
     recent = recent.filter(g => {
-      const receiptHit = term && g.receiptNum.toLowerCase().includes(term);
-      if (receiptHit) return true;
+      const catOk = !catFilter || g.items.some(
+        it => (it.category || "").toLowerCase() === catFilter
+      );
+      if (!catOk) return false;
+      if (!term) return true;
+
+      if (g.receiptNum.toLowerCase().includes(term)) return true;
+
       return g.items.some(it => {
         const name = (it.itemName || "").toLowerCase();
         const cat  = (it.category || "").toLowerCase();
         const note = (it.note || "").toLowerCase();
-        const cashier = (state.currentUser?.email || "").toLowerCase();
-
-        const termOk = !term || name.includes(term) || cat.includes(term) || note.includes(term) || cashier.includes(term);
-        const catOk  = !catFilter || cat === catFilter;
-        return termOk && catOk;
+        return name.includes(term) || cat.includes(term) || note.includes(term);
       });
     });
   }
@@ -828,113 +928,6 @@ export function renderSales() {
 }
 
 /* =========================================================
-   EXTERNAL BARCODE SCANNER SUPPORT (Universal & Robust)
-   ---------------------------------------------------------
-   Works with ANY USB/Bluetooth scanner:
-   - Handles scanners that send Enter, Tab, or NO suffix
-   - Works on the POS page without focusing an input
-   - Ignores human typing (slow keystrokes) automatically
-   ========================================================= */
-const EXT_SCAN = {
-  buffer: "",
-  lastKeyTime: 0,
-  timer: null,
-  MAX_INTERVAL: 200,   // Max ms between keystrokes to be considered a "scanner"
-  PROCESS_DELAY: 300,  // Wait 300ms after last key before assuming scan is done
-  MIN_LENGTH: 4        // Ignore anything shorter than 4 chars
-};
-
-function processExternalScan() {
-  clearTimeout(EXT_SCAN.timer);
-  const code = EXT_SCAN.buffer.trim();
-  EXT_SCAN.buffer = "";
-
-  if (code.length < EXT_SCAN.MIN_LENGTH) return;
-
-  // Only act on the POS page
-  const posPage = $("page-sales");
-  if (!posPage || posPage.classList.contains("hidden")) return;
-
-  // Ignore if any modal is open
-  const openModal = document.querySelector(".modal:not(.hidden), .scanner-modal:not(.hidden), .install-modal:not(.hidden)");
-  if (openModal) return;
-
-  // Find item by barcode or SKU
-  const item = state.inventory.find(i =>
-    (i.barcode && String(i.barcode).trim().toLowerCase() === code.toLowerCase()) ||
-    (i.sku && String(i.sku).trim().toLowerCase() === code.toLowerCase())
-  );
-
-  if (item) {
-    if (item.quantity <= 0) {
-      playErrorSound();
-      showToast(`"${item.name}" is out of stock ❌`);
-      return;
-    }
-    addToCart(item.id);
-    playSuccessSound();
-    showToast(`✅ Added: ${item.name}`);
-  } else {
-    // Only show error if the code is long enough to be a real barcode
-    if (code.length > 5) {
-      playErrorSound();
-      showToast(`❌ No item found for "${code}"`);
-    }
-  }
-}
-
-function wireExternalScanner() {
-  document.addEventListener("keydown", (e) => {
-    // Ignore modifier combos and IME composition
-    if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
-
-    const active = document.activeElement;
-    const isInputFocused = active && active.matches("input, textarea, select, [contenteditable]");
-
-    // --- 1. Handle Enter or Tab (Instant processing) ---
-    if (e.key === "Enter" || e.key === "Tab") {
-      if (EXT_SCAN.buffer.length >= EXT_SCAN.MIN_LENGTH) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Clean up the input if the scanner typed into it
-        if (isInputFocused) {
-          active.value = active.value.replace(EXT_SCAN.buffer, "");
-          if (active.id === "sales-search") safeRender(renderPosProducts);
-        }
-        processExternalScan();
-      }
-      return;
-    }
-
-    // --- 2. Handle single printable characters ---
-    if (e.key.length !== 1) return;
-
-    const now = Date.now();
-
-    // Reset buffer if there's a pause longer than MAX_INTERVAL
-    // (Humans type slower than 200ms between keys on average)
-    if (now - EXT_SCAN.lastKeyTime > EXT_SCAN.MAX_INTERVAL) {
-      EXT_SCAN.buffer = "";
-    }
-
-    EXT_SCAN.lastKeyTime = now;
-    EXT_SCAN.buffer += e.key;
-
-    // --- 3. Fallback for scanners WITHOUT an Enter key ---
-    // Only auto-process if NOT focused on an input
-    if (!isInputFocused) {
-      clearTimeout(EXT_SCAN.timer);
-      EXT_SCAN.timer = setTimeout(() => {
-        if (EXT_SCAN.buffer.length >= EXT_SCAN.MIN_LENGTH) {
-          processExternalScan();
-        }
-      }, EXT_SCAN.PROCESS_DELAY);
-    }
-  }, true); // Capture phase: intercepts keys before inputs receive them
-}
-
-/* =========================================================
    INIT + LISTENERS
    ========================================================= */
 export function initPOS() {
@@ -963,12 +956,11 @@ export function initPOS() {
     state.currentReceiptGroup = null;
     deleteReceiptGroup(group.saleIds, group.receiptNum);
   });
-   /* NEW: recent-sales search + category filter */
+
   $("recent-sales-search")?.addEventListener("input", debounce(renderSales, 150));
   $("recent-sales-cat")?.addEventListener("change", renderSales);
 
   wireExternalScanner();
-
 }
 
 export function startSalesListener(onAfterSalesChange) {

@@ -514,13 +514,32 @@
     <div class="pos-layout">
       <!-- Products -->
       <section class="pos-products">
-        <div class="pos-search-row">
-          <input type="search" id="sales-search" placeholder="Search products…" />
-          <select id="sales-cat-filter" class="pos-cat-filter">
-            <option value="">All Categories</option>
-          </select>
-          <button type="button" class="btn ghost" id="scan-sale-btn">📷 Scan</button>
-        </div>
+      <div class="pos-search-row">
+  <input type="search" id="sales-search" placeholder="Search products…" />
+  <select id="sales-cat-filter" class="pos-cat-filter">
+    <option value="">All Categories</option>
+  </select>
+
+  <!-- External USB / Bluetooth barcode scanner (keyboard-wedge) -->
+  <div class="ext-scan" title="External barcode scanner — click here, then scan">
+    <span class="ext-scan-icon" aria-hidden="true">▣</span>
+    <input
+      type="text"
+      id="external-barcode-input"
+      class="ext-scan-input"
+      placeholder="Scan barcode…"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      spellcheck="false"
+      inputmode="text"
+      aria-label="External barcode scanner input"
+    />
+    <span class="ext-scan-dot" id="ext-scan-dot" aria-hidden="true" title="Scanner status"></span>
+  </div>
+
+  <button type="button" class="btn ghost" id="scan-sale-btn">📷 Scan</button>
+</div>
         <div class="pos-grid" id="sales-products-grid"></div>
       </section>
 
@@ -591,10 +610,6 @@
     </div>
 
     <div class="sales-list" id="sales-list"></div>
-
-    <!-- Category summary -->
-    <h3 class="section-heading">📂 Sales by Category</h3>
-    <div class="category-summary" id="sales-category-summary"></div>
 
     <!-- Category summary -->
     <h3 class="section-heading">📂 Sales by Category</h3>

@@ -275,3 +275,32 @@ export function monthLabel(key) {
 /* -------- CSS var read -------- */
 export const getCSSVar = (n) =>
   getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* -------- Barcode / SKU lookup --------
+   Pure lookup against the live inventory cache.
+   Barcodes are always handled as strings to preserve
+   leading zeros and special characters. */
+export function findItemByCode(code) {
+  if (!code) return null;
+  const norm = String(code).trim().replace(/\s+/g, "");
+  if (!norm) return null;
+  const lower = norm.toLowerCase();
+
+  // 1) Exact barcode match
+  let item = state.inventory.find(i => i.barcode && String(i.barcode).trim() === norm);
+  if (item) return item;
+  item = state.inventory.find(i => i.barcode && String(i.barcode).trim().toLowerCase() === lower);
+  if (item) return item;
+
+  // 2) Exact SKU match
+  item = state.inventory.find(i => i.sku && String(i.sku).trim() === norm);
+  if (item) return item;
+  item = state.inventory.find(i => i.sku && String(i.sku).trim().toLowerCase() === lower);
+  if (item) return item;
+
+  // 3) Loose partial match (last resort)
+  return state.inventory.find(i =>
+    (i.barcode && String(i.barcode).trim().toLowerCase().includes(lower)) ||
+    (i.sku && String(i.sku).trim().toLowerCase().includes(lower))
+  ) || null;
+}
