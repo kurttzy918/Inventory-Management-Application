@@ -10,6 +10,7 @@ import {
   myWorkspace, playSuccessSound,
   fmtInt, fmtMoney, downloadXLSX, downloadPDF, printHTML
 } from "./utils.js";
+import { openScanner, forceCloseScanner } from "./inventory.js";
 
 /* =========================================================
    TRANSACTION TYPES
@@ -41,7 +42,7 @@ function setOpeningBalance(val) {
 }
 
 /* =========================================================
-   GCASH SETTINGS (number + name only — QR is auto-generated)
+   GCASH SETTINGS
    ========================================================= */
 function getGcashSettings() {
   const ws = myWorkspace();
@@ -67,8 +68,7 @@ function setGcashSettings(s) {
 }
 
 /* =========================================================
-   QR PAYLOAD BUILDER
-   Encodes readable payment details for any QR scanner.
+   QR PAYLOAD BUILDER  (used by the Payment QR modal only)
    ========================================================= */
 function buildQrPayload({ number, name, amount, reference, note }) {
   const lines = [
@@ -173,63 +173,153 @@ async function renderQr(canvas, text, opts = {}) {
 }
 
 /* =========================================================
-   SETTINGS FORM
+   QR PARSER — extracts customer info from any scanned QR
+   Priority: URL → JSON → EMVCo TLV → key:value → phone → plain
    ========================================================= */
-function renderSettingsPreview() {
-  const number = valOf($("gcash-number")).trim();
-  const name   = valOf($("gcash-account-name")).trim();
-  const canvas = $("gcash-settings-canvas");
-  if (!canvas) return;
-
-  if (!number && !name) {
-    // Placeholder preview — show dummy QR so user sees the effect
-    renderQr(canvas, "GCASH PAYMENT\n─────────────\nSet your number in Settings", {
-      width: 200, color: { dark: "#94A3B8", light: "#F1F5F7" }
-    });
-    return;
+function parseEmvCoTlv(text) {
+  const tags = {};
+  let i = 0;
+  while (i < text.length - 3) {
+    const tag = text.substr(i, 2);
+    const len = parseInt(text.substr(i + 2, 2), 10);
+    if (isNaN(len) || len < 0) break;
+    const value = text.substr(i + 4, len);
+    if (value.length < len) break;
+    tags[tag] = value;
+    i += 4 + len;
   }
-
-  renderQr(canvas, buildQrPayload({
-    number: number || "09XXXXXXXXX",
-    name:   name   || "Your Name",
-    amount: 0,
-    reference: "PREVIEW"
-  }), { width: 200 });
+  return Object.keys(tags).length ? tags : null;
 }
 
+function parseQrPayload(text) {
+  const raw = String(text || "").trim();
+  const out = { raw, name: "", number: "", amount: null, reference: "", note: "" };
+  if (!raw) return out;
+
+  /* 1) URL with query params */
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      const p = u.searchParams;
+      out.name      = p.get("name") || p.get("n") || p.get("accountName") || "";
+      out.number    = p.get("number") || p.get("phone") || p.get("p") || p.get("msisdn") || "";
+      out.reference = p.get("reference") || p.get("ref") || "";
+      out.amount    = p.get("amount") ? Number(p.get("amount")) : null;
+      out.note      = p.get("note") || "";
+      if (out.name || out.number) return out;
+    } catch {}
+  }
+
+  /* 2) JSON */
+  if (raw.startsWith("{")) {
+    try {
+      const j = JSON.parse(raw);
+      out.name      = j.name || j.customerName || j.accountName || j.merchantName || "";
+      out.number    = j.number || j.phone || j.mobile || j.msisdn || "";
+      out.reference = j.reference || j.ref || "";
+      out.amount    = j.amount ?? null;
+      out.note      = j.note || "";
+      if (out.name || out.number) return out;
+    } catch {}
+  }
+
+  /* 3) EMVCo TLV (QR Ph / GCash standard) */
+  try {
+    const tlv = parseEmvCoTlv(raw);
+    if (tlv) {
+      if (tlv["59"]) out.name = String(tlv["59"]).trim();          // merchant/account name
+      if (tlv["60"]) out.note = out.note || String(tlv["60"]).trim(); // city
+      if (tlv["54"]) out.amount = Number(tlv["54"]) || null;
+      if (tlv["62"]) {
+        const sub = parseEmvCoTlv(tlv["62"]);
+        if (sub?.["01"]) out.reference = String(sub["01"]).trim();
+      }
+      if (out.name) return out;
+    }
+  } catch {}
+
+  /* 4) Key : Value lines */
+  const kv = {};
+  raw.split(/[\n\r;|,]+/).forEach(line => {
+    const m = line.match(/^\s*([A-Za-z0-9 _-]{2,24})\s*[:=]\s*(.+?)\s*$/);
+    if (m) kv[m[1].trim().toLowerCase()] = m[2].trim();
+  });
+  if (Object.keys(kv).length) {
+    out.name      = kv["name"] || kv["customer"] || kv["account name"] || kv["accountname"] || "";
+    out.number    = kv["number"] || kv["phone"] || kv["mobile"] || kv["msisdn"] || "";
+    out.reference = kv["ref"] || kv["reference"] || "";
+    if (out.name || out.number) return out;
+  }
+
+  /* 5) Philippine mobile number */
+  const phone = raw.match(/(?:\+?63|0)?9\d{9}/);
+  if (phone) out.number = phone[0];
+
+  /* 6) Fallback — short plain text becomes the name */
+  if (!out.name && !out.number && raw.length <= 80 && !/^\d+$/.test(raw)) {
+    out.name = raw;
+  }
+
+  return out;
+}
+
+/* =========================================================
+   SCANNED-QR HANDLER — auto-fill the customer field
+   ========================================================= */
+function handleScannedCustomerQr(text) {
+  const parsed = parseQrPayload(text);
+  const display = parsed.name || parsed.number || parsed.raw || "—";
+
+  /* Show result panel */
+  const resultEl = $("gcash-scan-result");
+  if (resultEl) {
+    resultEl.innerHTML = `
+      <div class="gcash-scan-result-row">
+        <span class="gcash-scan-result-label">Scanned</span>
+        <strong class="gcash-scan-result-value">${esc(display)}</strong>
+      </div>
+      ${parsed.number    ? `<div class="gcash-scan-result-meta">📞 ${esc(parsed.number)}</div>` : ""}
+      ${parsed.reference ? `<div class="gcash-scan-result-meta">🔖 ${esc(parsed.reference)}</div>` : ""}
+      ${parsed.amount    ? `<div class="gcash-scan-result-meta">💵 ₱${esc(Number(parsed.amount).toFixed(2))}</div>` : ""}
+    `;
+  }
+
+  /* Auto-fill the customer field in the transaction form */
+  const custEl = $("gcash-customer");
+  const value = parsed.name || parsed.number || "";
+  if (custEl && value) {
+    custEl.value = value;
+    custEl.classList.add("gcash-autofilled");
+    setTimeout(() => custEl.classList.remove("gcash-autofilled"), 1300);
+  }
+
+  /* Auto-fill reference if the QR provides one and it's empty */
+  if (parsed.reference && $("gcash-reference") && !valOf($("gcash-reference"))) {
+    setVal($("gcash-reference"), parsed.reference);
+  }
+
+  /* Auto-fill amount if the QR contains one and the field is empty */
+  if (parsed.amount && $("gcash-amount") && !valOf($("gcash-amount"))) {
+    setVal($("gcash-amount"), Number(parsed.amount).toFixed(2));
+  }
+
+  playSuccessSound();
+  showToast(value ? `Scanned: ${display} ✅` : "QR scanned — no customer info found ⚠️");
+}
+
+/* =========================================================
+   SETTINGS FORM
+   ========================================================= */
 function loadGcashSettingsIntoForm() {
   const s = getGcashSettings();
   setVal($("gcash-number"), s.number);
   setVal($("gcash-account-name"), s.name);
-  renderSettingsPreview();
 }
 
 function wireGcashSettings() {
   loadGcashSettingsIntoForm();
 
-  $("gcash-number")?.addEventListener("input", debounce(renderSettingsPreview, 300));
-  $("gcash-account-name")?.addEventListener("input", debounce(renderSettingsPreview, 300));
-
-  /* Manual retry if the library was slow */
-  $("gcash-qr-retry")?.addEventListener("click", async () => {
-    _qrReadyPromise = null;
-    try {
-      await waitForQrLibrary();
-      $("gcash-qr-retry")?.classList.add("hidden");
-      renderSettingsPreview();
-      showToast("QR library loaded ✅");
-    } catch {
-      showToast("Still can't reach the CDN ❌");
-    }
-  });
-
-  /* Auto-hide retry button once library loads */
-  waitForQrLibrary().then(() => {
-    $("gcash-qr-retry")?.classList.add("hidden");
-  }).catch(() => {
-    $("gcash-qr-retry")?.classList.remove("hidden");
-  });
-
+  /* Save button */
   $("gcash-save-settings")?.addEventListener("click", () => {
     setGcashSettings({
       number: valOf($("gcash-number")).trim(),
@@ -238,10 +328,19 @@ function wireGcashSettings() {
     playSuccessSound();
     showToast("GCash settings saved ✅");
   });
+
+  /* Scan Customer QR — reuses the shared camera scanner */
+  $("gcash-scan-qr-btn")?.addEventListener("click", () => {
+    openScanner("gcash-customer", (scannedText) => {
+      // Close the camera first (custom callback still runs synchronously)
+      forceCloseScanner();
+      handleScannedCustomerQr(scannedText);
+    });
+  });
 }
 
 /* =========================================================
-   PAYMENT QR MODAL
+   PAYMENT QR MODAL (unchanged — still generates a QR per transaction)
    ========================================================= */
 let _currentQrTxn = null;
 
@@ -250,12 +349,10 @@ export function openGcashPaymentQR(txnId) {
   if (!t) { showToast("Transaction not found ❌"); return; }
   _currentQrTxn = t;
 
-  const meta = GCASH_TYPES[t.type] || GCASH_TYPES.other;
   const s = getGcashSettings();
 
   if (!s.number) {
     showToast("Set your GCash number in Settings first ⚠️");
-    // Scroll to settings
     document.querySelector(".gcash-settings-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
@@ -274,7 +371,6 @@ export function openGcashPaymentQR(txnId) {
   if (numEl) numEl.textContent = s.number;
   if (nameEl) nameEl.textContent = s.name || "—";
 
-  // Generate the QR from real transaction data
   const payload = buildQrPayload({
     number: s.number,
     name: s.name,
@@ -672,13 +768,6 @@ export function initGcash() {
   wireGcashForm();
   wireGcashSettings();
   wireGcashPaymentModal();
-
-   /* NEW: re-render the settings preview as soon as the QR library
-     is available (in case the user opened the page before the CDN
-     script finished loading). */
-  waitForQrLibrary()
-    .then(() => { renderSettingsPreview(); })
-    .catch(() => { /* fallback already drawn inside renderQr */ });
 
   const filterType = $("gcash-filter-type");
   if (filterType) {

@@ -1414,7 +1414,7 @@ function flashScanFrame() {
   state.scanner.matchFlashTimer = setTimeout(() => v.classList.remove("matched"), 600);
 }
 
-export function openScanner(target) {
+export function openScanner(target, onCustomResult = null) {
   const S = state.scanner;
   if (S.opening) return;
   if (S.state !== SCANNER_STATE.IDLE) return;
@@ -1423,13 +1423,16 @@ export function openScanner(target) {
 
   S.opening = true;
   S.target = target;
+  S.onCustomResult = typeof onCustomResult === "function" ? onCustomResult : null;
   S.scanHandling = false;
   const session = ++S.session;
 
   const title = $("scanner-title");
   if (title) title.textContent =
-    target === "barcode" ? "Scan Product Barcode" :
-    target === "sale"    ? "Scan Items for POS"  : "Scan Barcode";
+    target === "barcode"        ? "Scan Product Barcode" :
+    target === "sale"           ? "Scan Items for POS"  :
+    target === "gcash-customer" ? "Scan Customer QR"    :
+                                  "Scan Barcode";
 
   if ($("scanner-manual-input")) $("scanner-manual-input").value = "";
   const view = $("scanner-view");
@@ -1500,9 +1503,12 @@ async function startScanning(readerEl, session) {
       state.scanner.opening = false;
       const invCount = state.inventory.length;
       const hint = invCount ? `${invCount} item${invCount !== 1 ? "s" : ""} loaded` : "⚠️ inventory still loading…";
-      setScannerStatus(state.scanner.target === "sale"
+      const statusMsg = state.scanner.target === "sale"
         ? `Point at a barcode. Keep scanning to add more. (${hint})`
-        : `Point the camera at a barcode… (${hint})`);
+        : state.scanner.target === "gcash-customer"
+          ? "Point the camera at the customer's QR code…"
+          : `Point the camera at a barcode… (${hint})`;
+      setScannerStatus(statusMsg);
       return;
     } catch (err) {
       lastErr = err;
@@ -1523,6 +1529,7 @@ async function shutdownScanner() {
   const inst = S.instance;
   S.instance = null;
   S.state = SCANNER_STATE.STOPPING;
+  S.onCustomResult = null;
   const readerEl = document.getElementById("scanner-reader");
   if (inst) { try { await inst.stop(); } catch {} try { inst.clear?.(); } catch {} }
   if (readerEl) {
@@ -1572,6 +1579,15 @@ function handleScanResult(text) {
   const code = String(text || "").trim();
   if (!code) return;
 
+  /* Custom handler takes precedence (used by GCash customer-QR scanning) */
+  if (typeof state.scanner.onCustomResult === "function") {
+    const handler = state.scanner.onCustomResult;
+    state.scanner.onCustomResult = null;
+    try { handler(code); }
+    catch (e) { console.error("[scanner custom handler]", e); }
+    return;
+  }
+
   if (state.scanner.target === "barcode") {
     if ($("item-barcode")) $("item-barcode").value = code;
     playSuccessSound();
@@ -1581,7 +1597,6 @@ function handleScanResult(text) {
   }
 
   if (state.scanner.target === "sale") {
-    // Route the mobile scanner through the SAME handler as the external scanner.
     import("./pos.js").then(({ handleBarcodeScan }) => {
       const result = handleBarcodeScan(code, { silent: true });
 

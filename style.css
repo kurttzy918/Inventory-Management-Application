@@ -3362,3 +3362,71 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast { bottom: auto
   .ext-scan { flex: 1 1 100%; order: 3; }
   .pos-search-row .btn#scan-sale-btn { order: 4; }
 }
+/* ==========================================================
+   GCASH — Scan Customer QR panel
+   ========================================================== */
+.gcash-scan-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px 14px;
+  min-height: 100px;
+  width: 100%;
+  max-width: 340px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.gcash-scan-placeholder {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.gcash-scan-result-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.gcash-scan-result-label {
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.gcash-scan-result-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--title-color);
+  word-break: break-word;
+}
+.gcash-scan-result-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+
+/* Brief green flash on the customer input after auto-fill */
+.gcash-autofilled {
+  animation: gcashAutofill 1.3s ease;
+}
+@keyframes gcashAutofill {
+  0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.55); border-color: #10B981; }
+  70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); border-color: #10B981; }
+  100% { box-shadow: 0 0 0 0 rgba(16,185,129,0);  border-color: var(--border); }
+}
+[data-theme="dark"] .gcash-scan-result { background: rgba(255,255,255,0.04); }
+[data-theme="dark"] .gcash-autofilled {
+  animation-name: gcashAutofillDark;
+}
+@keyframes gcashAutofillDark {
+  0%   { box-shadow: 0 0 0 0 rgba(52,211,153,0.55); border-color: #34D399; }
+  70%  { box-shadow: 0 0 0 8px rgba(52,211,153,0);  border-color: #34D399; }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0);    border-color: var(--border); }
+}

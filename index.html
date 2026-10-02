@@ -967,7 +967,7 @@
     <div class="card compact gcash-settings-card">
       <h3 class="card-title">⚙️ GCash Settings</h3>
       <p class="gcash-settings-hint">
-        Enter your GCash number and account name. A payment QR code is auto-generated for each transaction.
+        Enter your GCash number and account name. Use the scanner below to auto-fill customer details from their QR code.
       </p>
       <div class="gcash-settings-grid">
         <label>
@@ -979,16 +979,21 @@
           <input type="text" id="gcash-account-name" placeholder="Juan Dela Cruz" />
         </label>
       </div>
-      <div class="gcash-settings-preview">
-  <span class="gcash-settings-preview-label">Live Preview</span>
-  <canvas id="gcash-settings-canvas" class="gcash-settings-canvas"></canvas>
-  <button type="button" id="gcash-qr-retry" class="gcash-qr-retry hidden">
-    🔄 Retry loading QR library
-  </button>
-  <p class="gcash-settings-preview-hint">
-    Customers scan this QR to see amount, number, and reference.
-  </p>
-</div>
+        <div class="gcash-settings-preview">
+        <span class="gcash-settings-preview-label">Scan Customer QR</span>
+
+        <div class="gcash-scan-result" id="gcash-scan-result">
+          <span class="gcash-scan-placeholder">No QR scanned yet — tap the button below</span>
+        </div>
+
+        <button type="button" id="gcash-scan-qr-btn" class="btn primary">
+          📷 Scan Customer QR
+        </button>
+
+        <p class="gcash-settings-preview-hint">
+          Point the camera at a customer's GCash QR code to auto-fill their name in the form below.
+        </p>
+      </div>
       <button type="button" class="btn primary" id="gcash-save-settings">💾 Save Settings</button>
     </div>
 
