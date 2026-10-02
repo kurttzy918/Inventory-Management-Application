@@ -123,41 +123,173 @@ export function stopGreetingTicker() {
 }
 
 /* =========================================================
-   PWA INSTALL
+   PWA INSTALL — topbar button, sidebar "Download App", banner
+   Platform-aware instructions modal
    ========================================================= */
 let deferredInstallPrompt = null;
 
+/* ---------- Platform detection ---------- */
+function detectInstallPlatform() {
+  const ua = navigator.userAgent || "";
+  const isIPad = /iPad/.test(ua) ||
+    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+
+  if (/iPhone|iPod/.test(ua) || isIPad) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
+}
+
+/* ---------- Running as an installed PWA? ---------- */
+function isRunningStandalone() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches ||
+    window.matchMedia("(display-mode: minimal-ui)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+/* ---------- Show the correct instruction block in the modal ---------- */
+function applyPlatformInstructions() {
+  const platform = detectInstallPlatform();
+  document.querySelectorAll(".install-guide").forEach(el => {
+    el.classList.toggle("is-active", el.dataset.platform === platform);
+  });
+}
+
+/* ---------- Sidebar Download App button states ---------- */
+function setDownloadButtonReady(ready) {
+  const btn = document.getElementById("nav-download-app");
+  if (!btn || btn.classList.contains("is-installed")) return;
+  btn.classList.toggle("is-ready", !!ready);
+}
+
+function setDownloadButtonInstalled() {
+  const btn = document.getElementById("nav-download-app");
+  const label = document.getElementById("nav-download-label");
+  if (btn) {
+    btn.classList.remove("is-ready");
+    btn.classList.add("is-installed");
+    btn.disabled = true;
+    btn.title = "App installed";
+  }
+  if (label) label.textContent = "App Installed ✓";
+}
+
+/* ---------- Install-instructions modal ---------- */
+function openInstallInstructions() {
+  const modal = $("install-modal");
+  if (!modal) return false;
+
+  // Show the native "Install Now" button ONLY when we have a real prompt
+  const nativeWrap = $("install-native-wrap");
+  if (nativeWrap) {
+    nativeWrap.classList.toggle("hidden", !deferredInstallPrompt);
+  }
+
+  // Pick the right section for this device
+  applyPlatformInstructions();
+
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  return true;
+}
+
+/* ---------- Unified install flow ---------- */
+async function runInstallFlow() {
+  // 1) Native prompt available → use it
+  if (deferredInstallPrompt) {
+    try {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === "accepted") {
+        showToast("Installing Kurt POS… 📲");
+      } else {
+        showToast("Install dismissed");
+      }
+    } catch (e) {
+      console.warn("[install] prompt failed:", e);
+    } finally {
+      deferredInstallPrompt = null;
+      setDownloadButtonReady(false);
+      $("install-btn")?.classList.add("hidden");
+      $("install-banner")?.classList.add("hidden");
+    }
+    return;
+  }
+
+  // 2) Already installed → just inform
+  if (isRunningStandalone()) {
+    showToast("Kurt POS is already installed ✓");
+    setDownloadButtonInstalled();
+    return;
+  }
+
+  // 3) Show step-by-step instructions (platform aware)
+  if (openInstallInstructions()) return;
+
+  // 4) Last resort
+  showToast('Open browser menu → "Install app" or "Add to Home Screen" 📲');
+}
+
+/* ---------- Wiring ---------- */
 function wireInstallPrompt() {
+  /* Restore the "installed" UI if we're already running as a PWA */
+  if (isRunningStandalone()) {
+    setDownloadButtonInstalled();
+    $("install-btn")?.classList.add("hidden");
+    $("install-banner")?.classList.add("hidden");
+  }
+
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
+
+    // Reveal topbar Install button
+    $("install-btn")?.classList.remove("hidden");
+
+    // Pulse the sidebar Download App button
+    setDownloadButtonReady(true);
   });
 
   window.addEventListener("appinstalled", () => {
     deferredInstallPrompt = null;
+    setDownloadButtonReady(false);
+    setDownloadButtonInstalled();
     $("install-btn")?.classList.add("hidden");
     $("install-banner")?.classList.add("hidden");
-    showToast("App installed 🎉");
+    document.body.style.overflow = "";
+    showToast("Kurt POS installed 🎉");
   });
 
-  $("install-btn")?.addEventListener("click", async () => {
-    if (deferredInstallPrompt) {
-      try {
-        deferredInstallPrompt.prompt();
-        const { outcome } = await deferredInstallPrompt.userChoice;
-        if (outcome === "accepted") showToast("Installing… 📱");
-      } catch (e) {
-        console.warn("[install] prompt failed:", e);
-      }
-      deferredInstallPrompt = null;
+  // 1) Topbar Install button
+  $("install-btn")?.addEventListener("click", runInstallFlow);
+
+  // 2) Install banner button
+  $("install-banner-btn")?.addEventListener("click", runInstallFlow);
+
+  // 3) Sidebar Download App button
+  document.getElementById("nav-download-app")
+    ?.addEventListener("click", runInstallFlow);
+
+  // 4) Native "Install Now" button inside the instructions modal
+  $("install-native-btn")?.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) {
+      showToast("Native install prompt isn't available yet ⚠️");
       return;
     }
-    $("install-modal")?.classList.remove("hidden");
-    document.body.style.overflow = "hidden";
-  });
-
-  $("install-banner-btn")?.addEventListener("click", () => {
-    $("install-btn")?.click();
+    try {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === "accepted") showToast("Installing Kurt POS… 📲");
+    } catch (e) {
+      console.warn("[install] modal prompt failed:", e);
+    } finally {
+      deferredInstallPrompt = null;
+      setDownloadButtonReady(false);
+      $("install-modal")?.classList.add("hidden");
+      document.body.style.overflow = "";
+    }
   });
 }
 
@@ -197,13 +329,18 @@ function syncThemeToggleUI() {
 }
 
 (function initTheme() {
-  const saved = document.documentElement.getAttribute("data-theme") ||
-    (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  applyTheme(saved);
+  // Priority: saved user preference → HTML attribute → "dark" (app default)
+  const stored = (() => {
+    try { return localStorage.getItem("theme"); } catch { return null; }
+  })();
+  const attr  = document.documentElement.getAttribute("data-theme");
+  const theme = stored || attr || "dark";
+
+  applyTheme(theme);
   syncThemeToggleUI();
 
   $("theme-toggle")?.addEventListener("click", () => {
-    const cur = document.documentElement.getAttribute("data-theme") || "light";
+    const cur = document.documentElement.getAttribute("data-theme") || "dark";
     destroyCharts();
     applyTheme(cur === "dark" ? "light" : "dark");
     syncThemeToggleUI();

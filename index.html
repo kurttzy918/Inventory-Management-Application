@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#12544F" />
+  <meta name="theme-color" content="#0F0820" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#12544F" media="(prefers-color-scheme: light)" />
   <meta name="description" content="Kurt Inventory · Smart Stock & Sales — multi-tenant inventory, POS, and analytics." />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -54,7 +55,6 @@
 
   <div class="auth-card">
     <div class="brand-mark">
-      <div class="brand-ring"></div>
       <img src="inv.png" alt="Kurt Inventory" class="brand-logo" id="brand-logo" />
     </div>
     <div class="logo">My Sari-Sari Store</div>
@@ -238,6 +238,19 @@
     </button>
     <button type="button" class="nav-btn hidden" id="nav-admin" data-page="page-admin">
       <span class="nav-icon">🛡️</span><span>Admin</span>
+    </button>
+
+    <button type="button" id="nav-download-app" class="nav-btn nav-btn-download" title="Download / Install App">
+      <span class="nav-icon nav-icon-download" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </span>
+      <span id="nav-download-label">Download App</span>
     </button>
 
     <button type="button" id="logout-btn-mobile" class="nav-btn nav-btn-logout" style="display:none"></button>
@@ -1416,17 +1429,39 @@
     </div>
 
     <div class="install-instructions">
-      <p><strong>On iPhone / iPad (Safari):</strong></p>
-      <ol>
-        <li>Tap the <span class="step-icon">Share</span> button at the bottom.</li>
-        <li>Scroll and tap <span class="step-icon">Add to Home Screen</span>.</li>
-        <li>Tap <span class="step-icon">Add</span>.</li>
-      </ol>
-      <p style="margin-top:10px;"><strong>On Android (Chrome):</strong></p>
-      <ol>
-        <li>Tap the <span class="step-icon">⋮</span> menu.</li>
-        <li>Tap <span class="step-icon">Install app</span> or <span class="step-icon">Add to Home screen</span>.</li>
-      </ol>
+
+      <!-- DESKTOP — Chrome / Edge / Brave -->
+      <div class="install-guide" data-platform="desktop">
+        <p><strong>On desktop (Chrome / Edge):</strong></p>
+        <ol>
+          <li>Look for the <span class="step-icon">⊕ Install</span> icon at the right side of the address bar.</li>
+          <li>Click it, then confirm <span class="step-icon">Install</span>.</li>
+          <li>Or open the browser menu <span class="step-icon">⋮</span> → <span class="step-icon">Install Kurt POS</span>.</li>
+        </ol>
+        <p class="install-guide-note">
+          💡 Don't see the install icon? Make sure you're on <strong>https://</strong> or <strong>localhost</strong>, and try refreshing once.
+        </p>
+      </div>
+
+      <!-- iOS Safari -->
+      <div class="install-guide" data-platform="ios">
+        <p><strong>On iPhone / iPad (Safari):</strong></p>
+        <ol>
+          <li>Tap the <span class="step-icon">Share</span> button at the bottom.</li>
+          <li>Scroll and tap <span class="step-icon">Add to Home Screen</span>.</li>
+          <li>Tap <span class="step-icon">Add</span>.</li>
+        </ol>
+      </div>
+
+      <!-- Android Chrome -->
+      <div class="install-guide" data-platform="android">
+        <p><strong>On Android (Chrome):</strong></p>
+        <ol>
+          <li>Tap the <span class="step-icon">⋮</span> menu.</li>
+          <li>Tap <span class="step-icon">Install app</span> or <span class="step-icon">Add to Home screen</span>.</li>
+        </ol>
+      </div>
+
     </div>
 
     <button type="button" class="btn ghost block" id="install-later">Maybe later</button>
