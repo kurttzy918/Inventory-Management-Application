@@ -20,6 +20,11 @@ import {
   renderKPIs, renderTopProfitAndRevenue, stopCarousel
 } from "./reports.js";
 import {
+  loadThemePalette,
+  startThemeRotationTicker,
+  stopThemeRotationTicker
+} from "./theme.js";
+import {
   initCustomers, startCustomersListeners, renderCustomerPickerOptions
 } from "./customers.js";
 import { initLabels, renderLabelsPage } from "./labels.js";
@@ -115,16 +120,78 @@ export function updateTopbarGreeting() {
 export function startGreetingTicker() {
   if (greetingTimer) clearInterval(greetingTimer);
   updateTopbarGreeting();
-  greetingTimer = setInterval(updateTopbarGreeting, 30 * 1000);
+  updateTopbarAvatar();               // ← load the avatar when the user logs in
+  greetingTimer = setInterval(() => {
+    updateTopbarGreeting();
+    updateTopbarAvatar();             // ← keeps it in sync if the photo URL changes
+  }, 30 * 1000);
 }
 
 export function stopGreetingTicker() {
   if (greetingTimer) { clearInterval(greetingTimer); greetingTimer = null; }
 }
+/* =========================================================
+   PROFILE AVATAR — loads the Google account photo
+   Falls back to initials if the photo can't load
+   ========================================================= */
+let _lastAvatarKey = null;
+
+export function updateTopbarAvatar() {
+  const avatarEl = document.getElementById("topbar-avatar");
+  if (!avatarEl) return;
+
+  const user = state.currentUser;
+  if (!user) {
+    avatarEl.classList.add("hidden");
+    avatarEl.innerHTML = "";
+    _lastAvatarKey = null;
+    return;
+  }
+
+  const data  = state.currentUserData || {};
+  const photo = user.photoURL || data.photoURL || "";
+  const email = user.email    || data.email    || "";
+  const name  = user.displayName || data.displayName || "";
+  const fallbackLetter = ((name || email || "?").trim()[0] || "?").toUpperCase();
+
+  // Skip if nothing changed (prevents flicker on every greeting tick)
+  const key = `${photo}|${fallbackLetter}`;
+  if (key === _lastAvatarKey && !avatarEl.classList.contains("hidden")) return;
+  _lastAvatarKey = key;
+
+  // Start with the initials fallback
+  avatarEl.textContent = fallbackLetter;
+
+  // Try to load the Google photo in the background
+  if (photo) {
+    const img = new Image();
+    img.src = photo;
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";   // helps with Google UserContent URLs
+    img.crossOrigin = "anonymous";
+
+    img.onload = () => {
+      // Bail out if a newer avatar was requested while we were loading
+      if (_lastAvatarKey !== key) return;
+      avatarEl.innerHTML = "";
+      avatarEl.appendChild(img);
+    };
+
+    img.onerror = () => {
+      // Silently keep the initials fallback
+      console.warn("[avatar] photo failed to load:", photo);
+    };
+  }
+
+  avatarEl.classList.remove("hidden");
+
+  // Add a native tooltip with the email so hovering shows who's logged in
+  avatarEl.title = email || name || "";
+}
 
 /* =========================================================
    PWA INSTALL — topbar button, sidebar "Download App", banner
-   Platform-aware instructions modal
+   Platform-aware instructions modal + live diagnostics
    ========================================================= */
 let deferredInstallPrompt = null;
 
@@ -139,7 +206,6 @@ function detectInstallPlatform() {
   return "desktop";
 }
 
-/* ---------- Running as an installed PWA? ---------- */
 function isRunningStandalone() {
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -149,12 +215,74 @@ function isRunningStandalone() {
   );
 }
 
-/* ---------- Show the correct instruction block in the modal ---------- */
-function applyPlatformInstructions() {
-  const platform = detectInstallPlatform();
-  document.querySelectorAll(".install-guide").forEach(el => {
-    el.classList.toggle("is-active", el.dataset.platform === platform);
-  });
+function isSecureContextOk() {
+  return (
+    location.protocol === "https:" ||
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "[::1]"
+  );
+}
+
+/* ---------- Live diagnostic ---------- */
+async function diagnoseInstallability() {
+  const reasons = [];
+
+  if (isRunningStandalone()) reasons.push("Already running as installed app");
+  if (!isSecureContextOk())
+    reasons.push(`Not a secure origin (current: ${location.protocol}//${location.hostname}) — must be HTTPS or localhost`);
+  if (!("serviceWorker" in navigator)) reasons.push("Browser doesn't support service workers");
+
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    if (!regs.length) reasons.push("No service worker registered");
+    else {
+      const anyActive = regs.some(r => r.active || r.installing || r.waiting);
+      if (!anyActive) reasons.push("Service worker exists but is not active");
+    }
+  } catch (e) {
+    reasons.push("Could not query service workers: " + e.message);
+  }
+
+  try {
+    const link = document.querySelector('link[rel="manifest"]');
+    if (!link) reasons.push('No <link rel="manifest"> in HTML');
+    else {
+      const res = await fetch(link.href, { cache: "no-store" });
+      if (!res.ok) reasons.push(`Manifest not reachable (HTTP ${res.status})`);
+      else {
+        const manifest = await res.json();
+        if (!manifest.name && !manifest.short_name) reasons.push("Manifest missing name/short_name");
+        if (!manifest.start_url) reasons.push("Manifest missing start_url");
+        if (!manifest.display) reasons.push("Manifest missing display");
+        if (!Array.isArray(manifest.icons) || !manifest.icons.length) {
+          reasons.push("Manifest has no icons");
+        } else {
+          const has192 = manifest.icons.some(i => String(i.sizes || "").includes("192"));
+          const has512 = manifest.icons.some(i => String(i.sizes || "").includes("512"));
+          if (!has192) reasons.push("Manifest icons missing 192x192 size");
+          if (!has512) reasons.push("Manifest icons missing 512x512 size");
+        }
+      }
+    }
+  } catch (e) {
+    reasons.push("Could not read manifest: " + e.message);
+  }
+
+  if (!reasons.length && !deferredInstallPrompt) {
+    reasons.push("Chrome may have suppressed the prompt (previously dismissed). Try a fresh Chrome profile or clear site data.");
+  }
+
+  console.group("🔎 PWA installability check");
+  if (reasons.length) {
+    console.warn("Install prompt NOT available. Reasons:");
+    reasons.forEach(r => console.warn("  •", r));
+  } else {
+    console.log("✅ PWA is installable. Waiting for beforeinstallprompt…");
+  }
+  console.groupEnd();
+
+  return reasons;
 }
 
 /* ---------- Sidebar Download App button states ---------- */
@@ -176,18 +304,44 @@ function setDownloadButtonInstalled() {
   if (label) label.textContent = "App Installed ✓";
 }
 
-/* ---------- Install-instructions modal ---------- */
+/* ---------- Show the correct instruction block ---------- */
+function applyPlatformInstructions() {
+  const platform = detectInstallPlatform();
+  document.querySelectorAll(".install-guide").forEach(el => {
+    el.classList.toggle("is-active", el.dataset.platform === platform);
+  });
+
+  const wrap = document.querySelector(".install-instructions");
+  if (!wrap) return;
+  let diag = document.getElementById("install-diagnostic");
+  if (!diag) {
+    diag = document.createElement("div");
+    diag.id = "install-diagnostic";
+    diag.className = "install-diagnostic";
+    wrap.appendChild(diag);
+  }
+  diag.innerHTML = `<p style="margin:0 0 6px;"><strong>🔎 Why isn't the install prompt showing?</strong></p>
+    <p style="margin:0;font-size:0.78rem;color:var(--text-secondary);">Open DevTools → Console to see the detailed check.</p>`;
+
+  diagnoseInstallability().then(reasons => {
+    if (!reasons.length) {
+      diag.innerHTML = `<p style="margin:0;color:#10B981;"><strong>✅ Ready to install.</strong> Chrome should offer the install prompt shortly.</p>`;
+    } else {
+      diag.innerHTML = `<p style="margin:0 0 6px;"><strong>🔎 Install prompt is unavailable because:</strong></p>
+        <ul style="margin:0;padding-left:18px;font-size:0.78rem;line-height:1.5;">
+          ${reasons.map(r => `<li>${r}</li>`).join("")}
+        </ul>`;
+    }
+  });
+}
+
 function openInstallInstructions() {
   const modal = $("install-modal");
   if (!modal) return false;
 
-  // Show the native "Install Now" button ONLY when we have a real prompt
   const nativeWrap = $("install-native-wrap");
-  if (nativeWrap) {
-    nativeWrap.classList.toggle("hidden", !deferredInstallPrompt);
-  }
+  if (nativeWrap) nativeWrap.classList.toggle("hidden", !deferredInstallPrompt);
 
-  // Pick the right section for this device
   applyPlatformInstructions();
 
   modal.classList.remove("hidden");
@@ -197,16 +351,12 @@ function openInstallInstructions() {
 
 /* ---------- Unified install flow ---------- */
 async function runInstallFlow() {
-  // 1) Native prompt available → use it
   if (deferredInstallPrompt) {
     try {
       deferredInstallPrompt.prompt();
       const { outcome } = await deferredInstallPrompt.userChoice;
-      if (outcome === "accepted") {
-        showToast("Installing Kurt POS… 📲");
-      } else {
-        showToast("Install dismissed");
-      }
+      if (outcome === "accepted") showToast("Installing Kurt POS… 📲");
+      else showToast("Install dismissed");
     } catch (e) {
       console.warn("[install] prompt failed:", e);
     } finally {
@@ -218,23 +368,19 @@ async function runInstallFlow() {
     return;
   }
 
-  // 2) Already installed → just inform
   if (isRunningStandalone()) {
     showToast("Kurt POS is already installed ✓");
     setDownloadButtonInstalled();
     return;
   }
 
-  // 3) Show step-by-step instructions (platform aware)
   if (openInstallInstructions()) return;
 
-  // 4) Last resort
   showToast('Open browser menu → "Install app" or "Add to Home Screen" 📲');
 }
 
-/* ---------- Wiring ---------- */
+/* ---------- Wiring — ONE instance only ---------- */
 function wireInstallPrompt() {
-  /* Restore the "installed" UI if we're already running as a PWA */
   if (isRunningStandalone()) {
     setDownloadButtonInstalled();
     $("install-btn")?.classList.add("hidden");
@@ -244,12 +390,9 @@ function wireInstallPrompt() {
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
-
-    // Reveal topbar Install button
     $("install-btn")?.classList.remove("hidden");
-
-    // Pulse the sidebar Download App button
     setDownloadButtonReady(true);
+    console.log("✅ beforeinstallprompt fired — install is available");
   });
 
   window.addEventListener("appinstalled", () => {
@@ -262,20 +405,14 @@ function wireInstallPrompt() {
     showToast("Kurt POS installed 🎉");
   });
 
-  // 1) Topbar Install button
   $("install-btn")?.addEventListener("click", runInstallFlow);
-
-  // 2) Install banner button
   $("install-banner-btn")?.addEventListener("click", runInstallFlow);
+  document.getElementById("nav-download-app")?.addEventListener("click", runInstallFlow);
 
-  // 3) Sidebar Download App button
-  document.getElementById("nav-download-app")
-    ?.addEventListener("click", runInstallFlow);
-
-  // 4) Native "Install Now" button inside the instructions modal
   $("install-native-btn")?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
       showToast("Native install prompt isn't available yet ⚠️");
+      diagnoseInstallability();
       return;
     }
     try {
@@ -291,8 +428,14 @@ function wireInstallPrompt() {
       document.body.style.overflow = "";
     }
   });
-}
 
+  setTimeout(() => {
+    if (!deferredInstallPrompt && !isRunningStandalone()) {
+      diagnoseInstallability();
+    }
+  }, 3000);
+}
+  
 /* =========================================================
    STARTUP SIDE EFFECTS
    ========================================================= */
@@ -683,6 +826,8 @@ function onLoggedOut() {
   forceCloseScanner();
   stopGreetingTicker();
   stopAutoSyncTicker();
+  stopthemeRotationTicker();
+  updateTopbarAvatar();
 }
 
 function onPending() {
@@ -853,6 +998,8 @@ window.addEventListener("load", () => {
    BOOT
    ========================================================= */
 function boot() {
+  loadThemePalette();
+  startThemeRotationTicker();
   initAuthUI();
   initInventory();
   initPOS();
@@ -878,6 +1025,7 @@ function boot() {
       forceCloseScanner();
       stopGreetingTicker();
       stopAutoSyncTicker();
+      stopThemeRotationTicker();
     }
   });
 }
