@@ -239,6 +239,9 @@
       <span class="nav-icon-maya"><img src="Maya.jpg" alt="Pay Maya" /></span>
       <span>Pay Maya</span>
     </button>
+    <button type="button" class="nav-btn" data-page="page-eload">
+      <span class="nav-icon">📱</span><span>E-Load</span>
+    </button>
     <button type="button" class="nav-btn hidden" id="nav-admin" data-page="page-admin">
       <span class="nav-icon">🛡️</span><span>Admin</span>
     </button>
@@ -1189,6 +1192,155 @@
       <button type="button" class="btn ghost sm" id="maya-export-pdf">📄 PDF</button>
     </div>
     <div class="maya-list" id="maya-list"></div>
+  </main>
+
+    <!-- ========================================================
+       PAGE — E-LOAD
+       ======================================================== -->
+  <main id="page-eload" class="page hidden">
+    <h2 class="page-title">📱 E-Load Tracker</h2>
+
+    <!-- Summary -->
+    <div class="eload-summary">
+      <div class="eload-stat sales">
+        <span class="eload-stat-label">Load Sales — Today</span>
+        <strong id="eload-sales-today">₱0.00</strong>
+        <small id="eload-sales-count">0 transactions</small>
+      </div>
+      <div class="eload-stat profit">
+        <span class="eload-stat-label">Profit — Today</span>
+        <strong id="eload-profit-today">₱0.00</strong>
+        <small id="eload-profit-month">This month: ₱0.00</small>
+      </div>
+      <div class="eload-stat wallet">
+        <span class="eload-stat-label">Load Wallet Balance</span>
+        <strong id="eload-wallet-balance">₱0.00</strong>
+        <div class="eload-wallet-actions">
+          <button type="button" class="eload-mini-btn" id="eload-wallet-topup">➕ Top Up</button>
+          <button type="button" class="eload-mini-btn" id="eload-wallet-set">⚙️ Set</button>
+        </div>
+      </div>
+      <div class="eload-stat avg">
+        <span class="eload-stat-label">Avg Margin</span>
+        <strong id="eload-avg-margin">0%</strong>
+        <small id="eload-avg-amount">Avg load: ₱0.00</small>
+      </div>
+    </div>
+
+    <!-- Sell + Side -->
+    <div class="eload-layout">
+
+      <!-- Quick Sell Panel -->
+      <section class="eload-sell-panel">
+        <header class="eload-panel-head">
+          <h3>⚡ Quick Sell</h3>
+          <span class="eload-panel-badge" id="eload-sell-hint">Select network & amount</span>
+        </header>
+
+        <!-- Network selector -->
+        <div class="eload-section-label">1 · Network</div>
+        <div class="eload-network-grid" id="eload-network-grid"></div>
+
+        <!-- Amount selector -->
+        <div class="eload-section-label">
+          2 · Amount
+          <button type="button" class="eload-custom-toggle" id="eload-custom-toggle">
+            Custom
+          </button>
+        </div>
+        <div class="eload-amount-grid" id="eload-amount-grid"></div>
+
+        <div class="eload-custom-row hidden" id="eload-custom-row">
+          <input type="number" id="eload-custom-amount" min="1" step="1" placeholder="Enter amount ₱" inputmode="numeric" />
+        </div>
+
+        <!-- Phone -->
+        <div class="eload-section-label">3 · Customer Number</div>
+        <input
+          type="tel"
+          id="eload-phone"
+          class="eload-phone-input"
+          placeholder="09XXXXXXXXX"
+          autocomplete="off"
+          inputmode="numeric"
+          maxlength="13"
+        />
+
+        <!-- Customer name (optional) -->
+        <input
+          type="text"
+          id="eload-customer"
+          class="eload-customer-input"
+          placeholder="Customer name (optional)"
+          autocomplete="off"
+        />
+
+        <!-- Live preview -->
+        <div class="eload-preview" id="eload-preview">
+          <div class="eload-preview-empty">Fill in the fields above to see the breakdown</div>
+        </div>
+
+        <!-- Sell button -->
+        <button type="button" class="btn primary block" id="eload-sell-btn" disabled>
+          💰 Sell Load
+        </button>
+      </section>
+
+      <!-- Side Panel: Settings -->
+      <aside class="eload-side">
+
+        <!-- Wallet card -->
+        <div class="card compact eload-side-card">
+          <h3 class="card-title">💼 Load Wallet</h3>
+          <p class="eload-side-hint">
+            The wallet tracks how much load credit you have with your supplier. Each sale deducts the cost from this balance.
+          </p>
+          <div class="eload-wallet-display">
+            <strong id="eload-wallet-display">₱0.00</strong>
+            <small id="eload-wallet-meta">No top-ups yet</small>
+          </div>
+          <div class="eload-wallet-btn-row">
+            <button type="button" class="btn ghost sm" id="eload-wallet-topup-2">➕ Top Up</button>
+            <button type="button" class="btn ghost sm" id="eload-wallet-reset">🔄 Reset</button>
+          </div>
+        </div>
+
+        <!-- Network discount settings -->
+        <div class="card compact eload-side-card">
+          <h3 class="card-title">⚙️ Discount Rates</h3>
+          <p class="eload-side-hint">
+            Set the % discount you get from your supplier per network. Example: 4% means a ₱100 load costs you ₱96.
+          </p>
+          <div id="eload-network-settings" class="eload-net-settings"></div>
+          <button type="button" class="btn primary block" id="eload-save-network-settings">
+            💾 Save Rates
+          </button>
+        </div>
+
+      </aside>
+    </div>
+
+    <!-- Recent transactions -->
+    <div class="section-heading-row">
+      <h3 class="section-heading">📋 Recent E-Load Transactions</h3>
+      <div class="export-btns">
+        <button type="button" class="btn ghost sm" id="eload-export-excel">📊 Excel</button>
+        <button type="button" class="btn ghost sm" id="eload-export-pdf">📄 PDF</button>
+      </div>
+    </div>
+
+    <div class="eload-toolbar">
+      <input type="search" id="eload-search" placeholder="Search phone, customer, ref…" />
+      <select id="eload-filter-network"><option value="">All Networks</option></select>
+      <select id="eload-filter-range">
+        <option value="">All Time</option>
+        <option value="today">Today</option>
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+      </select>
+    </div>
+
+    <div class="eload-list" id="eload-list"></div>
   </main>
 
   <!-- ========================================================

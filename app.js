@@ -30,6 +30,7 @@ import {
 import { initLabels, renderLabelsPage } from "./labels.js";
 import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
 import { initMaya, startMayaListeners, renderMayaPage } from "./maya.js";
+import { initEload, startEloadListeners, renderEloadPage } from "./eload.js";
 
 /* =========================================================
    POPULATE CATEGORY OPTIONS — local function
@@ -573,6 +574,9 @@ function wireNav() {
       if (btn.dataset.page === "page-maya") {
         safeRender(renderMayaPage);
       }
+      if (btn.dataset.page === "page-eload") {
+        safeRender(renderEloadPage);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   });
@@ -707,6 +711,7 @@ function startAllListeners() {
   startCustomersListeners(onAfter);
   startGcashListeners(onAfter);
   startMayaListeners(onAfter);
+  startEloadListeners(onAfter);
 }
 
 function stopAllListeners() {
@@ -1008,6 +1013,7 @@ function boot() {
   initLabels();
   initGcash();
   initMaya();
+  initEload();
   wireNav();
   wireMobileNav();
   wireDashboardRefresh();
