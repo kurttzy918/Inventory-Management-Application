@@ -4255,3 +4255,134 @@ body,
     font-size: 0.82rem;
   }
 }
+/* ==========================================================
+   GCASH — Better scan result panel
+   ========================================================== */
+.gcash-scan-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-height: 100px;
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Success header */
+.gcash-scan-success-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.gcash-scan-success-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.gcash-scan-success-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #10B981;
+}
+[data-theme="dark"] .gcash-scan-success-title { color: #34D399; }
+
+/* Empty / no data found */
+.gcash-scan-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  text-align: center;
+}
+.gcash-scan-empty-icon { font-size: 1.4rem; }
+.gcash-scan-empty-text {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.gcash-scan-empty-raw {
+  font-family: 'Courier New', monospace;
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  max-width: 100%;
+}
+
+/* Original label/value rows */
+.gcash-scan-result-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+}
+.gcash-scan-result-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+.gcash-scan-result-value {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--title-color);
+  text-align: right;
+  word-break: break-word;
+  min-width: 0;
+}
+.gcash-scan-result-value.mono {
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.04em;
+  color: var(--brand);
+}
+[data-theme="dark"] .gcash-scan-result-value.mono { color: #5FC2A6; }
+
+/* Placeholder text (before scan) */
+.gcash-scan-placeholder {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  align-self: center;
+  margin: auto 0;
+}
+
+/* Success pulse animation */
+.gcash-scan-pop {
+  animation: gcashScanPop 0.9s ease;
+}
+@keyframes gcashScanPop {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); border-color: #10B981; }
+  50%  { box-shadow: 0 0 0 12px rgba(16, 185, 129, 0); border-color: #10B981; }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); border-color: var(--border); }
+}
+
+[data-theme="dark"] .gcash-scan-result { background: rgba(255, 255, 255, 0.04); }
+[data-theme="dark"] .gcash-scan-pop {
+  animation-name: gcashScanPopDark;
+}
+@keyframes gcashScanPopDark {
+  0%   { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); border-color: #34D399; }
+  50%  { box-shadow: 0 0 0 12px rgba(52, 211, 153, 0); border-color: #34D399; }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); border-color: var(--border); }
+}
+
+/* Increase the panel height so multi-row results fit */
+@media (min-width: 520px) {
+  .gcash-scan-result { min-height: 140px; }
+}

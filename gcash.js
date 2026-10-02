@@ -173,8 +173,7 @@ async function renderQr(canvas, text, opts = {}) {
 }
 
 /* =========================================================
-   QR PARSER — extracts customer info from any scanned QR
-   Priority: URL → JSON → EMVCo TLV → key:value → phone → plain
+   EMVCo TLV PARSER — handles nested tags
    ========================================================= */
 function parseEmvCoTlv(text) {
   const tags = {};
@@ -183,20 +182,31 @@ function parseEmvCoTlv(text) {
     const tag = text.substr(i, 2);
     const len = parseInt(text.substr(i + 2, 2), 10);
     if (isNaN(len) || len < 0) break;
+    if (i + 4 + len > text.length) break;
     const value = text.substr(i + 4, len);
-    if (value.length < len) break;
     tags[tag] = value;
     i += 4 + len;
   }
   return Object.keys(tags).length ? tags : null;
 }
 
+/* =========================================================
+   QR PARSER — extracts customer info from any scanned QR
+   Handles: URL · JSON · EMVCo/QR Ph · key:value · phone · plain
+   ========================================================= */
 function parseQrPayload(text) {
   const raw = String(text || "").trim();
-  const out = { raw, name: "", number: "", amount: null, reference: "", note: "" };
+  const out = {
+    raw,
+    name: "",
+    number: "",
+    amount: null,
+    reference: "",
+    note: ""
+  };
   if (!raw) return out;
 
-  /* 1) URL with query params */
+  /* ---------- 1) URL with query params ---------- */
   if (/^https?:\/\//i.test(raw)) {
     try {
       const u = new URL(raw);
@@ -210,7 +220,7 @@ function parseQrPayload(text) {
     } catch {}
   }
 
-  /* 2) JSON */
+  /* ---------- 2) JSON ---------- */
   if (raw.startsWith("{")) {
     try {
       const j = JSON.parse(raw);
@@ -223,22 +233,61 @@ function parseQrPayload(text) {
     } catch {}
   }
 
-  /* 3) EMVCo TLV (QR Ph / GCash standard) */
+  /* ---------- 3) EMVCo TLV (QR Ph / GCash standard) ---------- */
   try {
     const tlv = parseEmvCoTlv(raw);
     if (tlv) {
-      if (tlv["59"]) out.name = String(tlv["59"]).trim();          // merchant/account name
-      if (tlv["60"]) out.note = out.note || String(tlv["60"]).trim(); // city
+      /* Merchant Account Information — tags 26–51
+         Sub-tag 00 = GUID (e.g. "ph.ppmi.p2m")
+         Sub-tag 01 = account number / GCash number
+         Sub-tag 02 = alternate account number
+      */
+      for (const merchantTag of ["26", "27", "28", "29", "30", "31", "32", "33"]) {
+        const block = tlv[merchantTag];
+        if (!block) continue;
+        const sub = parseEmvCoTlv(block);
+        if (!sub) continue;
+
+        // GCash numbers: sub-tag 01 is usually the primary ID
+        if (sub["01"] && !out.number) {
+          out.number = String(sub["01"]).trim();
+        }
+        // Fallback: some providers use 02 or 03
+        if (sub["02"] && !out.number && /^\d{7,}$/.test(String(sub["02"]))) {
+          out.number = String(sub["02"]).trim();
+        }
+        // Merchant/customer name inside the block (rare but possible)
+        if (sub["00"] && !out.name && /[A-Za-z]/.test(String(sub["00"]))) {
+          // GUID strings like "ph.ppmi.p2m" aren't names — skip those
+          const candidate = String(sub["00"]).trim();
+          if (!/^ph\.[a-z0-9.]+$/i.test(candidate)) out.name = candidate;
+        }
+      }
+
+      // Merchant/Customer Name — tag 59
+      if (tlv["59"]) out.name = String(tlv["59"]).trim();
+
+      // Merchant City — tag 60
+      if (tlv["60"]) out.note = out.note || String(tlv["60"]).trim();
+
+      // Amount — tag 54
       if (tlv["54"]) out.amount = Number(tlv["54"]) || null;
+
+      // Additional Data Field — tag 62
       if (tlv["62"]) {
         const sub = parseEmvCoTlv(tlv["62"]);
         if (sub?.["01"]) out.reference = String(sub["01"]).trim();
+        if (sub?.["05"] && !out.reference) out.reference = String(sub["05"]).trim();
+        if (sub?.["07"] && !out.reference) out.reference = String(sub["07"]).trim();
       }
-      if (out.name) return out;
-    }
-  } catch {}
 
-  /* 4) Key : Value lines */
+      if (out.name || out.number) return out;
+    }
+  } catch (e) {
+    console.warn("[gcash qr] EMVCo parse failed:", e);
+  }
+
+  /* ---------- 4) Key : Value lines ---------- */
   const kv = {};
   raw.split(/[\n\r;|,]+/).forEach(line => {
     const m = line.match(/^\s*([A-Za-z0-9 _-]{2,24})\s*[:=]\s*(.+?)\s*$/);
@@ -251,11 +300,11 @@ function parseQrPayload(text) {
     if (out.name || out.number) return out;
   }
 
-  /* 5) Philippine mobile number */
+  /* ---------- 5) Philippine mobile number anywhere in the text ---------- */
   const phone = raw.match(/(?:\+?63|0)?9\d{9}/);
   if (phone) out.number = phone[0];
 
-  /* 6) Fallback — short plain text becomes the name */
+  /* ---------- 6) Fallback — short plain text becomes the name ---------- */
   if (!out.name && !out.number && raw.length <= 80 && !/^\d+$/.test(raw)) {
     out.name = raw;
   }
@@ -264,47 +313,116 @@ function parseQrPayload(text) {
 }
 
 /* =========================================================
-   SCANNED-QR HANDLER — auto-fill the customer field
+   SCANNED-QR HANDLER — auto-fill customer info + clear display
    ========================================================= */
 function handleScannedCustomerQr(text) {
   const parsed = parseQrPayload(text);
-  const display = parsed.name || parsed.number || parsed.raw || "—";
 
-  /* Show result panel */
+  /* ---------- Show a clear, labeled result panel ---------- */
   const resultEl = $("gcash-scan-result");
   if (resultEl) {
+    const hasAny = parsed.name || parsed.number || parsed.reference || parsed.amount;
+
+    if (!hasAny) {
+      resultEl.innerHTML = `
+        <div class="gcash-scan-empty">
+          <div class="gcash-scan-empty-icon">⚠️</div>
+          <div class="gcash-scan-empty-text">No customer info found in this QR</div>
+          <div class="gcash-scan-empty-raw">${esc(parsed.raw.slice(0, 60))}</div>
+        </div>`;
+      showToast("QR scanned — no customer info found ⚠️");
+      return;
+    }
+
     resultEl.innerHTML = `
-      <div class="gcash-scan-result-row">
-        <span class="gcash-scan-result-label">Scanned</span>
-        <strong class="gcash-scan-result-value">${esc(display)}</strong>
+      <div class="gcash-scan-success-head">
+        <span class="gcash-scan-success-icon">✅</span>
+        <span class="gcash-scan-success-title">Customer Scanned</span>
       </div>
-      ${parsed.number    ? `<div class="gcash-scan-result-meta">📞 ${esc(parsed.number)}</div>` : ""}
-      ${parsed.reference ? `<div class="gcash-scan-result-meta">🔖 ${esc(parsed.reference)}</div>` : ""}
-      ${parsed.amount    ? `<div class="gcash-scan-result-meta">💵 ₱${esc(Number(parsed.amount).toFixed(2))}</div>` : ""}
+
+      ${parsed.name ? `
+        <div class="gcash-scan-result-row">
+          <span class="gcash-scan-result-label">Account Name</span>
+          <strong class="gcash-scan-result-value">${esc(parsed.name)}</strong>
+        </div>` : ""}
+
+      ${parsed.number ? `
+        <div class="gcash-scan-result-row">
+          <span class="gcash-scan-result-label">GCash Number</span>
+          <strong class="gcash-scan-result-value mono">${esc(parsed.number)}</strong>
+        </div>` : ""}
+
+      ${parsed.reference ? `
+        <div class="gcash-scan-result-row">
+          <span class="gcash-scan-result-label">Reference</span>
+          <strong class="gcash-scan-result-value mono">${esc(parsed.reference)}</strong>
+        </div>` : ""}
+
+      ${parsed.amount ? `
+        <div class="gcash-scan-result-row">
+          <span class="gcash-scan-result-label">Amount</span>
+          <strong class="gcash-scan-result-value">₱${Number(parsed.amount).toFixed(2)}</strong>
+        </div>` : ""}
     `;
+
+    // Success animation pulse
+    resultEl.classList.add("gcash-scan-pop");
+    setTimeout(() => resultEl.classList.remove("gcash-scan-pop"), 900);
   }
 
-  /* Auto-fill the customer field in the transaction form */
+  /* ---------- Auto-fill transaction form fields ---------- */
+
+  // 1) Customer name → Customer field
   const custEl = $("gcash-customer");
-  const value = parsed.name || parsed.number || "";
-  if (custEl && value) {
-    custEl.value = value;
+  if (custEl && parsed.name) {
+    custEl.value = parsed.name;
+    custEl.classList.add("gcash-autofilled");
+    setTimeout(() => custEl.classList.remove("gcash-autofilled"), 1300);
+  } else if (custEl && !custEl.value && parsed.number) {
+    // Fallback: use the number as the customer identifier
+    custEl.value = parsed.number;
     custEl.classList.add("gcash-autofilled");
     setTimeout(() => custEl.classList.remove("gcash-autofilled"), 1300);
   }
 
-  /* Auto-fill reference if the QR provides one and it's empty */
-  if (parsed.reference && $("gcash-reference") && !valOf($("gcash-reference"))) {
-    setVal($("gcash-reference"), parsed.reference);
+  // 2) Reference → use the customer's GCash number if no reference and no value
+  const refEl = $("gcash-reference");
+  if (refEl && !refEl.value) {
+    if (parsed.reference) {
+      refEl.value = parsed.reference;
+    } else if (parsed.number) {
+      refEl.value = parsed.number;
+    }
+    if (refEl.value) {
+      refEl.classList.add("gcash-autofilled");
+      setTimeout(() => refEl.classList.remove("gcash-autofilled"), 1300);
+    }
   }
 
-  /* Auto-fill amount if the QR contains one and the field is empty */
-  if (parsed.amount && $("gcash-amount") && !valOf($("gcash-amount"))) {
-    setVal($("gcash-amount"), Number(parsed.amount).toFixed(2));
+  // 3) Amount → fill only if the field is empty and the QR had an amount
+  const amtEl = $("gcash-amount");
+  if (amtEl && !amtEl.value && parsed.amount) {
+    amtEl.value = Number(parsed.amount).toFixed(2);
+    amtEl.classList.add("gcash-autofilled");
+    setTimeout(() => amtEl.classList.remove("gcash-autofilled"), 1300);
+  }
+
+  // 4) Note → store the customer's GCash number for the transaction record
+  const noteEl = $("gcash-note");
+  if (noteEl && !noteEl.value && parsed.number) {
+    noteEl.value = `Customer GCash: ${parsed.number}`;
   }
 
   playSuccessSound();
-  showToast(value ? `Scanned: ${display} ✅` : "QR scanned — no customer info found ⚠️");
+  showToast(
+    parsed.name && parsed.number
+      ? `Scanned: ${parsed.name} · ${parsed.number} ✅`
+      : parsed.name
+        ? `Scanned: ${parsed.name} ✅`
+        : parsed.number
+          ? `Scanned: ${parsed.number} ✅`
+          : "QR scanned ✅"
+  );
 }
 
 /* =========================================================
