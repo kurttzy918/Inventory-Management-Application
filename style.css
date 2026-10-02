@@ -4826,3 +4826,251 @@ body,
   .eload-row-actions { flex-wrap: wrap; }
   .eload-row-amt { font-size: 0.85rem; }
 }
+/* ==========================================================
+   TOPBAR — Live user count badge (super admins only)
+   ========================================================== */
+.user-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: default;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+.user-count-badge:hover {
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+  color: var(--brand);
+}
+.user-count-badge.hidden { display: none !important; }
+
+.user-count-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-400);
+  line-height: 1;
+}
+.user-count-icon svg { display: block; }
+
+.user-count-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--title-color);
+  letter-spacing: -0.01em;
+}
+.user-count-label {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Live pulse dot */
+.user-count-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+  animation: userCountPulse 2s infinite;
+  margin-right: -2px;
+}
+@keyframes userCountPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+  70%  { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .user-count-badge::before { animation: none; }
+}
+
+/* Dark mode */
+[data-theme="dark"] .user-count-badge {
+  background: rgba(255, 255, 255, 0.04);
+}
+[data-theme="dark"] .user-count-badge:hover {
+  background: rgba(47, 163, 143, 0.10);
+  border-color: var(--brand-400);
+  color: #8FE3C8;
+}
+[data-theme="dark"] .user-count-num { color: #E7F3F1; }
+
+/* Hide on very small screens */
+@media (max-width: 640px) {
+  .user-count-badge { display: none !important; }
+}
+/* ==========================================================
+   TERMS & CONDITIONS MODAL
+   ========================================================== */
+.terms-card {
+  max-width: 620px;
+  width: min(620px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 22px 18px;
+}
+
+.terms-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
+}
+.terms-meta strong { color: var(--brand); font-weight: 800; }
+.terms-meta-dot { opacity: 0.5; }
+[data-theme="dark"] .terms-meta strong { color: #5FC2A6; }
+
+/* Scrollable content wrapper with a soft fade at the bottom */
+.terms-scroll-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.terms-content {
+  overflow-y: auto;
+  max-height: 52vh;
+  padding: 4px 4px 20px;
+  scrollbar-width: thin;
+  line-height: 1.6;
+  font-size: 0.86rem;
+  color: var(--text);
+}
+.terms-content::-webkit-scrollbar { width: 8px; }
+.terms-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+.terms-content::-webkit-scrollbar-thumb:hover { background: var(--brand-300); }
+
+/* Fade hint at bottom */
+.terms-fade {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 44px;
+  pointer-events: auto;
+  cursor: pointer;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    var(--brand-50) 85%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand);
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+.terms-fade::after { content: "Scroll ↓"; }
+.terms-fade.hidden { opacity: 0; pointer-events: none; }
+[data-theme="dark"] .terms-fade {
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    var(--surface) 85%);
+  color: #5FC2A6;
+}
+
+/* Content typography */
+.terms-intro {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  padding: 4px 0 14px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 14px;
+}
+.terms-section { margin-bottom: 16px; }
+.terms-section-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--title-color);
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+.terms-section-body {
+  font-size: 0.84rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.terms-section-body strong {
+  color: var(--brand);
+  font-weight: 700;
+}
+[data-theme="dark"] .terms-section-body strong { color: #5FC2A6; }
+.terms-footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Actions row */
+.terms-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.terms-actions .btn { min-width: 100px; }
+#terms-accept:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
+/* Mobile */
+@media (max-width: 520px) {
+  .terms-card { padding: 16px 14px 12px; max-height: 94vh; }
+  .terms-content { max-height: 48vh; font-size: 0.82rem; }
+  .terms-section-title { font-size: 0.84rem; }
+  .terms-section-body { font-size: 0.8rem; }
+  .terms-actions { flex-direction: column-reverse; }
+  .terms-actions .btn { width: 100%; }
+}
+
+/* ==========================================================
+   SIDEBAR — Terms nav button
+   ========================================================== */
+.nav-btn-terms {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  margin-top: 6px;
+  padding-top: 12px;
+}
+.nav-btn-terms:hover {
+  background: var(--surface-2);
+  color: var(--brand);
+}
+[data-theme="dark"] .nav-btn-terms:hover { color: #8FE3C8; }

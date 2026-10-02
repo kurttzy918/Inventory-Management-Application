@@ -176,6 +176,22 @@
       </div>
     </div>
 
+    <!-- NEW: live user count badge -->
+    <div id="user-count-badge" class="user-count-badge hidden" title="Stores using Kurt POS">
+      <span class="user-count-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </span>
+      <span class="user-count-num" id="user-count-num">—</span>
+      <span class="user-count-label">users</span>
+    </div>
+
     <div class="user-area">
       <button type="button" id="sound-toggle" class="toggle-switch" role="switch" aria-checked="true" aria-label="Sound">
         <span class="toggle-knob"><span class="toggle-emoji" id="sound-icon">🔊</span></span>
@@ -258,10 +274,16 @@
       </span>
       <span id="nav-download-label">Download App</span>
     </button>
+    
+    <button type="button" class="nav-btn nav-btn-terms" id="nav-terms" title="Terms & Conditions">
+      <span class="nav-icon">📄</span><span>Terms</span>
+    </button>
 
     <button type="button" id="logout-btn-mobile" class="nav-btn nav-btn-logout" style="display:none"></button>
   </nav>
   <div id="nav-backdrop" class="nav-backdrop"></div>
+
+  
 
   <!-- ========================================================
        PAGE — DASHBOARD
@@ -1665,6 +1687,36 @@
         <button type="button" class="btn primary" id="gcash-pay-print">🖨️ Print</button>
         <button type="button" class="btn ghost" id="gcash-pay-done">Done</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     TERMS & CONDITIONS MODAL
+     ============================================================ -->
+<div id="terms-modal" class="modal hidden">
+  <div class="modal-card terms-card">
+    <div class="modal-head">
+      <h3 id="terms-title">📄 Terms & Conditions</h3>
+      <button type="button" class="btn icon-btn hidden" id="terms-close" aria-label="Close">✕</button>
+    </div>
+
+    <div class="terms-meta">
+      <span>Version <strong id="terms-version">1.0.0</strong></span>
+      <span class="terms-meta-dot">·</span>
+      <span id="terms-updated">Updated —</span>
+    </div>
+
+    <div class="terms-scroll-wrap">
+      <div class="terms-content" id="terms-content"></div>
+      <div class="terms-fade" id="terms-fade" aria-hidden="true"></div>
+    </div>
+
+    <div class="terms-actions" id="terms-actions">
+      <button type="button" class="btn ghost" id="terms-decline">Decline</button>
+      <button type="button" class="btn primary" id="terms-accept" disabled>
+        I Agree
+      </button>
     </div>
   </div>
 </div>

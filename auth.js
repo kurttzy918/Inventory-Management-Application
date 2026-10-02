@@ -18,7 +18,11 @@ const { SUPER_ADMIN_EMAIL } = CONSTANTS;
    GOOGLE PROVIDER
    ========================================================= */
 const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: "select_account" });
+googleProvider.setCustomParameters({
+  prompt: "select_account",
+  // Force the full account chooser even if a session exists
+  login_hint: "",
+});
 
 /* =========================================================
    REMEMBER ME
@@ -293,9 +297,24 @@ export function initAuthUI() {
         console.warn("[Auth] setPersistence (google) failed:", persistErr);
       }
 
-      await signInWithPopup(auth, googleProvider);
-      // Profile creation / merge is handled in onAuthStateChanged below.
-      // A new Google user will land on the pending screen until approved.
+      const result = await signInWithPopup(auth, googleProvider);
+
+      // Confirm the user picked the account they expect
+      const signedInEmail = (result.user?.email || "").toLowerCase();
+      console.log("[Auth] Signed in as:", signedInEmail);
+
+      // If Firebase already had a different cached account, force a hard reset
+      const cachedEmail = (localStorage.getItem("lastGoogleEmail") || "").toLowerCase();
+      if (cachedEmail && cachedEmail !== signedInEmail) {
+        console.warn("[Auth] Account changed — clearing cached session data");
+        // Clear stale local data associated with the previous account
+        try {
+          localStorage.removeItem("kurtPaletteV1");
+          localStorage.removeItem("eloadNetworks:" + result.user.uid);
+          localStorage.removeItem("eloadWallet:" + result.user.uid);
+        } catch {}
+      }
+      localStorage.setItem("lastGoogleEmail", signedInEmail);
     } catch (err) {
       console.error("[Auth] Google error:", err);
       // Silent exit for user-cancelled popups
@@ -431,11 +450,14 @@ export function initAuthHandlers({ onLoggedOut, onPending, onApproved, onTeardow
       stopAuthBgCarousel();
 
       const navAdmin = $("nav-admin");
-      if (navAdmin) {
-        navAdmin.classList.toggle(
-          "hidden",
-          state.currentUserData.role !== "superadmin"
-        );
+      const isRealSuper = state.currentUserData.role === "superadmin";
+      if (navAdmin) navAdmin.classList.toggle("hidden", !isRealSuper);
+
+      // Kick off the users listener the moment a real super admin lands
+      if (isRealSuper) {
+        import("./app.js").then(m => {
+          m.startUserAdminListener?.();
+        }).catch(() => {});
       }
 
       onApproved?.(state.currentUserData);

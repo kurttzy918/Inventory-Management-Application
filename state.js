@@ -3,10 +3,15 @@ export const state = {
   inventory: [],
   sales: [],
   categories: [],
-  allUsers: [],
+
+  // ── Admin / user management ──
+  // allUsers: null = "not loaded yet", [] = "loaded but empty"
+  allUsers: null,
+  usersError: null,          // string when the Firestore query fails
+
   movements: [],
 
-   // customers / credit
+  // customers / credit
   customers: [],
   customerTransactions: [],
   currentCustomerId: null,
@@ -14,6 +19,12 @@ export const state = {
 
   // gcash
   gcashTransactions: [],
+
+  // maya
+  mayaTransactions: [],
+
+  // e-load
+  eloadTransactions: [],
 
   currentUser: null,
   currentUserData: null,

@@ -31,6 +31,16 @@ import { initLabels, renderLabelsPage } from "./labels.js";
 import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
 import { initMaya, startMayaListeners, renderMayaPage } from "./maya.js";
 import { initEload, startEloadListeners, renderEloadPage } from "./eload.js";
+import {
+  wireTerms, showTermsGate, hasSessionAccepted, markSessionAccepted,
+  recordTermsAcceptance
+} from "./terms.js";
+
+/* User count — Firestore aggregate query + handle */
+import {
+  getCountFromServer, collection, query, where
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { db } from "./firebase.js";
 
 /* =========================================================
    POPULATE CATEGORY OPTIONS — local function
@@ -38,7 +48,6 @@ import { initEload, startEloadListeners, renderEloadPage } from "./eload.js";
 function populateCategoryOptions() {
   const names = (state.categories || []).map(c => c.name).filter(Boolean);
 
-  // 1) Datalist for the Add/Edit Item form
   const datalist = document.getElementById("category-list");
   if (datalist) {
     datalist.innerHTML = names
@@ -46,7 +55,6 @@ function populateCategoryOptions() {
       .join("");
   }
 
-  // 2) Add Item page — category filter
   const filterSel = document.getElementById("filter-category");
   if (filterSel) {
     const cur = filterSel.value;
@@ -55,7 +63,6 @@ function populateCategoryOptions() {
     if (cur && names.includes(cur)) filterSel.value = cur;
   }
 
-  // 3) POS — category filter
   const posSel = document.getElementById("sales-cat-filter");
   if (posSel) {
     const cur = posSel.value;
@@ -64,7 +71,6 @@ function populateCategoryOptions() {
     if (cur && names.includes(cur)) posSel.value = cur;
   }
 
-  // 4) History — category filter
   const histSel = document.getElementById("history-cat-filter");
   if (histSel) {
     const cur = histSel.value;
@@ -121,19 +127,19 @@ export function updateTopbarGreeting() {
 export function startGreetingTicker() {
   if (greetingTimer) clearInterval(greetingTimer);
   updateTopbarGreeting();
-  updateTopbarAvatar();               // ← load the avatar when the user logs in
+  updateTopbarAvatar();
   greetingTimer = setInterval(() => {
     updateTopbarGreeting();
-    updateTopbarAvatar();             // ← keeps it in sync if the photo URL changes
+    updateTopbarAvatar();
   }, 30 * 1000);
 }
 
 export function stopGreetingTicker() {
   if (greetingTimer) { clearInterval(greetingTimer); greetingTimer = null; }
 }
+
 /* =========================================================
    PROFILE AVATAR — loads the Google account photo
-   Falls back to initials if the photo can't load
    ========================================================= */
 let _lastAvatarKey = null;
 
@@ -155,48 +161,39 @@ export function updateTopbarAvatar() {
   const name  = user.displayName || data.displayName || "";
   const fallbackLetter = ((name || email || "?").trim()[0] || "?").toUpperCase();
 
-  // Skip if nothing changed (prevents flicker on every greeting tick)
   const key = `${photo}|${fallbackLetter}`;
   if (key === _lastAvatarKey && !avatarEl.classList.contains("hidden")) return;
   _lastAvatarKey = key;
 
-  // Start with the initials fallback
   avatarEl.textContent = fallbackLetter;
 
-  // Try to load the Google photo in the background
   if (photo) {
     const img = new Image();
     img.src = photo;
     img.alt = "";
-    img.referrerPolicy = "no-referrer";   // helps with Google UserContent URLs
+    img.referrerPolicy = "no-referrer";
     img.crossOrigin = "anonymous";
 
     img.onload = () => {
-      // Bail out if a newer avatar was requested while we were loading
       if (_lastAvatarKey !== key) return;
       avatarEl.innerHTML = "";
       avatarEl.appendChild(img);
     };
 
     img.onerror = () => {
-      // Silently keep the initials fallback
       console.warn("[avatar] photo failed to load:", photo);
     };
   }
 
   avatarEl.classList.remove("hidden");
-
-  // Add a native tooltip with the email so hovering shows who's logged in
   avatarEl.title = email || name || "";
 }
 
 /* =========================================================
-   PWA INSTALL — topbar button, sidebar "Download App", banner
-   Platform-aware instructions modal + live diagnostics
+   PWA INSTALL
    ========================================================= */
 let deferredInstallPrompt = null;
 
-/* ---------- Platform detection ---------- */
 function detectInstallPlatform() {
   const ua = navigator.userAgent || "";
   const isIPad = /iPad/.test(ua) ||
@@ -225,7 +222,6 @@ function isSecureContextOk() {
   );
 }
 
-/* ---------- Live diagnostic ---------- */
 async function diagnoseInstallability() {
   const reasons = [];
 
@@ -286,7 +282,6 @@ async function diagnoseInstallability() {
   return reasons;
 }
 
-/* ---------- Sidebar Download App button states ---------- */
 function setDownloadButtonReady(ready) {
   const btn = document.getElementById("nav-download-app");
   if (!btn || btn.classList.contains("is-installed")) return;
@@ -305,7 +300,6 @@ function setDownloadButtonInstalled() {
   if (label) label.textContent = "App Installed ✓";
 }
 
-/* ---------- Show the correct instruction block ---------- */
 function applyPlatformInstructions() {
   const platform = detectInstallPlatform();
   document.querySelectorAll(".install-guide").forEach(el => {
@@ -350,7 +344,6 @@ function openInstallInstructions() {
   return true;
 }
 
-/* ---------- Unified install flow ---------- */
 async function runInstallFlow() {
   if (deferredInstallPrompt) {
     try {
@@ -380,7 +373,6 @@ async function runInstallFlow() {
   showToast('Open browser menu → "Install app" or "Add to Home Screen" 📲');
 }
 
-/* ---------- Wiring — ONE instance only ---------- */
 function wireInstallPrompt() {
   if (isRunningStandalone()) {
     setDownloadButtonInstalled();
@@ -436,7 +428,7 @@ function wireInstallPrompt() {
     }
   }, 3000);
 }
-  
+
 /* =========================================================
    STARTUP SIDE EFFECTS
    ========================================================= */
@@ -450,7 +442,6 @@ requestAnimationFrame(() => {
 startTextCarousel(".subtitle-carousel", ".carousel-text", 3000);
 startTextCarousel(".brand-tagline-carousel", ".brand-tagline", 3000);
 
-/* ---------- Chart.js readiness ---------- */
 (function waitForChartJs() {
   if (typeof Chart !== "undefined") { state.chartJsReady = true; safeRender(renderCharts); return; }
   let tries = 0;
@@ -462,7 +453,7 @@ startTextCarousel(".brand-tagline-carousel", ".brand-tagline", 3000);
 })();
 
 /* =========================================================
-   THEME — syncs the toggle pill state
+   THEME
    ========================================================= */
 function syncThemeToggleUI() {
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
@@ -473,7 +464,6 @@ function syncThemeToggleUI() {
 }
 
 (function initTheme() {
-  // Priority: saved user preference → HTML attribute → "dark" (app default)
   const stored = (() => {
     try { return localStorage.getItem("theme"); } catch { return null; }
   })();
@@ -493,7 +483,7 @@ function syncThemeToggleUI() {
 })();
 
 /* =========================================================
-   SOUND — syncs the toggle pill state
+   SOUND
    ========================================================= */
 function syncSoundToggleUI() {
   const soundToggle = $("sound-toggle");
@@ -557,7 +547,7 @@ function wireNav() {
       if (btn.dataset.page === "page-add") {
         safeRender(autoFillSku);
         safeRender(populateCategoryOptions);
-        safeRender(renderInventoryAnalytics); // 👈 Render analytics when opening Add Item
+        safeRender(renderInventoryAnalytics);
       }
       if (btn.dataset.page === "page-categories") {
         safeRender(renderCategories);
@@ -675,7 +665,7 @@ function wireDashboardRefresh() {
     safeRender(renderPosCart);
     safeRender(renderCustomerPickerOptions);
     safeRender(renderCharts);
-    safeRender(renderInventoryAnalytics); // 👈 Add to refresh
+    safeRender(renderInventoryAnalytics);
 
     showToast("Dashboard refreshed ✅");
 
@@ -704,7 +694,7 @@ function startAllListeners() {
     safeRender(renderPosProducts);
     safeRender(renderCustomerPickerOptions);
     safeRender(renderCharts);
-    safeRender(renderInventoryAnalytics); // 👈 Ensure it refreshes on data change
+    safeRender(renderInventoryAnalytics);
   };
   startInventoryListeners(onAfter);
   startSalesListener(onAfter);
@@ -723,29 +713,76 @@ function stopAllListeners() {
 }
 
 /* ---------- Super Admin users listener ---------- */
-function startUserAdminListener() {
+export function startUserAdminListener() {
+  if (state.unsubscribers.users) return;
+
   import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js").then(async ({ collection, onSnapshot, query }) => {
     const { db } = await import("./firebase.js");
-    state.unsubscribers.users = onSnapshot(query(collection(db, "users")), (snap) => {
-      state.allUsers = snap.docs
-        .map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
-        .sort((a, b) => {
-          const ta = a.createdAt?.toMillis?.() ?? 0;
-          const tb = b.createdAt?.toMillis?.() ?? 0;
-          return tb - ta;
-        });
-      safeRender(renderAdminUsers);
-    });
+
+    state.unsubscribers.users = onSnapshot(
+      query(collection(db, "users")),
+      (snap) => {
+        state.allUsers = snap.docs
+          .map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
+          .sort((a, b) => {
+            const ta = a.createdAt?.toMillis?.() ?? 0;
+            const tb = b.createdAt?.toMillis?.() ?? 0;
+            return tb - ta;
+          });
+        state.usersError = null;
+        safeRender(renderAdminUsers);
+      },
+      (err) => {
+        console.error("[Admin users listener]", err.code, err.message);
+        state.usersError = err.code || err.message;
+        state.allUsers = [];
+        safeRender(renderAdminUsers);
+      }
+    );
   });
 }
 
 function renderAdminUsers() {
-  const pendingList = $("pending-users-list"), allList = $("all-users-list");
+  const pendingList = $("pending-users-list");
+  const allList = $("all-users-list");
   if (!pendingList || !allList) return;
+
+  if (state.usersError) {
+    const errHtml = `
+      <div class="empty-state admin-error-state">
+        <p>⚠️ Could not load users</p>
+        <p class="admin-error-code">${String(state.usersError).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]))}</p>
+        <p class="admin-error-hint">
+          Firestore rules are blocking the read. In Firebase Console →
+          Firestore → Rules, add:
+        </p>
+        <pre class="admin-error-pre">match /users/{uid} {
+  allow list: if request.auth != null
+              &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin';
+}</pre>
+      </div>`;
+    pendingList.innerHTML = errHtml;
+    allList.innerHTML = "";
+    return;
+  }
+
+  if (!state.allUsers) {
+    pendingList.innerHTML = `<div class="empty-state"><p>⏳ Loading users…</p></div>`;
+    allList.innerHTML = "";
+    return;
+  }
+
   const pending = state.allUsers.filter(u => !u.approved);
-  pendingList.innerHTML = pending.length ? pending.map(userRowHTML).join("") : `<div class="empty-state"><p>✅ No pending approvals.</p></div>`;
-  allList.innerHTML = state.allUsers.length ? state.allUsers.map(userRowHTML).join("") : `<div class="empty-state"><p>No users yet.</p></div>`;
+
+  pendingList.innerHTML = pending.length
+    ? pending.map(userRowHTML).join("")
+    : `<div class="empty-state"><p>✅ No pending approvals.</p></div>`;
+
+  allList.innerHTML = state.allUsers.length
+    ? state.allUsers.map(userRowHTML).join("")
+    : `<div class="empty-state"><p>No users yet.</p></div>`;
 }
+
 function userRowHTML(u) {
   const isSuper = u.role === "superadmin";
   const email = u.email ? String(u.email).replace(/[<>&"']/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c])) : "";
@@ -763,6 +800,7 @@ function userRowHTML(u) {
       </div>
     </div>`;
 }
+
 window.toggleApproval = async (userId, approved) => {
   if (!state.currentUserData || state.currentUserData.role !== "superadmin") return;
   const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -770,6 +808,7 @@ window.toggleApproval = async (userId, approved) => {
   try { await updateDoc(doc(db, "users", userId), { approved }); showToast(approved ? "User approved ✅" : "Approval revoked"); }
   catch (err) { showToast(`Failed: ${err.code || err.message} ❌`); }
 };
+
 window.deleteUser = async (userId) => {
   if (!state.currentUserData || state.currentUserData.role !== "superadmin") return;
   if (!confirm("Delete this user profile?")) return;
@@ -823,7 +862,11 @@ function registerSW() {
   });
 }
 
-/* ---------- Auth handlers ---------- */
+/* =========================================================
+   AUTH CALLBACKS
+   ========================================================= */
+
+/* ---------- Logged out ---------- */
 function onLoggedOut() {
   stopAllListeners();
   stopAuthBgCarousel();
@@ -831,32 +874,31 @@ function onLoggedOut() {
   forceCloseScanner();
   stopGreetingTicker();
   stopAutoSyncTicker();
-  stopthemeRotationTicker();
+  stopThemeRotationTicker();     // ← FIXED: was "stopthemeRotationTicker"
+  stopUserCountTicker();
+
+  // Clear greeting + avatar so the next user sees a fresh state
   updateTopbarAvatar();
+  updateTopbarGreeting();
+
+  // Reset the post-approval flag so the next login runs full init
+  state._postApprovalRan = false;
 }
 
+/* ---------- Pending approval ---------- */
 function onPending() {
   stopAllListeners();
   stopAuthBgCarousel();
   startAuthBgCarousel("pending-bg-slides");
   stopGreetingTicker();
   stopAutoSyncTicker();
+  stopThemeRotationTicker();     // ← Also fixed here
+  stopUserCountTicker();
+  state._postApprovalRan = false;
 }
 
-function onApproved(userData) {
-  startAllListeners();
-  startGreetingTicker();
-  syncThemeToggleUI();
-  syncSoundToggleUI();
-
-  updateAutoSyncUI();
-  setTimeout(() => {
-    autoSyncFromFile({ silent: true });
-  }, 2500);
-  startAutoSyncTicker();
-  if (userData.role === "superadmin" && !state.unsubscribers.users) {
-    startUserAdminListener();
-  }
+/* ---------- Post-approval renders ---------- */
+function runPostApprovalRenders() {
   setTimeout(() => {
     safeRender(renderInventory);
     safeRender(renderDashboardInventory);
@@ -882,12 +924,91 @@ function onApproved(userData) {
     safeRender(renderHistoryCategorySummary);
     safeRender(renderSalesCategorySummary);
     safeRender(renderCharts);
-    safeRender(renderInventoryAnalytics); // 👈 Initial render
+    safeRender(renderInventoryAnalytics);
   }, 200);
 }
 
+/* ---------- Approved ---------- */
+function onApproved(userData) {
+  // Guard: skip redundant re-init when the snapshot fires again after
+  // terms acceptance or any other user-doc update.
+  const shellVisible = !document.getElementById("app-shell")?.classList.contains("hidden");
+  const alreadyRan   = !!state._postApprovalRan;
+  if (shellVisible && alreadyRan) {
+    return;                       // ← FIXED: removed hasAcceptedTerms() reference
+  }
+
+  startAllListeners();
+  startGreetingTicker();
+  startUserCountTicker();
+  syncThemeToggleUI();
+  syncSoundToggleUI();
+
+  updateAutoSyncUI();
+  setTimeout(() => { autoSyncFromFile({ silent: true }); }, 2500);
+  startAutoSyncTicker();
+
+  const isSuper = userData.role === "superadmin";
+
+  if (isSuper && !state.unsubscribers.users) {
+    startUserAdminListener();
+  }
+
+  /* =========================================================
+     TERMS & CONDITIONS GATE
+     • Super admin  → skip the gate; can open Terms via sidebar
+     • Regular user → gate on every fresh tab session
+     ========================================================= */
+  const uid = state.currentUser?.uid;
+
+  // 1) Super admin — no forced gate
+  if (isSuper) {
+    document.getElementById("nav-terms")?.classList.remove("hidden");
+    state._postApprovalRan = true;
+    runPostApprovalRenders();
+    return;
+  }
+
+  // 2) Regular user — gate on every fresh tab session
+  document.getElementById("nav-terms")?.classList.add("hidden");
+
+  if (!hasSessionAccepted(uid)) {
+    showTermsGate({
+      onAccept: async () => {
+        // Set flags FIRST so any snapshot re-fire skips re-init
+        markSessionAccepted(uid);
+        state._postApprovalRan = true;
+
+        // Firestore audit trail (may fail silently if offline / rules block)
+        try { await recordTermsAcceptance(); } catch (e) {
+          console.warn("[terms] record failed:", e);
+        }
+
+        // Reveal app + render everything
+        document.getElementById("app-shell")?.classList.remove("hidden");
+        runPostApprovalRenders();
+
+        // Send the user straight to Dashboard
+        requestAnimationFrame(() => {
+          document.querySelector('.nav-btn[data-page="page-dashboard"]')?.click();
+        });
+      },
+      onDecline: async () => {
+        const { signOut } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+        const { auth } = await import("./firebase.js");
+        await signOut(auth);
+      }
+    });
+    return;
+  }
+
+  // 3) Already accepted this session → normal flow
+  state._postApprovalRan = true;
+  runPostApprovalRenders();
+}
+
 /* =========================================================
-   MODAL CLOSE HANDLING (event delegation — bulletproof)
+   MODAL CLOSE HANDLING (event delegation)
    ========================================================= */
 function wireAllModals() {
   const MODAL_MAP = {
@@ -1000,6 +1121,51 @@ window.addEventListener("load", () => {
 });
 
 /* =========================================================
+   USER COUNT — visible to SUPER ADMINS only
+   ========================================================= */
+let _userCountTimer = null;
+
+function isSuperAdmin() {
+  return state.currentUserData?.role === "superadmin";
+}
+
+async function updateUserCount() {
+  const numEl = document.getElementById("user-count-num");
+  const badge = document.getElementById("user-count-badge");
+  if (!numEl || !badge) return;
+
+  if (!isSuperAdmin()) {
+    badge.classList.add("hidden");
+    return;
+  }
+
+  try {
+    const snap = await getCountFromServer(
+      query(collection(db, "users"), where("approved", "==", true))
+    );
+    const total = snap.data().count || 0;
+    numEl.textContent = total.toLocaleString("en-PH");
+    badge.title = `${total.toLocaleString("en-PH")} store${total !== 1 ? "s" : ""} using Kurt POS`;
+    badge.classList.remove("hidden");
+  } catch (err) {
+    console.warn("[user count] unavailable:", err.code || err.message);
+    badge.classList.add("hidden");
+  }
+}
+
+function startUserCountTicker() {
+  if (_userCountTimer) clearInterval(_userCountTimer);
+  if (!isSuperAdmin()) return;
+  updateUserCount();
+  _userCountTimer = setInterval(updateUserCount, 10 * 60 * 1000);
+}
+
+function stopUserCountTicker() {
+  if (_userCountTimer) { clearInterval(_userCountTimer); _userCountTimer = null; }
+  document.getElementById("user-count-badge")?.classList.add("hidden");
+}
+
+/* =========================================================
    BOOT
    ========================================================= */
 function boot() {
@@ -1018,6 +1184,7 @@ function boot() {
   wireMobileNav();
   wireDashboardRefresh();
   wireInstallPrompt();
+  wireTerms();
   wireAllModals();
   wireOnlineOffline();
   wireKeyboard();
@@ -1032,7 +1199,13 @@ function boot() {
       stopGreetingTicker();
       stopAutoSyncTicker();
       stopThemeRotationTicker();
+      stopUserCountTicker();
+
+      // Reset the post-approval flag on ANY auth state transition so
+      // switching accounts always runs the full init + gate logic.
+      state._postApprovalRan = false;
     }
   });
 }
+
 boot();
