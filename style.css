@@ -3950,3 +3950,248 @@ body:has(.modal:not(.hidden), .scanner-modal:not(.hidden)) .toast { bottom: auto
     background: rgba(26, 18, 48, 0.86);      /* extra readable on phones */
   }
 }
+/* ==========================================================
+   AUTH SCREEN — Restore ORIGINAL background,
+   keep the PURPLE card design only
+   ========================================================== */
+
+/* ---------- Screen background — back to original teal/green ---------- */
+#auth-screen,
+#pending-screen {
+  background: #0a1f1d;
+}
+
+/* ---------- Background slides — full color, no purple filter ---------- */
+#auth-screen .auth-bg-slide > img,
+#pending-screen .auth-bg-slide > img {
+  opacity: 1;
+  filter: none;
+}
+
+/* ---------- Overlay — original green/teal gradient (light mode) ---------- */
+#auth-screen .auth-bg-overlay,
+#pending-screen .auth-bg-overlay {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(47,163,143,0.25), transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(18,84,79,0.35), transparent 60%),
+    linear-gradient(135deg, rgba(10,46,43,0.45), rgba(12,62,58,0.35));
+}
+
+/* ---------- Overlay — original green/teal gradient (dark mode) ---------- */
+[data-theme="dark"] #auth-screen .auth-bg-overlay,
+[data-theme="dark"] #pending-screen .auth-bg-overlay {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(47,163,143,0.15), transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(18,84,79,0.25), transparent 60%),
+    linear-gradient(135deg, rgba(6,26,24,0.65), rgba(10,46,43,0.55));
+}
+
+/* ---------- Blobs — back to original green ---------- */
+#auth-screen .blob,
+#pending-screen .blob { opacity: 0.28; }
+#auth-screen .blob-1, #pending-screen .blob-1 { background: #2FA38F; }
+#auth-screen .blob-2, #pending-screen .blob-2 { background: #5FC2A6; }
+#auth-screen .blob-3, #pending-screen .blob-3 { background: #12544F; }
+
+/* ---------- Grid overlay — back to original white lines ---------- */
+#auth-screen .grid-overlay,
+#pending-screen .grid-overlay {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+[data-theme="dark"] #auth-screen .grid-overlay,
+[data-theme="dark"] #pending-screen .grid-overlay {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+}
+
+/* ==========================================================
+   CARD — KEEP THE PURPLE / LAVENDER DESIGN
+   ========================================================== */
+
+/* ---------- Light mode card ---------- */
+#auth-screen .auth-card,
+#pending-screen .auth-card {
+  background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter:         blur(22px) saturate(140%);
+  border: 1px solid rgba(233, 228, 255, 0.9);
+  border-radius: 28px;
+  padding: 36px 28px 26px;
+  box-shadow:
+    0 24px 60px rgba(91, 33, 182, 0.28),
+    0 4px 14px  rgba(124, 58, 237, 0.15);
+}
+
+/* ---------- Dark mode card — violet tinted glass ---------- */
+[data-theme="dark"] #auth-screen .auth-card,
+[data-theme="dark"] #pending-screen .auth-card {
+  background: rgba(26, 18, 48, 0.82);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 4px 14px  rgba(124, 58, 237, 0.18);
+}
+
+/* ---------- Brand ring stays hidden ---------- */
+#auth-screen .brand-ring,
+#pending-screen .brand-ring { display: none !important; }
+
+/* ---------- Brand logo — violet glow ---------- */
+#auth-screen .brand-logo,
+#pending-screen .brand-logo {
+  filter: drop-shadow(0 10px 22px rgba(124, 58, 237, 0.35));
+}
+
+/* ---------- Store name — deep violet ink ---------- */
+#auth-screen .auth-card .logo,
+#pending-screen .auth-card .logo {
+  color: #2E1065;
+}
+[data-theme="dark"] #auth-screen .auth-card .logo,
+[data-theme="dark"] #pending-screen .auth-card .logo {
+  color: #F3F0FF;
+}
+
+/* ---------- Subtitle — violet cursive ---------- */
+#auth-screen .carousel-text,
+#pending-screen .carousel-text {
+  color: #7C3AED;
+}
+[data-theme="dark"] #auth-screen .carousel-text {
+  color: #C4B5FD;
+}
+
+/* ---------- Tabs — lavender pill ---------- */
+#auth-screen .auth-tabs { background: #F3F0FF; }
+#auth-screen .auth-tabs .tab-indicator {
+  background: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15);
+}
+#auth-screen .tab { color: #6B6280; }
+#auth-screen .tab.active { color: #7C3AED; }
+
+[data-theme="dark"] #auth-screen .auth-tabs { background: rgba(139, 92, 246, 0.10); }
+[data-theme="dark"] #auth-screen .auth-tabs .tab-indicator {
+  background: rgba(139, 92, 246, 0.22);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+[data-theme="dark"] #auth-screen .tab { color: #A99FBC; }
+[data-theme="dark"] #auth-screen .tab.active { color: #C4B5FD; }
+
+/* ---------- Inputs — lavender borders ---------- */
+#auth-screen .field input {
+  background: #FFFFFF;
+  border: 1.5px solid #E9E4FF;
+  color: #2E1065;
+}
+#auth-screen .field input:focus {
+  border-color: #8B5CF6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
+}
+#auth-screen .field-icon { color: #8B5CF6; }
+
+[data-theme="dark"] #auth-screen .field input {
+  background: rgba(15, 8, 32, 0.55);
+  border-color: rgba(139, 92, 246, 0.25);
+  color: #F3F0FF;
+}
+[data-theme="dark"] #auth-screen .field input:focus {
+  background: rgba(15, 8, 32, 0.75);
+  border-color: #8B5CF6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.20);
+}
+[data-theme="dark"] #auth-screen .field-icon { color: #C4B5FD; }
+
+/* ---------- Remember me — violet checkbox ---------- */
+#auth-screen .remember-row input { accent-color: #7C3AED; }
+
+/* ---------- Login button — violet gradient ---------- */
+#auth-screen .btn.primary {
+  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  border-color: transparent;
+  color: #FFFFFF;
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.30);
+}
+#auth-screen .btn.primary:hover {
+  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+  box-shadow: 0 14px 30px rgba(124, 58, 237, 0.38);
+}
+
+/* ---------- Divider — lavender ---------- */
+#auth-screen .social-divider::before { background: #E9E4FF; }
+#auth-screen .social-divider span {
+  background: rgba(255, 255, 255, 0.92);
+  color: #8B7FA6;
+}
+[data-theme="dark"] #auth-screen .social-divider::before { background: rgba(139, 92, 246, 0.20); }
+[data-theme="dark"] #auth-screen .social-divider span {
+  background: rgba(26, 18, 48, 0.82);
+  color: #A99FBC;
+}
+
+/* ---------- Google button — lavender outline ---------- */
+#auth-screen .google-btn {
+  background: #FFFFFF;
+  border: 1.5px solid #E9E4FF;
+  color: #2E1065;
+}
+#auth-screen .google-btn:hover {
+  border-color: #B8A8FF;
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.12);
+}
+[data-theme="dark"] #auth-screen .google-btn {
+  background: rgba(15, 8, 32, 0.55);
+  border-color: rgba(139, 92, 246, 0.25);
+  color: #F3F0FF;
+}
+[data-theme="dark"] #auth-screen .google-btn:hover {
+  border-color: #8B5CF6;
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.25);
+}
+
+/* ---------- Social icons — lavender outline ---------- */
+#auth-screen .social-icon {
+  background: #FFFFFF;
+  border: 1.5px solid #E9E4FF;
+  color: #8B7FA6;
+}
+#auth-screen .social-icon[aria-label="Facebook"]:hover  { background: #1877F2; color: #fff; }
+#auth-screen .social-icon[aria-label="Instagram"]:hover { background: linear-gradient(135deg, #F58529, #DD2A7B, #8134AF); color: #fff; }
+#auth-screen .social-icon[aria-label="X"]:hover         { background: #000; color: #fff; }
+#auth-screen .social-icon[aria-label="GitHub"]:hover    { background: #24292E; color: #fff; }
+
+[data-theme="dark"] #auth-screen .social-icon {
+  background: rgba(15, 8, 32, 0.55);
+  border-color: rgba(139, 92, 246, 0.25);
+  color: #A99FBC;
+}
+
+/* ---------- Pending screen — violet accents ---------- */
+#pending-screen .pending-email { color: #7C3AED; }
+[data-theme="dark"] #pending-screen .pending-email { color: #C4B5FD; }
+
+#pending-screen .btn.ghost {
+  background: #FFFFFF;
+  border: 1.5px solid #E9E4FF;
+  color: #2E1065;
+}
+[data-theme="dark"] #pending-screen .btn.ghost {
+  background: rgba(15, 8, 32, 0.55);
+  border-color: rgba(139, 92, 246, 0.25);
+  color: #F3F0FF;
+}
+
+/* ---------- Mobile tuning ---------- */
+@media (max-width: 640px) {
+  #auth-screen .auth-bg-slide > img,
+  #pending-screen .auth-bg-slide > img { opacity: 1; }
+
+  [data-theme="dark"] #auth-screen .auth-card,
+  [data-theme="dark"] #pending-screen .auth-card {
+    background: rgba(26, 18, 48, 0.88);
+  }
+}
