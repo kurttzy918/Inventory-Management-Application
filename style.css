@@ -5074,3 +5074,90 @@ body,
   color: var(--brand);
 }
 [data-theme="dark"] .nav-btn-terms:hover { color: #8FE3C8; }
+/* ==========================================================
+   SIDEBAR — Share App button
+   ========================================================== */
+.nav-btn-share {
+  margin-top: 6px;
+  color: #3B82F6;
+  background: linear-gradient(135deg,
+              rgba(59, 130, 246, 0.10),
+              rgba(59, 130, 246, 0.03));
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: 10px;
+  font-weight: 700;
+  transition: background 0.18s ease, border-color 0.18s ease,
+              color 0.18s ease, transform 0.12s ease;
+}
+.nav-btn-share:hover {
+  background: linear-gradient(135deg,
+              rgba(59, 130, 246, 0.20),
+              rgba(59, 130, 246, 0.08));
+  border-color: #3B82F6;
+  color: #2563EB;
+  transform: translateY(-1px);
+}
+.nav-btn-share:active { transform: translateY(0); }
+
+/* Icon inherits color and animates on hover */
+.nav-icon-share {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.nav-icon-share svg { display: block; }
+.nav-btn-share:hover .nav-icon-share {
+  transform: scale(1.12) rotate(-8deg);
+}
+
+/* Brief pulse when the copy succeeds */
+.nav-btn-share.is-copied {
+  background: linear-gradient(135deg,
+              rgba(16, 185, 129, 0.18),
+              rgba(16, 185, 129, 0.06));
+  border-color: #10B981;
+  color: #059669;
+}
+.nav-btn-share.is-copied .nav-icon-share {
+  animation: sharePop 0.45s ease;
+}
+@keyframes sharePop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+/* Dark mode */
+[data-theme="dark"] .nav-btn-share {
+  background: linear-gradient(135deg,
+              rgba(96, 165, 250, 0.14),
+              rgba(96, 165, 250, 0.04));
+  border-color: rgba(96, 165, 250, 0.32);
+  color: #93C5FD;
+}
+[data-theme="dark"] .nav-btn-share:hover {
+  background: linear-gradient(135deg,
+              rgba(96, 165, 250, 0.26),
+              rgba(96, 165, 250, 0.10));
+  border-color: #60A5FA;
+  color: #DBEAFE;
+}
+[data-theme="dark"] .nav-btn-share.is-copied {
+  background: linear-gradient(135deg,
+              rgba(52, 211, 153, 0.18),
+              rgba(52, 211, 153, 0.06));
+  border-color: #34D399;
+  color: #34D399;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-btn-share:hover .nav-icon-share,
+  .nav-btn-share.is-copied .nav-icon-share { animation: none; transform: none; }
+}
+
+/* Mobile — pin near bottom with the other utility buttons */
+@media (max-width: 899px) {
+  .nav-btn-share { margin-bottom: 6px; }
+}

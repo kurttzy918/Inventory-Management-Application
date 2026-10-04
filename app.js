@@ -1164,6 +1164,87 @@ function stopUserCountTicker() {
   if (_userCountTimer) { clearInterval(_userCountTimer); _userCountTimer = null; }
   document.getElementById("user-count-badge")?.classList.add("hidden");
 }
+/* =========================================================
+   SHARE APP LINK — Web Share API + clipboard fallback
+   ========================================================= */
+async function shareAppLink() {
+  const url = window.location.origin + window.location.pathname;
+  const shareData = {
+    title: "Kurt Inventory · Smart Stock & Sales",
+    text: "Check out Kurt POS — a smart inventory, POS & analytics app for sari-sari stores. Free to try!",
+    url
+  };
+
+  // 1) Native share sheet (mobile / Edge / Safari)
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+      // User completed the share — no toast needed, the OS shows its own UI
+      return;
+    } catch (err) {
+      // User dismissed the share sheet — silently ignore
+      if (err && (err.name === "AbortError" || err.name === "NotAllowedError")) return;
+      console.warn("[share] native share failed:", err);
+      // Fall through to clipboard fallback
+    }
+  }
+
+  // 2) Clipboard fallback (desktop / older browsers)
+  const copied = await copyToClipboard(url);
+  if (copied) {
+    flashShareButton();
+    showToast("App link copied 📋");
+  } else {
+    // 3) Last resort — show a prompt so the user can copy manually
+    window.prompt("Copy this link:", url);
+  }
+}
+
+/* ---------- Clipboard helper with modern + legacy fallback ---------- */
+async function copyToClipboard(text) {
+  // Modern async clipboard API (requires HTTPS / localhost)
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch (err) { console.warn("[clipboard] modern API failed:", err); }
+  }
+
+  // Legacy fallback — hidden textarea + execCommand
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch (err) {
+    console.warn("[clipboard] legacy fallback failed:", err);
+    return false;
+  }
+}
+
+/* ---------- Brief visual feedback on the button ---------- */
+function flashShareButton() {
+  const btn = document.getElementById("nav-share-app");
+  const label = document.getElementById("nav-share-label");
+  if (!btn) return;
+
+  const originalLabel = label?.textContent || "Share App";
+
+  btn.classList.add("is-copied");
+  if (label) label.textContent = "Link Copied ✓";
+
+  clearTimeout(flashShareButton._timer);
+  flashShareButton._timer = setTimeout(() => {
+    btn.classList.remove("is-copied");
+    if (label) label.textContent = originalLabel;
+  }, 2000);
+}
 
 /* =========================================================
    BOOT
@@ -1184,6 +1265,8 @@ function boot() {
   wireMobileNav();
   wireDashboardRefresh();
   wireInstallPrompt();
+  document.getElementById("nav-share-app")
+  ?.addEventListener("click", shareAppLink);
   wireTerms();
   wireAllModals();
   wireOnlineOffline();
