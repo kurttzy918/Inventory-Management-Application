@@ -304,3 +304,57 @@ export function findItemByCode(code) {
     (i.sku && String(i.sku).trim().toLowerCase().includes(lower))
   ) || null;
 }
+/* =========================================================
+   STORE DISPLAY NAME — pulls from the logged-in account
+   Priority: manual override → Google display name
+            → first name from email → fallback
+   ========================================================= */
+export function getStoreDisplayName() {
+  // 1) Manual override (set via the receipt click or console)
+  try {
+    const override = localStorage.getItem("storeDisplayName");
+    if (override && override.trim()) return override.trim();
+  } catch {}
+
+  // 2) Google display name (state.currentUser or user data doc)
+  const user = state.currentUser;
+  const data = state.currentUserData || {};
+  const dn = user?.displayName || data.displayName;
+  if (dn && String(dn).trim()) return String(dn).trim();
+
+  // 3) First name from email
+  const email = user?.email || data.email || "";
+  if (email) {
+    const local = email.split("@")[0] || "";
+    const clean = local.split(/[._\-+0-9]/)[0] || local;
+    if (clean) return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+  }
+
+  // 4) Fallback
+  return "My Sari-Sari Store";
+}
+
+/* ---------- Optional: let users rename their store ---------- */
+export function setStoreDisplayName(name) {
+  try {
+    const clean = String(name || "").trim();
+    if (clean) localStorage.setItem("storeDisplayName", clean);
+    else localStorage.removeItem("storeDisplayName");
+    return true;
+  } catch { return false; }
+}
+
+/* ---------- Interactive: prompt-based rename ---------- */
+export function promptStoreRename() {
+  const current = getStoreDisplayName();
+  const next = prompt("Enter your store name (shown on receipts):", current);
+  if (next === null) return;
+  const clean = next.trim();
+  if (!clean) {
+    try { localStorage.removeItem("storeDisplayName"); } catch {}
+    showToast("Store name reset to account default ✅");
+  } else {
+    try { localStorage.setItem("storeDisplayName", clean); } catch {}
+    showToast(`Store name set to "${clean}" ✅`);
+  }
+}

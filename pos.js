@@ -10,7 +10,7 @@ import {
   myWorkspace, movementDoc, customerTxDoc, settleWrite, fmtMoney, fmtInt,
   fallbackColorFor, productImageHTML, playSuccessSound, playErrorSound, playCashSound,
   expiryStatus, getSoldMap, getFastSellingInfo,
-  roundMoney, findItemByCode
+  roundMoney, findItemByCode,getStoreDisplayName, promptStoreRename
 } from "./utils.js";
 import { renderCustomerPickerOptions } from "./customers.js";
 
@@ -637,9 +637,11 @@ export function showReceipt(data, groupInfo) {
     </div>
   `).join("");
 
-  content.innerHTML = `
+    content.innerHTML = `
     <div class="receipt-header">
-      <div class="receipt-store">${esc(CONSTANTS.STORE_NAME.toUpperCase())}</div>
+      <div class="receipt-store" id="receipt-store-name" title="Click to rename your store">
+        ${esc(getStoreDisplayName().toUpperCase())}
+      </div>
       <div class="receipt-sub">${esc(CONSTANTS.STORE_TAGLINE)}</div>
     </div>
     <div class="receipt-sep"></div>
@@ -669,6 +671,13 @@ export function showReceipt(data, groupInfo) {
   if (delBtn) delBtn.classList.toggle("hidden", !state.currentReceiptGroup);
   $("receipt-modal")?.classList.remove("hidden");
 }
+  // Clicking the store name lets the user rename it
+  document.getElementById("receipt-store-name")?.addEventListener("click", () => {
+    promptStoreRename();
+    // Re-render the visible name live
+    const el = document.getElementById("receipt-store-name");
+    if (el) el.textContent = getStoreDisplayName().toUpperCase();
+  });
 
 /* =========================================================
    VIEW / DELETE SALE

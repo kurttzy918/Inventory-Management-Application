@@ -5161,3 +5161,16 @@ body,
 @media (max-width: 899px) {
   .nav-btn-share { margin-bottom: 6px; }
 }
+/* ==========================================================
+   RECEIPT — Clickable store name
+   ========================================================== */
+.receipt-store {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.receipt-store:hover {
+  color: #12544F;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
