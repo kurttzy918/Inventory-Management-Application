@@ -32,6 +32,9 @@ import { initGcash, startGcashListeners, renderGcashPage } from "./gcash.js";
 import { initMaya, startMayaListeners, renderMayaPage } from "./maya.js";
 import { initEload, startEloadListeners, renderEloadPage } from "./eload.js";
 import {
+  initExpenses, startExpensesListeners, renderExpensesPage
+} from "./expenses.js";
+import {
   wireTerms, showTermsGate, hasSessionAccepted, markSessionAccepted,
   recordTermsAcceptance
 } from "./terms.js";
@@ -567,6 +570,9 @@ function wireNav() {
       if (btn.dataset.page === "page-eload") {
         safeRender(renderEloadPage);
       }
+      if (btn.dataset.page === "page-expenses") {
+        safeRender(renderExpensesPage);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   });
@@ -702,6 +708,7 @@ function startAllListeners() {
   startGcashListeners(onAfter);
   startMayaListeners(onAfter);
   startEloadListeners(onAfter);
+  startExpensesListeners(onAfter);
 }
 
 function stopAllListeners() {
@@ -1261,6 +1268,7 @@ function boot() {
   initGcash();
   initMaya();
   initEload();
+  initExpenses();
   wireNav();
   wireMobileNav();
   wireDashboardRefresh();

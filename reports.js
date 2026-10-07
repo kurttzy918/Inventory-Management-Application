@@ -7,14 +7,43 @@ import { state, CONSTANTS } from "./state.js";
 import {
   $, valOf, esc, safeRender, showToast, debounce,
   fmtMoney, fmtInt, fmtShort, productImageHTML, thumbHTML,
-  fallbackColorFor,                                              // ✅ ADDED
+  fallbackColorFor,
   getSoldMap, getSoldMapLastDays, getSalesByCategory, monthKey, monthLabel,
   getCSSVar, printHTML, downloadXLSX, downloadPDF,
-  expiryStatus
+  expiryStatus,
+  roundMoney,                                                    // ✅ NEW
+  getStoreDisplayName                                            // ✅ NEW
 } from "./utils.js";
 import { stockProgress, renderPaginationBar } from "./inventory.js";
 
 const { CATEGORY_PALETTE } = CONSTANTS;
+
+/* =========================================================
+   LOCAL HELPERS — Expense-aware profit
+   -------------------------------------------------
+   These compute directly from state so reports.js doesn't
+   depend on utils.js exporting extra functions.
+   ========================================================= */
+function _getGrossProfit() {
+  return roundMoney(
+    (state.sales || []).reduce((sum, s) => {
+      if (typeof s.profit === "number") return sum + s.profit;
+      const it = state.inventory.find(i => i.id === s.itemId);
+      const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
+      return sum + ((s.unitPrice || 0) - cost) * (s.quantity || 0);
+    }, 0)
+  );
+}
+
+function _getTotalExpenses() {
+  return roundMoney(
+    (state.expenses || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+  );
+}
+
+function _getNetProfit() {
+  return roundMoney(_getGrossProfit() - _getTotalExpenses());
+}
 
 /* =========================================================
    HISTORY BULK-SELECTION STATE
@@ -22,25 +51,31 @@ const { CATEGORY_PALETTE } = CONSTANTS;
 const selectedReceipts = new Set();
 
 /* =========================================================
-   STATS (stat cards)
+   STATS (stat cards) — now shows NET PROFIT
    ========================================================= */
 export function updateStats() {
   const total = state.inventory.length;
   const low = state.inventory.filter(i => i.quantity <= (i.threshold ?? 5)).length;
   const value = state.inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
   const runningSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
-  const totalProfit = state.sales.reduce((sum, s) => {
-    if (typeof s.profit === "number") return sum + s.profit;
-    const it = state.inventory.find(i => i.id === s.itemId);
-    const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
-    return sum + ((s.unitPrice || 0) - cost) * (s.quantity || 0);
-  }, 0);
-  if ($("stat-total")) $("stat-total").textContent = fmtInt(total);
-  if ($("stat-low")) $("stat-low").textContent = fmtInt(low);
-  if ($("stat-value")) $("stat-value").textContent = fmtMoney(value);
-  if ($("stat-sales")) $("stat-sales").textContent = fmtMoney(runningSales);
-  if ($("stat-profit")) $("stat-profit").textContent = fmtMoney(totalProfit);
-  if ($("stat-cats")) $("stat-cats").textContent = fmtInt(state.categories.length);
+
+  /* ---------- Profit = gross profit from sales only ---------- */
+  const grossProfit = _getGrossProfit();
+
+  if ($("stat-total"))  $("stat-total").textContent = fmtInt(total);
+  if ($("stat-low"))    $("stat-low").textContent = fmtInt(low);
+  if ($("stat-value"))  $("stat-value").textContent = fmtMoney(value);
+  if ($("stat-sales"))  $("stat-sales").textContent = fmtMoney(runningSales);
+  if ($("stat-cats"))   $("stat-cats").textContent = fmtInt(state.categories.length);
+
+  const profitEl = $("stat-profit");
+  if (profitEl) {
+    profitEl.textContent = fmtMoney(grossProfit);
+    // Remove any leftover sub-line from a previous render
+    const oldSub = profitEl.parentElement.querySelector(".stat-sub");
+    if (oldSub) oldSub.remove();
+    profitEl.title = "Gross profit from sales";
+  }
 }
 
 /* =========================================================
@@ -147,7 +182,7 @@ export function renderSalesOverview() {
 }
 
 /* =========================================================
-   ADVANCED ANALYTICS
+   ADVANCED ANALYTICS — KPI cards (net profit margin)
    ========================================================= */
 export function renderKPIs() {
   const salesArr = state.sales;
@@ -171,14 +206,15 @@ export function renderKPIs() {
     ? `${String(peakH).padStart(2,"0")}:00`
     : "–";
 
-  const totalProfit = salesArr.reduce((a, s) => {
-    if (typeof s.profit === "number") return a + s.profit;
-    const it = state.inventory.find(i => i.id === s.itemId);
-    const cost = (it && typeof it.cost === "number") ? it.cost : (s.cost || 0);
-    return a + ((s.unitPrice || 0) - cost) * (s.quantity || 0);
-  }, 0);
-  const margin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-  if ($("kpi-margin")) $("kpi-margin").textContent = margin.toFixed(1) + "%";
+   /* ---------- Profit Margin — gross (sales only) ---------- */
+  const grossProfit = _getGrossProfit();
+  const margin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
+
+  const marginEl = $("kpi-margin");
+  if (marginEl) {
+    marginEl.textContent = margin.toFixed(1) + "%";
+    marginEl.title = "Gross profit margin from sales";
+  }
 }
 
 function buildLast30DaySeries(getValue) {
@@ -202,9 +238,7 @@ function buildLast30DaySeries(getValue) {
 }
 
 /* =========================================================
-   TREND CHARTS — Last 30 Days (Sales + Profit)
-   Modern minimalist: dashed horizontal gridlines, thin
-   axis border, no vertical grid, clean tooltips.
+   TREND CHARTS — Last 30 Days
    ========================================================= */
 export function renderTrendCharts() {
   const salesCanvas  = $("sales-trend-chart");
@@ -213,12 +247,10 @@ export function renderTrendCharts() {
 
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
-  /* ---- Palette tuned for each theme ---- */
   const tickColor   = isDark ? "#9DB3B0" : "#64748B";
   const gridColor   = isDark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.10)";
   const axisColor   = isDark ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.18)";
   const tooltipBg   = isDark ? "#1E2D34" : "#0F172A";
-  const zeroLine    = isDark ? "rgba(255,255,255,0.20)" : "rgba(15,23,42,0.22)";
 
   const salesSeries = buildLast30DaySeries(s => Number(s.total) || 0);
   const profitSeries = buildLast30DaySeries(s => {
@@ -245,9 +277,7 @@ export function renderTrendCharts() {
         displayColors: false,
         titleFont: { size: 11, weight: "700" },
         bodyFont: { size: 12, weight: "600" },
-        callbacks: {
-          label: (c) => `${label}: ${fmtMoney(c.parsed.y)}`
-        }
+        callbacks: { label: (c) => `${label}: ${fmtMoney(c.parsed.y)}` }
       }
     },
     scales: {
@@ -255,14 +285,9 @@ export function renderTrendCharts() {
         ticks: {
           color: tickColor,
           font: { size: 10, weight: "600" },
-          maxRotation: 0,
-          autoSkip: true,
-          maxTicksLimit: 8,
-          padding: 6
+          maxRotation: 0, autoSkip: true, maxTicksLimit: 8, padding: 6
         },
-        /* Vertical gridlines off — cleaner */
         grid: { display: false, drawTicks: false },
-        /* Thin axis line at the bottom */
         border: { display: true, color: axisColor, width: 1 }
       },
       y: {
@@ -270,11 +295,9 @@ export function renderTrendCharts() {
         ticks: {
           color: tickColor,
           font: { size: 10, weight: "600" },
-          padding: 8,
-          maxTicksLimit: 5,
+          padding: 8, maxTicksLimit: 5,
           callback: (v) => fmtShort(v)
         },
-        /* ✅ Visible horizontal gridlines, dashed, thin */
         grid: {
           color: gridColor,
           drawTicks: false,
@@ -282,13 +305,7 @@ export function renderTrendCharts() {
           lineWidth: 1,
           borderDash: [4, 4]
         },
-        /* Thin axis line at the left */
-        border: {
-          display: true,
-          color: axisColor,
-          width: 1,
-          dash: [0, 0]
-        }
+        border: { display: true, color: axisColor, width: 1, dash: [0, 0] }
       }
     }
   });
@@ -311,9 +328,7 @@ export function renderTrendCharts() {
   if (state.salesTrendChart?.canvas?.isConnected) state.salesTrendChart.destroy();
   try {
     state.salesTrendChart = new Chart(salesCanvas, {
-      type: "bar",
-      data: sData,
-      options: barOpts("Sales")
+      type: "bar", data: sData, options: barOpts("Sales")
     });
   } catch (e) { console.error("[bar chart sales]", e); }
 
@@ -335,9 +350,7 @@ export function renderTrendCharts() {
   if (state.profitTrendChart?.canvas?.isConnected) state.profitTrendChart.destroy();
   try {
     state.profitTrendChart = new Chart(profitCanvas, {
-      type: "bar",
-      data: pData,
-      options: barOpts("Profit")
+      type: "bar", data: pData, options: barOpts("Profit")
     });
   } catch (e) { console.error("[bar chart profit]", e); }
 }
@@ -423,12 +436,8 @@ export function renderTopProfitAndRevenue() {
   if (listRevenue) listRevenue.innerHTML = buildRows(revenueArr, "revenue", "Revenue", "");
 }
 
-
 /* =========================================================
    CHART CENTER TEXT PLUGIN
-   ---------------------------------------------------------
-   Draws a large amount + small label inside any doughnut.
-   Configurable via `options.plugins.centerText` on the chart.
    ========================================================= */
 const centerTextPlugin = {
   id: "centerText",
@@ -439,8 +448,6 @@ const centerTextPlugin = {
     const { ctx, chartArea } = chart;
     if (!chartArea) return;
 
-    /* Half-doughnut: pivot at bottom center.
-       Full doughnut: pivot at true center. */
     const isHalf = opts.half === true;
     const centerX = (chartArea.left + chartArea.right) / 2;
     const centerY = isHalf
@@ -451,12 +458,10 @@ const centerTextPlugin = {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    /* Main amount */
     ctx.font = `800 ${opts.size || 20}px 'Plus Jakarta Sans', -apple-system, sans-serif`;
     ctx.fillStyle = opts.color || "#0F172A";
     ctx.fillText(opts.text, centerX, isHalf ? centerY - 34 : centerY - 8);
 
-    /* Sub-label */
     if (opts.subtext) {
       ctx.font = `700 ${opts.subSize || 10}px 'Plus Jakarta Sans', -apple-system, sans-serif`;
       ctx.fillStyle = opts.subColor || "#64748B";
@@ -490,18 +495,8 @@ export function renderCharts(retries = 0) {
   const subtleColor = getCSSVar("--text-secondary") || "#64748b";
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
 
-   /* =========================================================
-     1) WHERE YOUR SALES WENT — for items already sold
-     =========================================================
-     Sales Revenue  = ₱ you charged customers for sold items
-     Cost of Those  = ₱ you originally paid for those items
-     Profit         = Sales Revenue − Cost
-
-     This chart is COMPLETELY SEPARATE from "Stock Value",
-     which shows the retail value of items still on shelves.
-     ========================================================= */
+  /* ---------- 1) Where Your Sales Went ---------- */
   try {
-    /* -------- Sold items only -------- */
     const totalSales = state.sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
     const totalCost = state.sales.reduce((s, x) => {
       const unitCost = Number(x.cost) || 0;
@@ -510,40 +505,31 @@ export function renderCharts(retries = 0) {
     }, 0);
     const totalProfit = totalSales - totalCost;
     const profitMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-    const costPct   = totalSales > 0 ? (totalCost / totalSales) * 100 : 0;
-    const profitPct = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
 
-    /* -------- Stock still on shelves (unrelated to sales) -------- */
     const stockValue  = state.inventory.reduce((s, i) => s + (i.quantity * i.price || 0), 0);
     const stockCost   = state.inventory.reduce((s, i) => s + (i.quantity * (i.cost || 0)), 0);
     const stockProfit = stockValue - stockCost;
     const stockCount  = state.inventory.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
 
-    /* -------- Info panel below the chart -------- */
     const infoEl = $("sales-vs-cost-info");
     if (infoEl) {
       infoEl.innerHTML = `
         <div class="svc-split">
           <div class="svc-side">
             <div class="svc-side-title">🔵 From items you sold</div>
-
             <div class="svc-row">
               <span class="svc-label">Sales Revenue</span>
               <strong class="svc-value sales">${fmtMoney(totalSales)}</strong>
             </div>
-
             <div class="svc-row">
               <span class="svc-label">Cost of those items</span>
               <strong class="svc-value cost">− ${fmtMoney(totalCost)}</strong>
             </div>
-
             <div class="svc-divider"></div>
-
             <div class="svc-row highlight">
               <span class="svc-label">Your Profit</span>
               <strong class="svc-value profit">${fmtMoney(totalProfit)}</strong>
             </div>
-
             <div class="svc-row">
               <span class="svc-label">Profit margin</span>
               <strong class="svc-value margin">${profitMargin.toFixed(1)}%</strong>
@@ -552,24 +538,19 @@ export function renderCharts(retries = 0) {
 
           <div class="svc-side separate">
             <div class="svc-side-title">🟢 Still on your shelves</div>
-
             <div class="svc-row">
               <span class="svc-label">Stock Value</span>
               <strong class="svc-value stock">${fmtMoney(stockValue)}</strong>
             </div>
-
             <div class="svc-row">
               <span class="svc-label">Stock Cost</span>
               <strong class="svc-value stock-cost">− ${fmtMoney(stockCost)}</strong>
             </div>
-
             <div class="svc-divider"></div>
-
             <div class="svc-row highlight stock">
               <span class="svc-label">Potential profit if all sold</span>
               <strong class="svc-value stock-profit">${fmtMoney(stockProfit)}</strong>
             </div>
-
             <div class="svc-row">
               <span class="svc-label">Items on shelf</span>
               <strong class="svc-value margin">${fmtInt(stockCount)} pcs</strong>
@@ -635,9 +616,7 @@ export function renderCharts(retries = 0) {
     });
   } catch (e) { console.error("[chart] sales vs cost:", e); }
 
-  /* =========================================================
-     2) SALES BY CATEGORY — drill-down doughnut
-     ========================================================= */
+  /* ---------- 2) Sales by Category ---------- */
   try {
     const catFilter = (valOf($("sales-cat-analytics-filter")) || "").trim();
     let labels = [];
@@ -657,7 +636,6 @@ export function renderCharts(retries = 0) {
       : state.sales;
 
     if (catFilter) {
-      /* -------- Drill-down: show products inside this category -------- */
       const productMap = {};
       filteredSales.forEach(s => {
         const key = s.itemName || "Unknown";
@@ -684,7 +662,6 @@ export function renderCharts(retries = 0) {
       if (txnsEl)  txnsEl.textContent  = fmtInt(totalTxns);
       if (unitsEl) unitsEl.textContent = fmtInt(totalUnits);
 
-      /* Extra line for the "top products" summary */
       const extraEl = $("scs-products");
       if (extraEl) {
         extraEl.innerHTML = `🏷️ <strong>${fmtInt(productCount)}</strong> product${productCount !== 1 ? "s" : ""} in this category`;
@@ -692,7 +669,6 @@ export function renderCharts(retries = 0) {
 
       summaryEl?.classList.remove("hidden");
     } else {
-      /* -------- Overview: show all categories -------- */
       const catMap = {};
       state.sales.forEach(s => {
         const k = s.category || "Uncategorized";
@@ -707,14 +683,12 @@ export function renderCharts(retries = 0) {
       summaryEl?.classList.add("hidden");
     }
 
-    /* If there are no sales at all, show a placeholder slice */
     if (!labels.length) {
       labels = ["No sales yet"];
       values = [1];
     }
 
     const colors = labels.map((_, i) => CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]);
-
     const totalValues = values.reduce((a, b) => a + b, 0);
 
     if (state.salesCategoryChart?.canvas?.isConnected) state.salesCategoryChart.destroy();
@@ -756,7 +730,6 @@ export function renderCharts(retries = 0) {
                 return data.labels.map((label, i) => {
                   const val = data.datasets[0].data[i] || 0;
                   const pct = total > 0 ? ((val / total) * 100).toFixed(1) : "0.0";
-                  /* Shorten long labels so they don't blow up the legend */
                   const shortLabel = label.length > 18 ? label.slice(0, 17) + "…" : label;
                   return {
                     text: `${shortLabel}  ·  ${pct}%`,
@@ -774,7 +747,7 @@ export function renderCharts(retries = 0) {
           },
           centerText: {
             half: false,
-            text: catFilter ? fmtMoney(totalValues) : fmtMoney(totalValues),
+            text: fmtMoney(totalValues),
             subtext: catFilter ? catFilter.toUpperCase() : `${labels.length} CATEGOR${labels.length === 1 ? "Y" : "IES"}`,
             color: isDark ? "#E7F3F1" : "#0F172A",
             subColor: subtleColor,
@@ -853,7 +826,6 @@ export function groupSalesByReceipt() {
   return [...map.values()].sort((a, b) => b.date - a.date);
 }
 
-/* ---------- Bulk UI helpers ---------- */
 function updateHistoryBulkUI() {
   const bar       = $("history-bulk-bar");
   const countEl   = $("history-selected-count");
@@ -923,7 +895,6 @@ export function renderHistory() {
   const list = $("history-list"); if (!list) return;
   let groups = groupSalesByReceipt();
 
-  /* ---- Range filter ---- */
   const range = valOf($("history-filter")) || "all";
   if (range !== "all") {
     const now = Date.now(); const dayMs = 24 * 60 * 60 * 1000;
@@ -934,7 +905,6 @@ export function renderHistory() {
     groups = groups.filter(g => g.date.getTime() >= cutoff);
   }
 
-  /* ---- Category filter ---- */
   const catFilter = valOf($("history-cat-filter"));
   if (catFilter) {
     groups = groups.map(g => {
@@ -945,7 +915,6 @@ export function renderHistory() {
     }).filter(Boolean);
   }
 
-  /* ---- Search ---- */
   const term = valOf($("history-search")).toLowerCase().trim();
   if (term) {
     groups = groups.filter(g =>
@@ -962,7 +931,6 @@ export function renderHistory() {
     return;
   }
 
-  /* ---- Pagination ---- */
   const pageSize = Math.max(5, state.histPageSize || 15);
   const total = groups.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -979,7 +947,6 @@ export function renderHistory() {
     const isCredit = g.items.some(it => it.paymentMode === "credit");
     const isSelected = selectedReceipts.has(g.receiptNum);
 
-    /* Item lines — name + qty + line total */
     const itemsHTML = g.items.map(it => `
       <div class="history-item-line">
         <span class="history-item-name" title="${esc(it.itemName || "Item")}">
@@ -1068,7 +1035,6 @@ export function renderHistory() {
     `;
   }).join("");
 
-  /* ---- Wire row checkboxes ---- */
   list.querySelectorAll(".history-receipt-checkbox").forEach(cb => {
     cb.addEventListener("change", () => {
       const rn = cb.dataset.receipt;
@@ -1079,7 +1045,6 @@ export function renderHistory() {
     });
   });
 
-  /* ---- Wire action buttons ---- */
   list.querySelectorAll(".sale-btn-icon[data-hact]").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1126,7 +1091,7 @@ export function printReceiptGroup(receiptNum) {
       <td>${fmtMoney(it.total, false)}</td>
     </tr>`).join("");
   printHTML(`
-    <h1>${esc(CONSTANTS.STORE_NAME.toUpperCase())}</h1>
+    <h1>${esc(getStoreDisplayName().toUpperCase())}</h1>
     <div class="meta">Receipt ${esc(g.receiptNum)} · ${esc(g.date.toLocaleString())} · Cashier: ${esc(state.currentUser?.email || "-")}</div>
     <table>
       <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>
@@ -1149,8 +1114,6 @@ window.deleteReceiptGroupFromHistory = deleteReceiptGroupFromHistory;
 /* =========================================================
    CATEGORY SUMMARIES
    ========================================================= */
-
-/* Shared renderer for the History category summary (simple look) */
 function renderCategorySummaryInto(container, list, emptyText) {
   if (!container) return;
   const map = getSalesByCategory(list);
@@ -1169,7 +1132,7 @@ function renderCategorySummaryInto(container, list, emptyText) {
 }
 
 /* =========================================================
-   SALES BY CATEGORY (POS) — modern, detailed cards
+   SALES BY CATEGORY (POS)
    ========================================================= */
 export function renderSalesCategorySummary() {
   const container = $("sales-category-summary");
@@ -1370,10 +1333,7 @@ export function renderSlowMoving() {
 }
 
 /* =========================================================
-   SPOTLIGHT CAROUSEL (legacy — kept harmless)
-   ---------------------------------------------------------
-   The dashboard no longer has a #carousel-track, so
-   renderCarousel() returns early without doing anything.
+   SPOTLIGHT CAROUSEL (legacy)
    ========================================================= */
 function buildSlides() {
   const slides = [];
@@ -1677,7 +1637,6 @@ export function initReports() {
   $("export-history-excel")?.addEventListener("click", exportHistoryToExcel);
   $("export-history-pdf")?.addEventListener("click", exportHistoryToPDF);
 
-  /* Wire bulk UI once at boot */
   wireHistoryBulkUI();
   updateHistoryBulkUI();
 }

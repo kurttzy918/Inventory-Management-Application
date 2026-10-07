@@ -26,6 +26,9 @@ export const state = {
   // e-load
   eloadTransactions: [],
 
+  // expenses
+  expenses: [],
+
   currentUser: null,
   currentUserData: null,
   isSignupMode: false,

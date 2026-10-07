@@ -8,35 +8,30 @@ import { state, CONSTANTS } from "./state.js";
 import {
   $, valOf, esc, debounce, safeRender, showToast,
   myWorkspace, playSuccessSound, playErrorSound,
-  fmtInt, fmtMoney, downloadXLSX, downloadPDF, printHTML
+  fmtInt, fmtMoney, downloadXLSX, downloadPDF, printHTML,
+  getStoreDisplayName
 } from "./utils.js";
 
 /* =========================================================
-   DEFAULT NETWORKS
+   DEFAULT NETWORKS  (serviceFee % replaces discount)
    ========================================================= */
 const DEFAULT_NETWORKS = [
-  { id: "smart",  name: "Smart",  emoji: "📶", color: "#E60000", discount: 4 },
-  { id: "globe",  name: "Globe",  emoji: "📶", color: "#0072BC", discount: 4 },
-  { id: "tm",     name: "TM",     emoji: "📶", color: "#00A651", discount: 4 },
-  { id: "tnt",    name: "TNT",    emoji: "📶", color: "#FFCC00", discount: 4 },
-  { id: "dito",   name: "DITO",   emoji: "📶", color: "#00B2E3", discount: 5 },
-  { id: "cignal", name: "Cignal", emoji: "📡", color: "#7CBE41", discount: 5 },
-  { id: "gomo",   name: "GOMO",   emoji: "📶", color: "#F5A623", discount: 4 }
+  { id: "smart",  name: "Smart",  emoji: "📶", color: "#E60000", serviceFee: 4 },
+  { id: "globe",  name: "Globe",  emoji: "📶", color: "#0072BC", serviceFee: 4 },
+  { id: "tm",     name: "TM",     emoji: "📶", color: "#00A651", serviceFee: 4 },
+  { id: "tnt",    name: "TNT",    emoji: "📶", color: "#FFCC00", serviceFee: 4 },
+  { id: "dito",   name: "DITO",   emoji: "📶", color: "#00B2E3", serviceFee: 5 },
+  { id: "cignal", name: "Cignal", emoji: "📡", color: "#7CBE41", serviceFee: 5 },
+  { id: "gomo",   name: "GOMO",   emoji: "📶", color: "#F5A623", serviceFee: 4 }
 ];
 
-/* =========================================================
-   PRESET AMOUNT DENOMINATIONS
-   ========================================================= */
 const AMOUNT_PRESETS = [10, 15, 20, 25, 30, 50, 100, 200, 300, 500];
 
-/* =========================================================
-   STORAGE KEYS
-   ========================================================= */
 const NETWORKS_KEY = (ws) => `eloadNetworks:${ws}`;
 const WALLET_KEY   = (ws) => `eloadWallet:${ws}`;
 
 /* =========================================================
-   NETWORK CONFIG
+   NETWORK CONFIG  (with backward compatibility)
    ========================================================= */
 function loadNetworks() {
   const ws = myWorkspace(); if (!ws) return DEFAULT_NETWORKS.slice();
@@ -47,7 +42,10 @@ function loadNetworks() {
     if (Array.isArray(parsed) && parsed.length) {
       return DEFAULT_NETWORKS.map(def => {
         const saved = parsed.find(p => p.id === def.id);
-        return saved ? { ...def, discount: Number(saved.discount) || def.discount } : def;
+        if (!saved) return def;
+        // Support legacy "discount" key from old installs
+        const fee = saved.serviceFee ?? saved.discount ?? def.serviceFee;
+        return { ...def, serviceFee: Number(fee) || def.serviceFee };
       });
     }
   } catch {}
@@ -58,7 +56,7 @@ function saveNetworks(networks) {
   const ws = myWorkspace(); if (!ws) return;
   try {
     localStorage.setItem(NETWORKS_KEY(ws), JSON.stringify(
-      networks.map(n => ({ id: n.id, discount: n.discount }))
+      networks.map(n => ({ id: n.id, serviceFee: n.serviceFee }))
     ));
   } catch {}
 }
@@ -82,12 +80,10 @@ function loadWallet() {
   } catch {}
   return { balance: 0, lastTopUp: 0, lastTopUpAmount: 0 };
 }
-
 function saveWallet(w) {
   const ws = myWorkspace(); if (!ws) return;
   try { localStorage.setItem(WALLET_KEY(ws), JSON.stringify(w)); } catch {}
 }
-
 function addToWallet(amount) {
   const w = loadWallet();
   w.balance += Number(amount) || 0;
@@ -96,14 +92,12 @@ function addToWallet(amount) {
   saveWallet(w);
   return w;
 }
-
 function deductFromWallet(amount) {
   const w = loadWallet();
   w.balance = Math.max(0, w.balance - (Number(amount) || 0));
   saveWallet(w);
   return w;
 }
-
 function resetWallet() {
   saveWallet({ balance: 0, lastTopUp: 0, lastTopUpAmount: 0 });
 }
@@ -111,14 +105,10 @@ function resetWallet() {
 /* =========================================================
    LOCAL STATE
    ========================================================= */
-const _sel = {
-  networkId: null,
-  amount: 0,
-  customMode: false
-};
+const _sel = { networkId: null, amount: 0, customMode: false };
 
 /* =========================================================
-   PHONE NUMBER VALIDATION
+   PHONE HELPERS
    ========================================================= */
 function normalizePhone(input) {
   let s = String(input || "").replace(/[^\d+]/g, "");
@@ -127,18 +117,14 @@ function normalizePhone(input) {
   if (/^9\d{9}$/.test(s)) s = "0" + s;
   return s.slice(0, 11);
 }
-
-function isValidPhPhone(s) {
-  return /^09\d{9}$/.test(s);
-}
-
+function isValidPhPhone(s) { return /^09\d{9}$/.test(s); }
 function prettyPhone(s) {
   if (!/^09\d{9}$/.test(s)) return s;
   return `${s.slice(0, 4)} ${s.slice(4, 7)} ${s.slice(7)}`;
 }
 
 /* =========================================================
-   COST / PROFIT COMPUTATION
+   COST / PROFIT — serviceFee replaces discount
    ========================================================= */
 function getNetwork(id) {
   return loadNetworks().find(n => n.id === id) || DEFAULT_NETWORKS[0];
@@ -147,10 +133,10 @@ function getNetwork(id) {
 function computeCostProfit(networkId, amount) {
   const net = getNetwork(networkId);
   const amt = Number(amount) || 0;
-  const discountPct = Number(net.discount) || 0;
-  const cost = Math.round(amt * (1 - discountPct / 100) * 100) / 100;
+  const feePct = Number(net.serviceFee) || 0;
+  const cost = Math.round(amt * (1 - feePct / 100) * 100) / 100;
   const profit = Math.round((amt - cost) * 100) / 100;
-  return { cost, profit, discountPct, network: net, amount: amt };
+  return { cost, profit, feePct, network: net, amount: amt };
 }
 
 /* =========================================================
@@ -159,7 +145,6 @@ function computeCostProfit(networkId, amount) {
 function renderNetworkGrid() {
   const grid = $("eload-network-grid"); if (!grid) return;
   const nets = loadNetworks();
-
   grid.innerHTML = nets.map(n => `
     <button type="button"
             class="eload-net-btn ${_sel.networkId === n.id ? "is-active" : ""}"
@@ -167,7 +152,7 @@ function renderNetworkGrid() {
             style="--net-color: ${n.color}">
       <span class="eload-net-emoji">${n.emoji}</span>
       <span class="eload-net-name">${esc(n.name)}</span>
-      <span class="eload-net-disc">${Number(n.discount).toFixed(1)}%</span>
+      <span class="eload-net-disc">${Number(n.serviceFee).toFixed(1)}%</span>
     </button>
   `).join("");
 
@@ -175,14 +160,14 @@ function renderNetworkGrid() {
     btn.addEventListener("click", () => {
       _sel.networkId = btn.dataset.net;
       renderNetworkGrid();
-      renderAmountGrid();     // refresh profit badges
+      renderAmountGrid();
       updateSellPreview();
     });
   });
 }
 
 /* =========================================================
-   RENDER — Amount Buttons (with profit badges)
+   RENDER — Amount Buttons
    ========================================================= */
 function renderAmountGrid() {
   const grid = $("eload-amount-grid"); if (!grid) return;
@@ -196,9 +181,7 @@ function renderAmountGrid() {
       profitHTML = `<span class="eload-amt-profit">+${fmtMoney(profit)}</span>`;
     }
     return `
-      <button type="button"
-              class="eload-amt-btn ${isActive ? "is-active" : ""}"
-              data-amt="${amt}">
+      <button type="button" class="eload-amt-btn ${isActive ? "is-active" : ""}" data-amt="${amt}">
         <span class="eload-amt-value">₱${fmtInt(amt)}</span>
         ${profitHTML}
       </button>
@@ -236,7 +219,7 @@ function updateSellPreview() {
     return;
   }
 
-  const { cost, profit, discountPct, network } = computeCostProfit(_sel.networkId, _sel.amount);
+  const { cost, profit, feePct, network } = computeCostProfit(_sel.networkId, _sel.amount);
   const wallet = loadWallet();
   const walletOK = wallet.balance >= cost;
   const walletAfter = Math.max(0, wallet.balance - cost);
@@ -252,8 +235,8 @@ function updateSellPreview() {
         <strong>${fmtMoney(_sel.amount)}</strong>
       </div>
       <div class="eload-preview-row">
-        <span>Discount (${discountPct}%)</span>
-        <strong class="eload-cost">− ${fmtMoney(_sel.amount - cost)}</strong>
+        <span>Service Fee (${feePct}%)</span>
+        <strong class="eload-cost">+ ${fmtMoney(_sel.amount - cost)}</strong>
       </div>
       <div class="eload-preview-divider"></div>
       <div class="eload-preview-row highlight">
@@ -304,7 +287,7 @@ function updateSellHint() {
 }
 
 /* =========================================================
-   RENDER — Network Discount Settings
+   RENDER — Service Fee Settings
    ========================================================= */
 function renderNetworkSettings() {
   const container = $("eload-network-settings"); if (!container) return;
@@ -319,10 +302,10 @@ function renderNetworkSettings() {
       <div class="eload-net-setting-input">
         <input type="number"
                min="0" max="30" step="0.1"
-               value="${Number(n.discount).toFixed(1)}"
+               value="${Number(n.serviceFee).toFixed(1)}"
                data-net-id="${n.id}"
                class="eload-net-disc-input"
-               aria-label="${esc(n.name)} discount %" />
+               aria-label="${esc(n.name)} service fee %" />
         <span class="eload-net-pct">%</span>
       </div>
     </div>
@@ -338,12 +321,12 @@ function wireNetworkSettingsSave() {
       const val = Number(inp.value);
       if (!isNaN(val) && val >= 0 && val <= 30) {
         const net = nets.find(n => n.id === id);
-        if (net) net.discount = val;
+        if (net) net.serviceFee = val;
       }
     });
     saveNetworks(nets);
     playSuccessSound();
-    showToast("Discount rates saved ✅");
+    showToast("Service fees saved ✅");
     renderNetworkGrid();
     renderAmountGrid();
     updateSellPreview();
@@ -351,21 +334,19 @@ function wireNetworkSettingsSave() {
 }
 
 /* =========================================================
-   RENDER — Wallet Displays
+   WALLET UI
    ========================================================= */
 function renderWalletUI() {
   const w = loadWallet();
   const txt = fmtMoney(w.balance);
-
   const setTxt = (id, val) => { const el = $(id); if (el) el.textContent = val; };
   setTxt("eload-wallet-balance", txt);
   setTxt("eload-wallet-display", txt);
 
   const meta = $("eload-wallet-meta");
   if (meta) {
-    if (!w.lastTopUp) {
-      meta.textContent = "No top-ups yet";
-    } else {
+    if (!w.lastTopUp) meta.textContent = "No top-ups yet";
+    else {
       const ago = Math.floor((Date.now() - w.lastTopUp) / 60000);
       const when = ago < 1 ? "just now"
                  : ago < 60 ? `${ago}m ago`
@@ -402,9 +383,7 @@ function renderEloadSummary() {
 
     totalAmount += amt; totalProfit += pf; totalCount++;
 
-    if (ms >= start && ms < end) {
-      salesToday += amt; profitToday += pf; countToday++;
-    }
+    if (ms >= start && ms < end) { salesToday += amt; profitToday += pf; countToday++; }
     if (ms >= monthStart) profitMonth += pf;
   });
 
@@ -431,29 +410,21 @@ async function handleSellLoad() {
 
   const phone = normalizePhone(valOf($("eload-phone")));
   if (!isValidPhPhone(phone)) {
-    playErrorSound();
-    showToast("Enter a valid PH number (09XXXXXXXXX) ❌");
-    return;
+    playErrorSound(); showToast("Enter a valid PH number (09XXXXXXXXX) ❌"); return;
   }
   if (!_sel.networkId || !_sel.amount) {
-    playErrorSound();
-    showToast("Select network and amount ❌");
-    return;
+    playErrorSound(); showToast("Select network and amount ❌"); return;
   }
 
-  const { cost, profit, discountPct, network } = computeCostProfit(_sel.networkId, _sel.amount);
+  const { cost, profit, feePct, network } = computeCostProfit(_sel.networkId, _sel.amount);
   const wallet = loadWallet();
   if (wallet.balance < cost) {
-    playErrorSound();
-    showToast(`Not enough wallet balance. Need ${fmtMoney(cost)} ❌`);
-    return;
+    playErrorSound(); showToast(`Not enough wallet balance. Need ${fmtMoney(cost)} ❌`); return;
   }
 
   const customerName = valOf($("eload-customer")).trim();
   const receiptNum = `LD-${Date.now().toString(36).toUpperCase().slice(-7)}`;
-
-  const btn = $("eload-sell-btn");
-  if (btn) btn.disabled = true;
+  const btn = $("eload-sell-btn"); if (btn) btn.disabled = true;
 
   try {
     await addDoc(collection(db, "eload_transactions"), {
@@ -464,28 +435,24 @@ async function handleSellLoad() {
       amount: _sel.amount,
       cost,
       profit,
-      discountPct,
+      serviceFee: feePct,
       customerName: customerName || null,
       receiptNum,
       createdAt: serverTimestamp(),
       userId: state.currentUser?.uid || null
     });
 
-    // Deduct wallet
     deductFromWallet(cost);
     renderWalletUI();
 
     playSuccessSound();
     showToast(`Sold ₱${fmtInt(_sel.amount)} ${network.name} · +${fmtMoney(profit)} ✅`);
 
-    // Print slip (auto-open print dialog optional)
     showSaleConfirmation({
-      network, phone, amount: _sel.amount, cost, profit, customerName, receiptNum, discountPct
+      network, phone, amount: _sel.amount, cost, profit, customerName, receiptNum, feePct
     });
 
-    // Reset sell form
-    _sel.amount = 0;
-    _sel.customMode = false;
+    _sel.amount = 0; _sel.customMode = false;
     if ($("eload-phone")) $("eload-phone").value = "";
     if ($("eload-customer")) $("eload-customer").value = "";
     if ($("eload-custom-amount")) $("eload-custom-amount").value = "";
@@ -493,15 +460,14 @@ async function handleSellLoad() {
     renderAmountGrid();
     updateSellPreview();
   } catch (err) {
-    playErrorSound();
-    showToast(`Failed: ${err.code || err.message} ❌`);
+    playErrorSound(); showToast(`Failed: ${err.code || err.message} ❌`);
   } finally {
     if (btn) btn.disabled = false;
   }
 }
 
 /* =========================================================
-   SALE CONFIRMATION (lightweight, inline)
+   CONFIRMATION
    ========================================================= */
 function showSaleConfirmation(data) {
   const preview = $("eload-preview");
@@ -516,25 +482,26 @@ function showSaleConfirmation(data) {
       <div class="eload-confirm-row"><span>Network</span><strong style="color:${data.network.color}">${esc(data.network.name)}</strong></div>
       <div class="eload-confirm-row"><span>Number</span><strong class="mono">${esc(prettyPhone(data.phone))}</strong></div>
       <div class="eload-confirm-row"><span>Amount</span><strong>${fmtMoney(data.amount)}</strong></div>
+      <div class="eload-confirm-row"><span>Service Fee</span><strong class="eload-ok">${data.feePct}%</strong></div>
       <div class="eload-confirm-row"><span>Profit</span><strong class="eload-ok">+${fmtMoney(data.profit)}</strong></div>
       <div class="eload-confirm-row"><span>Receipt</span><strong class="mono">${esc(data.receiptNum)}</strong></div>
       <button type="button" class="btn ghost sm eload-confirm-print" id="eload-print-slip">🖨️ Print slip</button>
     </div>
   `;
-
   $("eload-print-slip")?.addEventListener("click", () => printEloadSlipFromData(data));
 }
 
 function printEloadSlipFromData(d) {
   printHTML(`
     <h1>E-Load Slip</h1>
-    <div class="meta">${esc(CONSTANTS.STORE_NAME)} · ${new Date().toLocaleString()}</div>
+    <div class="meta">${esc(getStoreDisplayName())} · ${new Date().toLocaleString()}</div>
     <table>
       <tr><th style="width:180px">Receipt #</th><td>${esc(d.receiptNum)}</td></tr>
       <tr><th>Network</th><td>${esc(d.network.name)}</td></tr>
       <tr><th>Number</th><td>${esc(d.phone)}</td></tr>
       <tr><th>Amount</th><td><strong>${fmtMoney(d.amount)}</strong></td></tr>
       ${d.customerName ? `<tr><th>Customer</th><td>${esc(d.customerName)}</td></tr>` : ""}
+      <tr><th>Service Fee</th><td>${d.feePct}%</td></tr>
       <tr><th>Profit</th><td>${fmtMoney(d.profit)}</td></tr>
     </table>
     <p style="margin-top:18px;text-align:center;font-size:12px;color:#666;">
@@ -544,13 +511,12 @@ function printEloadSlipFromData(d) {
 }
 
 /* =========================================================
-   TRANSACTION LIST
+   LIST
    ========================================================= */
 function getFilteredTransactions() {
   const term = valOf($("eload-search")).toLowerCase().trim();
   const netFilter = valOf($("eload-filter-network"));
   const range = valOf($("eload-filter-range"));
-
   let list = state.eloadTransactions.slice();
 
   if (netFilter) list = list.filter(t => t.network === netFilter);
@@ -579,7 +545,6 @@ function getFilteredTransactions() {
 function renderEloadList() {
   const list = $("eload-list"); if (!list) return;
 
-  // Populate network filter
   const filterSel = $("eload-filter-network");
   if (filterSel) {
     const nets = new Set();
@@ -596,12 +561,8 @@ function renderEloadList() {
   }
 
   const filtered = getFilteredTransactions();
-
   if (!filtered.length) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <p>📱 No E-Load transactions yet — sell your first load above.</p>
-      </div>`;
+    list.innerHTML = `<div class="empty-state"><p>📱 No E-Load transactions yet — sell your first load above.</p></div>`;
     return;
   }
 
@@ -610,12 +571,9 @@ function renderEloadList() {
     const net = loadNetworks().find(n => n.id === t.networkId || n.name === t.network);
     const color = net?.color || "var(--brand)";
     const initial = (t.network || "?").charAt(0).toUpperCase();
-
     return `
       <div class="eload-row">
-        <div class="eload-row-icon" style="background:${color}">
-          ${esc(initial)}
-        </div>
+        <div class="eload-row-icon" style="background:${color}">${esc(initial)}</div>
         <div class="eload-row-main">
           <div class="eload-row-title">
             <strong>${esc(t.network || "Load")}</strong>
@@ -623,8 +581,7 @@ function renderEloadList() {
             ${t.customerName ? `<span class="eload-row-cust">· ${esc(t.customerName)}</span>` : ""}
           </div>
           <div class="eload-row-meta">
-            ${esc(date)}
-            ${t.receiptNum ? ` · ${esc(t.receiptNum)}` : ""}
+            ${esc(date)}${t.receiptNum ? ` · ${esc(t.receiptNum)}` : ""}
           </div>
         </div>
         <div class="eload-row-amounts">
@@ -656,16 +613,16 @@ export function renderEloadPage() {
 export function printEload(id) {
   const t = state.eloadTransactions.find(x => x.id === id);
   if (!t) { showToast("Transaction not found ❌"); return; }
-  const net = loadNetworks().find(n => n.id === t.networkId || n.name === t.network);
   printHTML(`
     <h1>E-Load Slip</h1>
-    <div class="meta">${esc(CONSTANTS.STORE_NAME)} · ${new Date().toLocaleString()}</div>
+    <div class="meta">${esc(getStoreDisplayName())} · ${new Date().toLocaleString()}</div>
     <table>
       <tr><th style="width:180px">Receipt #</th><td>${esc(t.receiptNum || "—")}</td></tr>
       <tr><th>Network</th><td>${esc(t.network || "—")}</td></tr>
       <tr><th>Number</th><td>${esc(t.phone || "—")}</td></tr>
       <tr><th>Amount</th><td><strong>${fmtMoney(t.amount)}</strong></td></tr>
       ${t.customerName ? `<tr><th>Customer</th><td>${esc(t.customerName)}</td></tr>` : ""}
+      <tr><th>Service Fee</th><td>${t.serviceFee || 0}%</td></tr>
       <tr><th>Cost</th><td>${fmtMoney(t.cost)}</td></tr>
       <tr><th>Profit</th><td>${fmtMoney(t.profit)}</td></tr>
       <tr><th>Date</th><td>${esc(t.createdAt?.toDate?.().toLocaleString() || "—")}</td></tr>
@@ -681,8 +638,7 @@ export async function deleteEload(id) {
   if (!confirm(msg)) return;
   try {
     await deleteDoc(doc(db, "eload_transactions", id));
-    playSuccessSound();
-    showToast("Transaction deleted 🗑️");
+    playSuccessSound(); showToast("Transaction deleted 🗑️");
   } catch (err) { showToast(`Failed: ${err.code || err.message} ❌`); }
 }
 window.deleteEload = deleteEload;
@@ -701,7 +657,8 @@ export function exportEloadExcel() {
     Customer: t.customerName || "",
     "Amount (₱)": Number((Number(t.amount) || 0).toFixed(2)),
     "Cost (₱)":   Number((Number(t.cost) || 0).toFixed(2)),
-    "Profit (₱)": Number((Number(t.profit) || 0).toFixed(2))
+    "Profit (₱)": Number((Number(t.profit) || 0).toFixed(2)),
+    "Service Fee (%)": Number(t.serviceFee || 0)
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -741,10 +698,7 @@ export function exportEloadPDF() {
    ========================================================= */
 function promptWalletTopUp() {
   const cur = loadWallet();
-  const val = prompt(
-    `Top up your load wallet.\n\nCurrent balance: ${fmtMoney(cur.balance)}\n\nAmount to add (₱):`,
-    "500"
-  );
+  const val = prompt(`Top up your load wallet.\n\nCurrent balance: ${fmtMoney(cur.balance)}\n\nAmount to add (₱):`, "500");
   if (val === null) return;
   const n = Number(val);
   if (isNaN(n) || n <= 0) { showToast("Invalid amount ❌"); return; }
@@ -757,24 +711,19 @@ function promptWalletTopUp() {
 
 function promptWalletSet() {
   const cur = loadWallet();
-  const val = prompt(
-    `Set your load wallet to an exact amount.\n\nCurrent: ${fmtMoney(cur.balance)}\n\nNew balance (₱):`,
-    String(cur.balance.toFixed(2))
-  );
+  const val = prompt(`Set your load wallet to an exact amount.\n\nCurrent: ${fmtMoney(cur.balance)}\n\nNew balance (₱):`, String(cur.balance.toFixed(2)));
   if (val === null) return;
   const n = Number(val);
   if (isNaN(n) || n < 0) { showToast("Invalid amount ❌"); return; }
   saveWallet({ balance: n, lastTopUp: Date.now(), lastTopUpAmount: n });
-  renderWalletUI();
-  renderEloadSummary();
+  renderWalletUI(); renderEloadSummary();
   showToast(`Wallet set to ${fmtMoney(n)} ✅`);
 }
 
 function promptWalletReset() {
   if (!confirm("Reset the load wallet to ₱0.00?\n\nThis does NOT delete past transactions.")) return;
   resetWallet();
-  renderWalletUI();
-  renderEloadSummary();
+  renderWalletUI(); renderEloadSummary();
   showToast("Wallet reset ✅");
 }
 
@@ -782,7 +731,6 @@ function promptWalletReset() {
    INIT + LISTENERS
    ========================================================= */
 export function initEload() {
-  // Default network
   if (!_sel.networkId) _sel.networkId = DEFAULT_NETWORKS[0].id;
 
   renderNetworkGrid();
@@ -791,7 +739,6 @@ export function initEload() {
   renderWalletUI();
   wireNetworkSettingsSave();
 
-  // Custom amount toggle
   $("eload-custom-toggle")?.addEventListener("click", () => {
     _sel.customMode = !_sel.customMode;
     const row = $("eload-custom-row");
@@ -803,12 +750,11 @@ export function initEload() {
       updateSellPreview();
     } else {
       row?.classList.add("hidden");
-      $("eload-custom-amount") && ($("eload-custom-amount").value = "");
+      if ($("eload-custom-amount")) $("eload-custom-amount").value = "";
       updateSellPreview();
     }
   });
 
-  // Custom amount input
   $("eload-custom-amount")?.addEventListener("input", (e) => {
     const n = Number(e.target.value);
     _sel.amount = isNaN(n) || n < 0 ? 0 : n;
@@ -816,28 +762,23 @@ export function initEload() {
     updateSellPreview();
   });
 
-  // Phone input
   $("eload-phone")?.addEventListener("input", (e) => {
     const formatted = normalizePhone(e.target.value);
     if (e.target.value !== formatted) e.target.value = formatted;
     updateSellPreview();
   });
 
-  // Sell
   $("eload-sell-btn")?.addEventListener("click", handleSellLoad);
 
-  // Wallet actions
   $("eload-wallet-topup")?.addEventListener("click", promptWalletTopUp);
   $("eload-wallet-topup-2")?.addEventListener("click", promptWalletTopUp);
   $("eload-wallet-set")?.addEventListener("click", promptWalletSet);
   $("eload-wallet-reset")?.addEventListener("click", promptWalletReset);
 
-  // Filters
   $("eload-search")?.addEventListener("input", debounce(renderEloadList, 150));
   $("eload-filter-network")?.addEventListener("change", renderEloadList);
   $("eload-filter-range")?.addEventListener("change", renderEloadList);
 
-  // Exports
   $("eload-export-excel")?.addEventListener("click", exportEloadExcel);
   $("eload-export-pdf")?.addEventListener("click", exportEloadPDF);
 }

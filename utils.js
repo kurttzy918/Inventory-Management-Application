@@ -358,3 +358,49 @@ export function promptStoreRename() {
     showToast(`Store name set to "${clean}" ✅`);
   }
 }
+/* =========================================================
+   EXPENSE HELPERS — for net profit calculation
+   ========================================================= */
+
+/* Sum expenses, optionally filtered by a time window.
+   opts.since → ms (inclusive), opts.until → ms (exclusive) */
+export function getTotalExpenses(opts = {}) {
+  const { since, until } = opts;
+  let total = 0;
+  (state.expenses || []).forEach(e => {
+    const amt = Number(e.amount) || 0;
+    if (since || until) {
+      const ms = e.date
+        ? new Date(e.date + "T00:00:00").getTime()
+        : (e.createdAt?.toMillis?.() ?? 0);
+      if (since != null && ms < since) return;
+      if (until != null && ms >= until) return;
+    }
+    total += amt;
+  });
+  return roundMoney(total);
+}
+
+/* Gross profit = sum of sales.profit (before expenses) */
+export function getGrossProfit() {
+  return roundMoney(
+    (state.sales || []).reduce((s, x) => s + (Number(x.profit) || 0), 0)
+  );
+}
+
+/* Net profit = gross profit − all-time expenses */
+export function getNetProfit() {
+  return roundMoney(getGrossProfit() - getTotalExpenses());
+}
+
+/* Expenses for the current calendar month */
+export function getMonthExpenses() {
+  const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0);
+  return getTotalExpenses({ since: d.getTime() });
+}
+
+/* Same window helper for today */
+export function getTodayExpenses() {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  return getTotalExpenses({ since: d.getTime(), until: d.getTime() + 86400000 });
+}
